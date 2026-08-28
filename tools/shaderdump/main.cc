@@ -73,6 +73,37 @@ base::String BaseName(const base::String& path) {
   return base::String(path.c_str() + start);
 }
 
+// A shader's name is 256 bytes the package chose, and --out turns it into a
+// path. Left alone, a name of "../../.bashrc" walks out of the output directory
+// and an absolute one replaces it outright, because `dir / name` on an absolute
+// path discards `dir`. Since a .sdp can come from a mod, that is a file write
+// wherever the user can write.
+//
+// So the name is not used as a path at all: everything outside a small safe
+// alphabet becomes '_', which leaves no separators, no drive letter and no way
+// to spell a parent directory. The result is a label on a filename this tool
+// builds, never a path from the file.
+base::String SafeFileName(const base::String& raw) {
+  base::String out;
+  for (char c : raw) {
+    const bool safe = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                      (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_';
+    // A run of unsafe bytes collapses to one '_' so "../../x" cannot become a
+    // name that is mostly underscores, and a leading dot cannot start it (which
+    // would hide the file, and lets ".." through as "..").
+    if (safe && !(c == '.' && out.empty()))
+      out.push_back(c);
+    else if (!out.empty() && out[out.size() - 1] != '_')
+      out.push_back('_');
+  }
+  // Trailing dots and spaces are not legal filename endings on Windows.
+  while (!out.empty() && (out[out.size() - 1] == '.' || out[out.size() - 1] == '_'))
+    out.pop_back();
+  if (out.size() > 96)
+    out = base::String(out.c_str(), 96);
+  return out.empty() ? base::String("shader") : out;
+}
+
 void PrintSummary(const base::String& path, const bethesda::ShaderPackage& package) {
   u32 by_stage[7] = {};
   for (const bethesda::PackagedShader& s : package.shaders)
@@ -139,33 +170,52 @@ struct BitEffect {
 void PrintTechniqueBits(const bethesda::ShaderPackage& package,
                         u32 group,
                         bethesda::ShaderStage stage) {
-  base::UnorderedMap<u32, bethesda::ShaderReflection> by_technique;
+  // A technique id repeats within a stage: the same technique is compiled once
+  // per vertex layout. Keyed by technique alone, only the first survives and the
+  // bit cost is then a difference between two shaders that draw different
+  // geometry. Keep every variant, and only ever compare two that share a layout.
+  struct Variant {
+    rx::u64 vertex_desc = 0;
+    bethesda::ShaderReflection reflection;
+  };
+  base::UnorderedMap<u32, base::Vector<Variant>> by_technique;
   for (const bethesda::PackagedShader& s : package.shaders) {
     if (s.group != group || s.stage != stage)
       continue;
     const bethesda::ShaderReflection r = bethesda::ReflectShader(s.bytecode);
     if (r.valid)
-      by_technique.emplace(s.technique_id, r);
+      by_technique[s.technique_id].push_back({s.vertex_desc, r});
   }
   if (by_technique.empty())
     return;
 
   BitEffect effects[32];
-  for (const auto& [technique, off] : by_technique) {
+  for (const auto& [technique, off_variants] : by_technique) {
     for (u32 bit = 0; bit < 32; ++bit) {
       if ((technique >> bit) & 1)
         continue;
-      const bethesda::ShaderReflection* on = by_technique.find(technique | (1u << bit));
-      if (!on)
+      const base::Vector<Variant>* on_variants = by_technique.find(technique | (1u << bit));
+      if (!on_variants)
         continue;
-      BitEffect& e = effects[bit];
-      ++e.pairs;
-      e.textures += static_cast<i32>(on->textures) - static_cast<i32>(off.textures);
-      e.samplers += static_cast<i32>(on->samplers) - static_cast<i32>(off.samplers);
-      e.vectors += static_cast<i32>(on->constant_buffer_vectors) -
-                   static_cast<i32>(off.constant_buffer_vectors);
-      e.instructions +=
-          static_cast<i32>(on->instructions) - static_cast<i32>(off.instructions);
+      for (const Variant& off : off_variants) {
+        const bethesda::ShaderReflection* on = nullptr;
+        for (const Variant& candidate : *on_variants) {
+          if (candidate.vertex_desc == off.vertex_desc) {
+            on = &candidate.reflection;
+            break;
+          }
+        }
+        if (!on)
+          continue;
+        BitEffect& e = effects[bit];
+        ++e.pairs;
+        e.textures += static_cast<i32>(on->textures) - static_cast<i32>(off.reflection.textures);
+        e.samplers += static_cast<i32>(on->samplers) - static_cast<i32>(off.reflection.samplers);
+        e.vectors += static_cast<i32>(on->constant_buffer_vectors) -
+                     static_cast<i32>(off.reflection.constant_buffer_vectors);
+        e.instructions += static_cast<i32>(on->instructions) -
+                          static_cast<i32>(off.reflection.instructions);
+      }
     }
   }
 
@@ -289,23 +339,28 @@ bool WritePackage(const base::String& out_dir,
   }
   std::fprintf(manifest, "file\tgroup\tstage\ttechnique\tbytes\tvertex_desc\tdescriptor\n");
 
-  char name[256];
-  u32 written = 0;
+  char name[320];
+  u32 written = 0, failed = 0;
   for (size_t i = 0; i < package.shaders.size(); ++i) {
     const bethesda::PackagedShader& s = package.shaders[i];
     const char* stage = bethesda::ShaderStageName(s.stage);
-    // .sdp shaders are named; .fxp ones are identified by group + technique,
-    // with the index appended because a group can repeat a technique id per
-    // stage.
-    if (!s.name.empty())
-      std::snprintf(name, sizeof(name), "%s", s.name.c_str());
-    else
+    // .sdp shaders are named; .fxp ones are identified by group + technique.
+    // Either way the index goes in the filename: a group repeats a technique id
+    // per stage, and a shipped .sdp repeats a shader name, so without it later
+    // records silently overwrite earlier ones while the manifest claims both.
+    if (!s.name.empty()) {
+      const base::String safe = SafeFileName(s.name);
+      std::snprintf(name, sizeof(name), "%zu_%s.dxbc", i, safe.c_str());
+    } else {
       std::snprintf(name, sizeof(name), "g%03u_%s_%08x_%zu.dxbc", s.group, stage, s.technique_id,
                     i);
+    }
 
     std::FILE* f = std::fopen((dir / name).string().c_str(), "wb");
-    if (!f)
+    if (!f) {
+      ++failed;
       continue;
+    }
     if (s.bytecode.size() != 0)
       std::fwrite(s.bytecode.data(), 1, s.bytecode.size(), f);
     std::fclose(f);
@@ -319,8 +374,11 @@ bool WritePackage(const base::String& out_dir,
     std::fprintf(manifest, "\n");
   }
   std::fclose(manifest);
+  if (failed != 0)
+    std::printf("  %u shaders could not be opened for writing in %s\n", failed,
+                dir.string().c_str());
   std::printf("  wrote %u shaders to %s\n", written, dir.string().c_str());
-  return true;
+  return failed == 0;
 }
 
 }  // namespace
@@ -397,6 +455,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  bool write_failed = false;
   for (size_t i = 0; i < archived.size() + loose.size(); ++i) {
     const bool from_archive = i < archived.size();
     const base::String& path = from_archive ? archived[i] : loose[i - archived.size()];
@@ -416,8 +475,15 @@ int main(int argc, char** argv) {
     if (options.group >= 0) {
       const u32 group = static_cast<u32>(options.group);
       if (options.techniques) {
-        PrintTechniqueBits(package, group, bethesda::ShaderStage::kVertex);
-        PrintTechniqueBits(package, group, bethesda::ShaderStage::kPixel);
+        // Every stage the package can hold, not just the two Skyrim's lighting
+        // groups use: Fallout 4 puts hull and domain shaders in its groups, and
+        // both games have compute groups. Hard-coding vs/ps made --techniques
+        // print nothing at all for those, which reads as "no technique bits".
+        for (bethesda::ShaderStage stage :
+             {bethesda::ShaderStage::kVertex, bethesda::ShaderStage::kPixel,
+              bethesda::ShaderStage::kGeometry, bethesda::ShaderStage::kHull,
+              bethesda::ShaderStage::kDomain, bethesda::ShaderStage::kCompute})
+          PrintTechniqueBits(package, group, stage);
       } else {
         std::printf("%s group %u:\n", path.c_str(), group);
         PrintGroup(package, group, options.limit);
@@ -435,8 +501,10 @@ int main(int argc, char** argv) {
     }
 
     PrintSummary(path, package);
-    if (!options.out_dir.empty())
-      WritePackage(options.out_dir, BaseName(path), package);
+    // A dump that wrote nothing has to say so in its exit status, or a script
+    // driving this reports success over an empty directory.
+    if (!options.out_dir.empty() && !WritePackage(options.out_dir, BaseName(path), package))
+      write_failed = true;
   }
-  return 0;
+  return write_failed ? 1 : 0;
 }
