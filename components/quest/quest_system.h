@@ -48,6 +48,12 @@ struct QuestStatus {
   bool active = true;     // shows in the journal / HUD when running
   bool complete = false;  // reached a stage flagged "complete quest"
   i32 stage = 0;
+  // Whether `stage` is a stage the quest actually reached. A savegame writes a
+  // change form for any quest it touched, including ones that only had an alias
+  // filled, and those carry no stages at all; marking stage 0 done for them
+  // makes never-run quests read as started (and as complete, when stage 0 is a
+  // completing stage). Replication always has a real stage, so it defaults true.
+  bool stage_recorded = true;
   base::String log_entry;  // journal text of the most recently set stage
   u32 revision = 0;        // bumps on every mutation; lets the net layer delta
   base::Vector<ObjectiveStatus> objectives;

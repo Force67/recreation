@@ -87,7 +87,7 @@ void ApplyQuest(const ChangeForm& form,
   }
   sink.SetQuestState(id, done.empty() ? 0 : done.back(),
                      (quest.quest_flags & kQuestFlagStarted) != 0,
-                     (quest.quest_flags & kQuestFlagCompleted) != 0);
+                     (quest.quest_flags & kQuestFlagCompleted) != 0, !done.empty());
 
   for (const QuestObjectiveState& objective : quest.objectives) {
     sink.SetQuestObjective(id, static_cast<i32>(objective.index),
@@ -337,6 +337,14 @@ void ApplyReference(const ChangeForm& form,
   if (!ref.spells.empty())
     ++stats->actors_with_spells;
 
+  // An emptied container carries the flag and nothing else, so it has to be
+  // handled outside the inventory block below, which only runs for a reference
+  // that wrote stacks.
+  if (ref.emptied) {
+    sink.SetContainerEmptied(id);
+    ++stats->containers_emptied;
+  }
+
   if (!ref.inventory.empty() && !ref.inventory_complete)
     ++stats->inventories_incomplete;
   if (!ref.inventory.empty() && ref.inventory_complete) {
@@ -384,12 +392,19 @@ void ApplyReference(const ChangeForm& form,
   }
 
   if (ref.has_form_flags) {
-    const bool enabled = (ref.form_flags & kFormFlagInitiallyDisabled) == 0;
-    sink.SetReferenceEnabled(id, enabled);
-    if (enabled)
-      ++stats->references_enabled;
-    else
-      ++stats->references_disabled;
+    // Deleted outranks enabled: the flag means the reference is gone, and its
+    // disabled bit is usually clear, so reading only `enabled` would put it back.
+    if ((ref.form_flags & kFormFlagDeleted) != 0) {
+      sink.SetReferenceDeleted(id);
+      ++stats->references_deleted;
+    } else {
+      const bool enabled = (ref.form_flags & kFormFlagInitiallyDisabled) == 0;
+      sink.SetReferenceEnabled(id, enabled);
+      if (enabled)
+        ++stats->references_enabled;
+      else
+        ++stats->references_disabled;
+    }
   }
 }
 

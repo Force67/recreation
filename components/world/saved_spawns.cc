@@ -7,10 +7,22 @@
 namespace rx::world {
 namespace {
 
+// Positions come out of a savegame, so they can be NaN or wildly out of range.
+// Casting either of those to i16 is undefined, and a sanitizer build traps on
+// it; clamp into the grid instead so a bad coordinate misplaces one reference
+// rather than taking the process down.
+i16 CellIndexOf(f32 coord, f32 cell_size) {
+  if (!std::isfinite(coord) || cell_size <= 0.0f)
+    return 0;
+  const f32 cell = std::floor(coord / cell_size);
+  if (!std::isfinite(cell))
+    return 0;
+  constexpr f32 kMin = -32768.0f, kMax = 32767.0f;
+  return static_cast<i16>(cell < kMin ? kMin : (cell > kMax ? kMax : cell));
+}
+
 u32 GridKeyFor(f32 x, f32 y, f32 cell_size) {
-  const i16 cell_x = static_cast<i16>(std::floor(x / cell_size));
-  const i16 cell_y = static_cast<i16>(std::floor(y / cell_size));
-  return bethesda::RecordStore::GridKey(cell_x, cell_y);
+  return bethesda::RecordStore::GridKey(CellIndexOf(x, cell_size), CellIndexOf(y, cell_size));
 }
 
 }  // namespace

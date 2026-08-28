@@ -323,14 +323,15 @@ void TestRestore() {
               vm.ArrayGet(a, 2).as_int() == 33);
   }
   Check("two instances restored", restorer.restored_instances() == 2);
-  // Ten of the eleven, and the eleventh is right to be skipped: its name index
-  // points at the string table's empty first entry, and a member with no name
-  // cannot be matched against a script's declarations. Worth stating because
-  // `unnamed_variables` above reads 0 for it: that counter means "index out of
-  // range", which index 0 is not. Two different senses of unnamed, and the
-  // restorer honours the wider one.
-  Check("ten members restored, the nameless one skipped",
-        restorer.restored_members() == 10);
+  // All eleven: the door's five and the alias script's inherited five plus its
+  // own Rooms, every one of them a member its script declares.
+  //
+  // This read 10 until the flattener stopped feeding push_back an element of the
+  // vector it was pushing into. Growing frees the old block before constructing
+  // from that reference, so the inherited ::Name_var came back as a fragment of
+  // a freed heap pointer, landed out of range of the string table, and was
+  // dropped as nameless. The count was the corruption, not a rule.
+  Check("all eleven members restored", restorer.restored_members() == 11);
 }
 
 // A member the save has and the script here does not is counted and dropped,

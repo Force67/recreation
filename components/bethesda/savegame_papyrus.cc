@@ -326,7 +326,12 @@ bool ReadPapyrusHeap(ByteSpan table, const base::Vector<u32>& form_ids, PapyrusH
   // Flattens a script's member names, parent chain first. Memoized into `flat`
   // because the chains are shared and there are six figures of instances.
   base::Vector<u32> flat;
-  auto flatten = [&](u32 script_index, auto&& self) -> void {
+  // The parent chain is file-supplied and only bounded by the script count, so
+  // the recursion needs its own limit: a save naming a hundred thousand scripts
+  // in a chain would otherwise run the stack out. Real chains are a handful of
+  // links deep (ObjectReference -> Form -> ...).
+  constexpr u32 kMaxScriptChain = 256;
+  auto flatten = [&](u32 script_index, u32 depth, auto&& self) -> void {
     ScriptDef& def = defs[script_index];
     if (def.flattened)
       return;
@@ -336,14 +341,20 @@ bool ReadPapyrusHeap(ByteSpan table, const base::Vector<u32>& form_ids, PapyrusH
                                   ? script_by_name.find(Lower(heap.strings[parent]))
                                   : nullptr;
     def.first_flat = static_cast<u32>(flat.size());
-    if (parent_index != nullptr && *parent_index != script_index) {
-      self(*parent_index, self);
+    if (parent_index != nullptr && *parent_index != script_index &&
+        depth < kMaxScriptChain) {
+      self(*parent_index, depth + 1, self);
       const ScriptDef& up = defs[*parent_index];
       // Re-read: flattening the parent may have grown `flat` and moved `def`.
       ScriptDef& mine = defs[script_index];
       mine.first_flat = static_cast<u32>(flat.size());
-      for (u32 i = 0; i < up.flat_count; ++i)
-        flat.push_back(flat[up.first_flat + i]);
+      // Copy out before pushing: push_back takes a reference, and a growth frees
+      // the old block before it constructs from that reference, so feeding it an
+      // element of the same vector is a use-after-free.
+      for (u32 i = 0; i < up.flat_count; ++i) {
+        const u32 inherited = flat[up.first_flat + i];
+        flat.push_back(inherited);
+      }
     }
     ScriptDef& mine = defs[script_index];
     for (u32 i = 0; i < mine.member_count; ++i)
@@ -371,7 +382,7 @@ bool ReadPapyrusHeap(ByteSpan table, const base::Vector<u32>& form_ids, PapyrusH
                                   : nullptr;
     const u32* names = nullptr;
     if (script_index != nullptr) {
-      flatten(*script_index, flatten);
+      flatten(*script_index, 0, flatten);
       const ScriptDef& def = defs[*script_index];
       if (def.flat_count == block.count)
         names = flat.data() + def.first_flat;

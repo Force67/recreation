@@ -86,6 +86,15 @@ base::String VirtualMachine::AddScript(PexFile pex) {
   ls->object = &ls->pex.objects[0];
   base::String key = Lower(ls->name);
   base::String name = ls->name;
+  // Never replace a script that is already loaded. A Frame holds references
+  // straight into the PexFile for the whole activation, and a parked fiber
+  // (Utility.Wait) keeps them across many frames, so freeing the old
+  // LoadedScript here would pull the bytecode out from under a running call.
+  // Re-registration is reachable: EnsureScriptLoaded guards on the file name
+  // while this keys on the pex's declared object name, so a .pex whose object
+  // differs from its filename arrives again on every attachment.
+  if (scripts_.count(key) != 0)
+    return name;
   scripts_[key] = base::move(ls);
   return name;
 }
@@ -457,7 +466,10 @@ bool VirtualMachine::SetDeclaredMember(ObjectRef self, const base::String& name,
   const base::String want = Lower(name);
   for (auto entry : inst->members) {
     if (Lower(entry.key) == want) {
-      inst->members[entry.key] = base::move(value);
+      // Assign through the iterator, not operator[]: entry.key references the
+      // map's own slot, and operator[] may rehash first, destroying that key
+      // before it hashes it. The entry is already the one we want anyway.
+      entry.value = base::move(value);
       return true;
     }
   }

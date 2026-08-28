@@ -74,6 +74,10 @@ constexpr u64 kMaxBodySize = 512ull * 1024 * 1024;
 // DEFLATE cannot expand better than 1032:1, so a ChangeForm claiming more than
 // that out of its compressed bytes is lying about one of its two lengths.
 constexpr u64 kMaxInflateRatio = 1032;
+// The per-record ratio bound says nothing about the total: a body packed with
+// small records that each inflate 1032x still adds up to hundreds of gigabytes.
+// Cap what all of them together may allocate.
+constexpr u64 kMaxChangeFormBytes = 1024ull * 1024 * 1024;
 // Keeps the screenshot dimensions from overflowing their own product. No save
 // stores a thumbnail anywhere near this.
 constexpr u64 kMaxScreenshotEdge = 1u << 16;
@@ -616,6 +620,9 @@ bool ReadChangeForms(ByteSpan body,
     return false;
   out->reserve(count);
 
+  // Running total of what the records have been allowed to allocate, so no
+  // arrangement of individually-legal records can add up to an OOM.
+  u64 allocated = 0;
   for (u32 i = 0; i < count; ++i) {
     const RefId ref = r.ReadRefId();
     const u32 flags = r.U32();
@@ -655,6 +662,9 @@ bool ReadChangeForms(ByteSpan body,
     // and inflates to length2. Skyrim SE does this per record even though the
     // whole body around it is LZ4.
     if (length2 == 0) {
+      allocated += length1;
+      if (allocated > kMaxChangeFormBytes)
+        return false;
       form.data.resize(length1);
       if (length1 != 0)
         std::memcpy(form.data.data(), payload.data(), length1);
@@ -663,6 +673,9 @@ bool ReadChangeForms(ByteSpan body,
     // The ratio bound alone still lets a 30 MB record claim it inflates to 4 GB,
     // so cap it at the body it came out of as well.
     if (length2 > kMaxInflateRatio * length1 || length2 > body.size())
+      return false;
+    allocated += length2;
+    if (allocated > kMaxChangeFormBytes)
       return false;
     form.data.resize(length2);
     if (!ZlibInflate(payload, form.data.data(), length2))

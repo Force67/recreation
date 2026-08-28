@@ -653,13 +653,26 @@ bool SameRef(ChangeRef a, ChangeRef b) {
 // The pair of arrays at `at`: the ranked one, then a shorter bare one whose
 // entries are all in it. Only the ranked one is kept; the second exists to be
 // checked against, see FindActorPerks.
-bool ReadPerkArrays(ByteSpan block, mem_size at, base::Vector<ActorPerk>& out) {
+// The perk and spell scans try every byte offset of an actor block, and a
+// failing attempt costs as much as a succeeding one. On a real save almost
+// every offset is rejected in the first few bytes, but a crafted block can make
+// thousands of them parse thousands of entries each, turning the load into
+// minutes of work. `budget` is the shared ceiling on entries examined across a
+// whole scan; running it out abandons the search, which yields nothing rather
+// than a wrong answer.
+constexpr u64 kActorScanBudget = 4ull * 1000 * 1000;
+
+bool ReadPerkArrays(ByteSpan block, mem_size at, u64& budget, base::Vector<ActorPerk>& out) {
   Cursor c(ByteSpan(block.data() + at, block.size() - at));
   base::Vector<ActorPerk> ranked;
   if (!ReadPerkArray(c, 4, kMaxActorPerks, ranked))
     return false;
   base::Vector<ActorPerk> bare;
   if (!ReadPerkArray(c, 3, static_cast<u32>(ranked.size()), bare))
+    return false;
+  const u64 cost = static_cast<u64>(bare.size()) * ranked.size() + ranked.size();
+  budget = cost >= budget ? 0 : budget - cost;
+  if (budget == 0)
     return false;
   for (const ActorPerk& entry : bare) {
     bool listed = false;
@@ -688,9 +701,10 @@ bool ReadPerkArrays(ByteSpan block, mem_size at, base::Vector<ActorPerk>& out) {
 // so a guess is never reported as a perk.
 void FindActorPerks(ByteSpan block, base::Vector<ActorPerk>& out) {
   bool ambiguous = false;
-  for (mem_size i = 0; i + 5 <= block.size(); ++i) {
+  u64 budget = kActorScanBudget;
+  for (mem_size i = 0; i + 5 <= block.size() && budget != 0; ++i) {
     base::Vector<ActorPerk> perks;
-    if (!ReadPerkArrays(block, i, perks))
+    if (!ReadPerkArrays(block, i, budget, perks))
       continue;
     if (!out.empty()) {
       ambiguous = true;
@@ -747,10 +761,12 @@ bool ReadSpellArray(ByteSpan block, mem_size at, base::Vector<ChangeRef>& out) {
 // spells than that yields nothing, which is the honest answer here.
 void FindActorSpells(ByteSpan block, base::Vector<ChangeRef>& out) {
   bool ambiguous = false;
-  for (mem_size i = 0; i + 4 <= block.size(); ++i) {
+  u64 budget = kActorScanBudget;
+  for (mem_size i = 0; i + 4 <= block.size() && budget != 0; ++i) {
     base::Vector<ChangeRef> spells;
     if (!ReadSpellArray(block, i, spells))
       continue;
+    budget = spells.size() >= budget ? 0 : budget - spells.size();
     if (!out.empty()) {
       ambiguous = true;
       break;

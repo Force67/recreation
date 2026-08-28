@@ -571,6 +571,8 @@ void AiPackageDirector::DriveTravel(f32 dt) {
 }
 
 void AiPackageDirector::CaptureRiders(Tow& tow, const Vec3& ride_pos, f32 ride_yaw) {
+  if (!actors_)
+    return;  // the player branch below already checks; the cast loop needs it too
   for (const Slot& slot : slots_) {
     if (slot.actor == tow.parent)
       continue;
@@ -658,7 +660,50 @@ void AiPackageDirector::DriveTows() {
   }
 }
 
+// How far a rider may be found from its ride before the director accepts that
+// it is no longer aboard. Generous next to kSeatReach, because a seated clip can
+// carry a body a fair way off the vehicle origin; a quest teleport moves it much
+// further than this.
+constexpr f32 kRiderLostDistance = 12.0f;
+
+void AiPackageDirector::ReleaseFinishedRiders() {
+  for (int i = static_cast<int>(riders_.size()) - 1; i >= 0; --i) {
+    const Rider& rider = riders_[i];
+    const ecs::Entity ride_entity = ctx_.quest_world->Find(rider.ride);
+    const world::Transform* ride = ctx_.world->Get<world::Transform>(ride_entity);
+    if (!ride) {
+      // The vehicle streamed out or was destroyed; there is nothing to sit on.
+      riders_.erase(riders_.begin() + i);
+      continue;
+    }
+    const Vec3 ride_pos{ride->position[0], ride->position[1], ride->position[2]};
+    Vec3 pos;
+    bool have_pos = false;
+    if (rider.actor == kPlayerRider) {
+      have_pos = actors_ && actors_->PlayerWorldPos(&pos);
+    } else {
+      const ecs::Entity actor_entity = ctx_.quest_world->Find(rider.actor);
+      if (const world::Transform* t = ctx_.world->Get<world::Transform>(actor_entity)) {
+        pos = Vec3{t->position[0], t->position[1], t->position[2]};
+        have_pos = true;
+      }
+    }
+    if (!have_pos) {
+      riders_.erase(riders_.begin() + i);
+      continue;
+    }
+    if (Length(pos - ride_pos) > kRiderLostDistance) {
+      if (rider.actor == kPlayerRider) {
+        actors_->UnseatPlayer();
+        RX_INFO("packages: the player leaves 0x{:x}", rider.ride);
+      }
+      riders_.erase(riders_.begin() + i);
+    }
+  }
+}
+
 void AiPackageDirector::SeatRiders() {
+  ReleaseFinishedRiders();
   for (Rider& rider : riders_) {
     const ecs::Entity ride_entity = ctx_.quest_world->Find(rider.ride);
     const world::Transform* ride = ctx_.world->Get<world::Transform>(ride_entity);

@@ -251,7 +251,8 @@ void QuestSystem::ApplyStatus(const QuestStatus& status) {
   q.active = status.active;
   q.stage = status.stage;
   q.complete_override = status.complete;
-  q.stage_done[status.stage] = true;
+  if (status.stage_recorded)
+    q.stage_done[status.stage] = true;
   for (const ObjectiveStatus& os : status.objectives) {
     q.objective_displayed[os.index] = os.displayed;
     q.objective_completed[os.index] = os.completed;

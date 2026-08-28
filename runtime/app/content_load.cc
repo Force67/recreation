@@ -966,7 +966,7 @@ void MountArchives(Engine& engine) {
 }
 
 bool Engine::LoadGltfScene() {
-  asset::GltfScene scene;
+  asset::ImportedScene scene;
   if (!asset::LoadGltfScene(config_.gltf_path.c_str(), &scene))
     return false;
 
@@ -981,7 +981,7 @@ bool Engine::LoadGltfScene() {
       renderer_->UploadMesh(mesh);
   }
 
-  for (const asset::GltfScene::Instance& instance : scene.instances) {
+  for (const asset::ImportedScene::Instance& instance : scene.instances) {
     ecs::Entity entity = world_->Create();
     world::Transform transform;
     transform.position[0] = instance.position.x;

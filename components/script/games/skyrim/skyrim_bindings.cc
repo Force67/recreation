@@ -1319,6 +1319,12 @@ void RecordBackedSkyrimBindings::Resurrect(ObjectRef actor) {
     world_sink_->ActorResurrected(active_quest_, actor.handle);
 }
 
+void RecordBackedSkyrimBindings::MarkInventoryEmptied(ObjectRef container) {
+  // Insert-then-clear rather than skipping the seed: the entry has to exist so
+  // GetNumItems and HasLiveInventory can tell an emptied chest from a fresh one.
+  inventory_[container.handle].clear();
+}
+
 void RecordBackedSkyrimBindings::SeedAuthoredInventory(ObjectRef container) {
   if (records_ == nullptr || inventory_.contains(container.handle))
     return;
@@ -1381,6 +1387,10 @@ i32 RecordBackedSkyrimBindings::GetItemCount(ObjectRef container, ObjectRef item
 i32 RecordBackedSkyrimBindings::GetNumItems(ObjectRef container) {
   auto* it = inventory_.find(container.handle);
   return it == nullptr ? 0 : static_cast<i32>(it->size());
+}
+
+bool RecordBackedSkyrimBindings::HasLiveInventory(ObjectRef container) const {
+  return inventory_.find(container.handle) != nullptr;
 }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetNthForm(ObjectRef container, i32 index) {

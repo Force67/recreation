@@ -69,6 +69,7 @@ class RecordingSink : public rx::bethesda::SaveSink {
     i32 stage = 0;
     bool running = false;
     bool complete = false;
+    bool stage_recorded = false;
   };
   struct Value {
     GlobalFormId form;
@@ -82,8 +83,12 @@ class RecordingSink : public rx::bethesda::SaveSink {
   void SetQuestStageDone(GlobalFormId quest, i32 stage) override {
     stages.push_back({quest, stage});
   }
-  void SetQuestState(GlobalFormId quest, i32 stage, bool running, bool complete) override {
-    quests.push_back({quest, stage, running, complete});
+  void SetQuestState(GlobalFormId quest,
+                     i32 stage,
+                     bool running,
+                     bool complete,
+                     bool stage_recorded) override {
+    quests.push_back({quest, stage, running, complete, stage_recorded});
   }
   void SetQuestObjective(GlobalFormId quest,
                          i32 objective,

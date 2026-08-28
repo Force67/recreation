@@ -448,6 +448,10 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // to these, so they have to be in place before the save is applied, and
   // applying two saves in a row must not double them.
   void SeedAuthoredInventory(papyrus::ObjectRef container);
+  // Gives the container a live, empty inventory: the state a chest is in once
+  // the player has cleared it out. Distinct from having no entry at all, which
+  // means "never touched, use the record's authored contents".
+  void MarkInventoryEmptied(papyrus::ObjectRef container);
   // Sets a stack outright, without the add/remove events: restoring a save is
   // not a pickup, and there is nobody listening yet when it runs.
   void SetItemCount(papyrus::ObjectRef container, papyrus::ObjectRef item, i32 count);
@@ -504,6 +508,11 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   papyrus::ObjectRef GetEquippedWeapon(papyrus::ObjectRef actor) override;
   papyrus::ObjectRef GetEquippedShield(papyrus::ObjectRef actor) override;
   i32 GetNumItems(papyrus::ObjectRef container) override;
+  // Whether this container has live inventory state at all, as opposed to
+  // merely holding nothing. A chest the player emptied and an untouched chest
+  // both report zero items, but only the first should stop the UI falling back
+  // to the record's authored CNTO list and refilling it.
+  bool HasLiveInventory(papyrus::ObjectRef container) const;
   papyrus::ObjectRef GetNthForm(papyrus::ObjectRef container, i32 index) override;
   papyrus::ObjectRef GetLinkedRef(papyrus::ObjectRef ref, papyrus::ObjectRef keyword) override;
   papyrus::ObjectRef GetParentCell(papyrus::ObjectRef ref) override;

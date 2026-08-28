@@ -63,6 +63,11 @@ base::String RecordName(const bethesda::RecordStore& records,
     if (const base::String* text = strings.Find(string_id))
       return *text;
   }
+  // A non-localized plugin puts the literal name in FULL rather than a string
+  // id, so those four bytes were text, not a lookup key. Editor ids are the last
+  // resort, not the first.
+  if (base::String literal = record.GetString(kFull); !literal.empty())
+    return literal;
   return record.GetString(kEdid);
 }
 
@@ -79,6 +84,8 @@ base::String MarkerName(const bethesda::StringTable& strings,
     if (const base::String* text = strings.Find(string_id, plugin))
       return *text;
   }
+  if (base::String literal = record.GetString(kFull); !literal.empty())
+    return literal;
   return record.GetString(kEdid);
 }
 

@@ -106,6 +106,12 @@ class AiPackageDirector {
 
   // An actor riding a towed object: it keeps its authored place on the ride and
   // plays the ride's seated idle instead of walking.
+  // Lets a rider off: the ride is gone, or something outside the director (an
+  // end-of-ride quest teleport) has moved them clear of it. Without this
+  // SeatRiders would keep pinning them to the vehicle every tick and no script
+  // could ever get them out.
+  void ReleaseFinishedRiders();
+
   struct Rider {
     u64 actor = 0;
     u64 ride = 0;

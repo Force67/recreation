@@ -790,7 +790,12 @@ bool InteractionSystem::TryOpenContainer(u64 handle) {
   const i32 live = ctx_.bindings ? ctx_.bindings->GetNumItems(
                                        script::papyrus::ObjectRef{refr.packed()})
                                  : 0;
-  if (live > 0) {
+  // A container the game has touched keeps its live list even when that list is
+  // empty, and an emptied chest must stay empty: falling through to CNTO on a
+  // zero count is what refills a chest the player has already cleared.
+  const bool has_live =
+      ctx_.bindings && ctx_.bindings->HasLiveInventory(script::papyrus::ObjectRef{refr.packed()});
+  if (has_live) {
     for (i32 i = 0; i < live && s.items.size() < 14; ++i) {
       const script::papyrus::ObjectRef form = ctx_.bindings->GetNthForm(
           script::papyrus::ObjectRef{refr.packed()}, i);

@@ -188,12 +188,14 @@ class EngineSaveSink : public bethesda::SaveSink {
   void SetQuestState(bethesda::GlobalFormId quest,
                      i32 stage,
                      bool running,
-                     bool complete) override {
+                     bool complete,
+                     bool stage_recorded) override {
     quest::QuestStatus status;
     status.handle = quest.packed();
     status.stage = stage;
     status.running = running;
     status.complete = complete;
+    status.stage_recorded = stage_recorded;
     bindings_.quest_system().ApplyStatus(status);
   }
 
@@ -523,6 +525,18 @@ class EngineSaveSink : public bethesda::SaveSink {
     ++toggled_refs_;
   }
 
+  void SetReferenceDeleted(bethesda::GlobalFormId ref) override {
+    // Unlike the enable case there is nothing in the record to compare against:
+    // a record always places its reference, so a save that deleted it always
+    // needs the command.
+    if (!records_.Find(ref)) {
+      ++unknown_refs_;
+      return;
+    }
+    bindings_.Delete(Ref(ref));
+    ++deleted_refs_;
+  }
+
   // Binned, not spawned: a save carries tens of thousands of these and only the
   // cells in the load ring are ever standing, so the streamer places each cell's
   // share when that cell comes in (see saved_spawns.h).
@@ -610,12 +624,20 @@ class EngineSaveSink : public bethesda::SaveSink {
       std::memcpy(&spawn.scale, scale->data.data(), 4);
     spawn.actor = stored->header.type == kAchr;
     spawn.relocated = true;
-    if (const bethesda::RecordStore::StoredRecord* home = records_.Find(parent);
-        home && home->header.type == kWrld) {
-      spawns_.AddExterior(parent, cell_size_, spawn);
-    } else {
-      spawns_.AddInterior(parent, spawn);
+    // The destination has to be a real cell or worldspace, the same check the
+    // created-reference path makes. Filing it under anything else buckets it in
+    // a cell that never streams, and because relocating also suppresses the ref
+    // in the cell its record authors, it would disappear from the world entirely
+    // rather than merely staying put.
+    const bethesda::RecordStore::StoredRecord* home = records_.Find(parent);
+    if (!home || (home->header.type != kWrld && home->header.type != kCell)) {
+      ++unknown_refs_;
+      return;
     }
+    if (home->header.type == kWrld)
+      spawns_.AddExterior(parent, cell_size_, spawn);
+    else
+      spawns_.AddInterior(parent, spawn);
     ++relocated_refs_;
   }
 
@@ -670,6 +692,18 @@ class EngineSaveSink : public bethesda::SaveSink {
   // records author, so the authored contents have to be in the store before the
   // delta means anything. Seeding them here rather than at streaming time is
   // what makes a looted chest come back empty instead of full.
+  void SetContainerEmptied(bethesda::GlobalFormId container) override {
+    if (!KnownReference(container)) {
+      ++unknown_refs_;
+      return;
+    }
+    // Seed first so the container counts as touched even if a later stack
+    // arrives, then clear: the entry has to exist and be empty.
+    seeded_.insert(container.packed());
+    bindings_.MarkInventoryEmptied(Ref(container));
+    ++emptied_containers_;
+  }
+
   void AddContainerItem(bethesda::GlobalFormId container,
                         bethesda::GlobalFormId item,
                         i32 delta,
@@ -700,9 +734,9 @@ class EngineSaveSink : public bethesda::SaveSink {
 
   void LogTally() const {
     RX_INFO(
-        "save: {} actor values, {} faction ranks, {} references toggled, {} moved ({} of them out "
-        "of the cell their record is in, and re-homed to the one they stand in)",
-        actor_values_, faction_ranks_, toggled_refs_, moved_refs_, relocated_refs_);
+        "save: {} actor values, {} faction ranks, {} references toggled, {} deleted, {} moved "
+        "({} of them out of the cell their record is in, and re-homed to the one they stand in)",
+        actor_values_, faction_ranks_, toggled_refs_, deleted_refs_, moved_refs_, relocated_refs_);
     RX_INFO(
         "save: {} actor levels and {} ai profiles onto placed actors, {} crime factions carry "
         "infamy, {} dialogue lines already said, {} exterior cells and {} interiors on the map",
@@ -890,6 +924,7 @@ class EngineSaveSink : public bethesda::SaveSink {
   bethesda::GlobalFormId last_shout_;
   u32 faction_ranks_ = 0;
   u32 toggled_refs_ = 0;
+  u32 deleted_refs_ = 0;
   u32 moved_refs_ = 0;
   u32 relocated_refs_ = 0;
   u32 actor_levels_ = 0;
@@ -912,6 +947,7 @@ class EngineSaveSink : public bethesda::SaveSink {
   u32 relationships_ = 0;
   base::UnorderedSet<u64> seeded_;  // containers already given their authored contents
   u32 seeded_containers_ = 0;
+  u32 emptied_containers_ = 0;
   u32 inventory_items_ = 0;
 };
 
@@ -1091,10 +1127,16 @@ void ApplySavegameLocation(Engine& engine) {
   Engine* const self = &engine;
   if (!self->save_ || !self->save_->player.valid)
     return;
+  // Where the world is placed and where the player is put down are one decision.
+  // Falling back to the default start cell but still teleporting the player to
+  // the save's coordinates drops them into an unstreamed part of some other
+  // worldspace, so every bail below gives up the placement too.
+  const auto keep_default_start = [self] { self->save_->player.valid = false; };
   const bethesda::GlobalFormId parent = self->save_->player.parent;
   const bethesda::RecordStore::StoredRecord* stored = self->records_.Find(parent);
   if (!stored) {
     RX_WARN("save: the player's cell is not in this load order, using the default start cell");
+    keep_default_start();
     return;
   }
 
@@ -1105,6 +1147,7 @@ void ApplySavegameLocation(Engine& engine) {
     if (parent.plugin > 0xff) {
       RX_WARN("save: the player's interior cell is in plugin {}, past the form id spelling",
               parent.plugin);
+      keep_default_start();
       return;
     }
     self->config_.interior = Fmt("0x%02x%06x", parent.plugin, parent.local_id);
@@ -1113,6 +1156,7 @@ void ApplySavegameLocation(Engine& engine) {
   }
   if (stored->header.type != kWrld) {
     RX_WARN("save: the player's parent form is neither a cell nor a worldspace");
+    keep_default_start();
     return;
   }
 
@@ -1121,6 +1165,15 @@ void ApplySavegameLocation(Engine& engine) {
     self->save_->worldspace = record.GetString(kEdid);
   const auto& profile = bethesda::GameProfile::For(self->game_);
   const f32* position = self->save_->player.position;
+  // The coordinates are file data. A NaN or an absurd magnitude would be
+  // undefined to cast, and would put the player nowhere real anyway, so fall
+  // back to the default start rather than trusting it.
+  if (!std::isfinite(position[0]) || !std::isfinite(position[1]) ||
+      !std::isfinite(position[2])) {
+    RX_WARN("save: the player's recorded position is not a finite point, using the default start");
+    keep_default_start();
+    return;
+  }
   self->config_.start_cell_x = static_cast<i32>(std::floor(position[0] / profile.cell_size));
   self->config_.start_cell_y = static_cast<i32>(std::floor(position[1] / profile.cell_size));
   self->config_.start_cell_explicit = true;

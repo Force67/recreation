@@ -140,7 +140,14 @@ class SaveSink {
   // Stages arrive in ascending order, each one the save recorded as run, then
   // SetQuestState closes the quest out with the state the journal shows.
   virtual void SetQuestStageDone(GlobalFormId quest, i32 stage) {}
-  virtual void SetQuestState(GlobalFormId quest, i32 stage, bool running, bool complete) {}
+  // stage_recorded is false when the save carried no run stages for the quest
+  // at all (a change form written only for an alias fill or a flag). `stage` is
+  // then meaningless and must not be recorded as reached.
+  virtual void SetQuestState(GlobalFormId quest,
+                             i32 stage,
+                             bool running,
+                             bool complete,
+                             bool stage_recorded) {}
   virtual void SetQuestObjective(GlobalFormId quest,
                                  i32 objective,
                                  bool displayed,
@@ -208,6 +215,11 @@ class SaveSink {
   virtual void SetMapMarker(GlobalFormId ref, bool visible, bool can_travel) {}
 
   virtual void SetReferenceEnabled(GlobalFormId ref, bool enabled) {}
+  // A reference the save recorded as deleted: picked up off the ground, or
+  // removed by a script. Distinct from disabled - Skyrim writes the deleted flag
+  // for a looted world item and never the disabled one, so a sink that only
+  // reads `enabled` re-places every item the player has already taken.
+  virtual void SetReferenceDeleted(GlobalFormId ref) {}
   // A reference the save itself created (a dropped weapon, a corpse, a critter
   // a script spawned). No plugin has a record for it, so the base form and the
   // transform below are its whole description and `id` is a synthetic handle in
@@ -275,6 +287,11 @@ class SaveSink {
                                 GlobalFormId item,
                                 i32 delta,
                                 bool equipped) {}
+  // The container was cleared out. A reference carrying this writes no inventory
+  // group at all, so it arrives on its own and never as a set of AddContainerItem
+  // calls; without it a chest the player looted comes back with everything its
+  // record authors.
+  virtual void SetContainerEmptied(GlobalFormId container) {}
 };
 
 // Where the player stood when the save was written.
@@ -338,6 +355,8 @@ struct SaveApplyStats {
   u32 references_moved = 0;
   u32 references_enabled = 0;
   u32 references_disabled = 0;
+  u32 references_deleted = 0;
+  u32 containers_emptied = 0;
   u32 inventories = 0;       // containers and actors whose contents were pushed
   u32 inventory_items = 0;   // item stacks inside them
 
