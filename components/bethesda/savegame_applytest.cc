@@ -10,6 +10,7 @@
 #include <base/containers/vector.h>
 #include <base/strings/xstring.h>
 
+#include <bit>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -161,7 +162,7 @@ class RecordingSink : public rx::bethesda::SaveSink {
     u32 tiles = 0;
     for (const rx::bethesda::CellVisitedGrid& grid : grids)
       for (u8 byte : grid.bits)
-        tiles += static_cast<u32>(__builtin_popcount(byte));
+        tiles += static_cast<u32>(std::popcount(byte));
     visited.push_back({cell, static_cast<u32>(grids.size()), tiles});
   }
   void SetReferenceEnabled(GlobalFormId ref, bool enabled) override {

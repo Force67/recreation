@@ -1,5 +1,6 @@
 #include "components/world/map_discovery.h"
 
+#include <bit>
 #include <cstring>
 
 namespace rx::world {
@@ -41,7 +42,7 @@ u32 MapDiscovery::CellTiles(bethesda::GlobalFormId worldspace, i16 x, i16 y) con
     return 0;
   u32 tiles = 0;
   for (u32 i = 0; i < kCellBitmapBytes; ++i)
-    tiles += static_cast<u32>(__builtin_popcount(cell->bits[i]));
+    tiles += static_cast<u32>(std::popcount(cell->bits[i]));
   return tiles;
 }
 
