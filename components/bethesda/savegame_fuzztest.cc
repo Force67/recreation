@@ -97,7 +97,8 @@ struct Tally {
 void TruncationSweep(Tally& t, const base::Vector<u8>& good, const char* what) {
   for (size_t len = 0; len <= good.size(); ++len)
     t.Feed(ByteSpan(good.data(), len));
-  std::printf("  %s: %zu truncations\n", what, good.size() + 1);
+  std::printf("  %s: %llu truncations\n", what,
+              static_cast<unsigned long long>(good.size() + 1));
 }
 
 // Single-byte corruption at every offset, several bit patterns each. This is
