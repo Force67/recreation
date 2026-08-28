@@ -766,8 +766,9 @@ class EngineSaveSink : public bethesda::SaveSink {
     if (unknown_markers_ != 0)
       RX_WARN("save: {} discovered markers name a reference this load order does not place",
               unknown_markers_);
-    RX_INFO("save: {} item stacks restored into {} containers seeded from their records",
-            inventory_items_, seeded_containers_);
+    RX_INFO("save: {} item stacks restored into {} containers seeded from their records, and {} "
+            "the player had already cleared out stay empty",
+            inventory_items_, seeded_containers_, emptied_containers_);
     if (created_forms_added_ != 0)
       RX_INFO("save: {} potions, poisons and enchantments the player made are back, named after "
               "what they do",

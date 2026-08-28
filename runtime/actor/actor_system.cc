@@ -537,6 +537,21 @@ base::Vector<bethesda::WornArmor> ActorSystem::ResolveEquippedArmor(
       }
     }
   }
+  // A resumed savegame's player is whatever chargen made them, which is rarely
+  // what the generic Player NPC_ record says. The head already asks the save
+  // (FaceBuilder's overrides); the armour has to ask the same, or a female
+  // character comes back wearing the male armature - or nothing at all, when
+  // the ARMA the record picks has no model for the body that is actually there.
+  // Queried through the member rather than faces(), which would build a face
+  // builder just to ask: if none exists yet, no save has overridden anything.
+  if (face_builder_) {
+    bethesda::GlobalFormId saved_race;
+    if (face_builder_->OverriddenRace(npc_base, &saved_race))
+      race = saved_race;
+    bool saved_female = false;
+    if (face_builder_->OverriddenSex(npc_base, &saved_female))
+      female = saved_female;
+  }
 
   for (bethesda::GlobalFormId item : equipped) {
     bethesda::WornArmor piece;

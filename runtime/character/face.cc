@@ -285,6 +285,23 @@ bool FaceBuilder::HasOverride(bethesda::GlobalFormId npc) const {
   return overrides_.find(npc.packed()) != nullptr;
 }
 
+bool FaceBuilder::OverriddenRace(bethesda::GlobalFormId npc,
+                                 bethesda::GlobalFormId* race) const {
+  const FaceOverride* o = overrides_.find(npc.packed());
+  if (o == nullptr || o->race.plugin == 0xffff)
+    return false;
+  *race = o->race;
+  return true;
+}
+
+bool FaceBuilder::OverriddenSex(bethesda::GlobalFormId npc, bool* female) const {
+  const FaceOverride* o = overrides_.find(npc.packed());
+  if (o == nullptr || !o->has_sex)
+    return false;
+  *female = o->female;
+  return true;
+}
+
 bool FaceBuilder::AssembleNpc(bethesda::GlobalFormId npc, FaceState* out) {
   auto face = bethesda::ResolveNpcFace(*ctx_.records, npc);
   if (!face) {

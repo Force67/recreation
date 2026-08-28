@@ -62,6 +62,14 @@ class FaceBuilder {
   // to assemble a real head instead of falling back to the default one.
   bool HasOverride(bethesda::GlobalFormId npc) const;
 
+  // The race and sex a savegame put this NPC in, for the parts of the actor
+  // that are not the head. Armour picks its armature by race and its model by
+  // sex, so it has to ask the same question the head does; reading the NPC_
+  // record instead dresses a resumed character as whatever the plugin shipped.
+  // False when the save said nothing, leaving the record's own answer right.
+  bool OverriddenRace(bethesda::GlobalFormId npc, bethesda::GlobalFormId* race) const;
+  bool OverriddenSex(bethesda::GlobalFormId npc, bool* female) const;
+
  private:
   friend class FaceState;
   const bethesda::TriMorphSet* Tri(const base::String& vfs_path);
