@@ -38,12 +38,11 @@ void InteractionSystem::SyncHud() {
   dv.open = dialogue_session_.open;
   dv.speaker = dialogue_session_.speaker;
   dv.npc_line = dialogue_session_.npc_line;
-  // Mark the highlighted option with a caret so the pad/keyboard selection is
-  // visible (matches the journal's tracked-quest caret convention).
-  for (size_t i = 0; i < dialogue_session_.options.size(); ++i) {
-    const base::String& line = dialogue_session_.options[i].player_line;
-    dv.options.push_back(static_cast<int>(i) == dialogue_session_.selected ? "▶ " + line : line);
-  }
+  // The pad/keyboard highlight travels as an index; the HUD paints it with the
+  // accent colour, so no glyph the UI font might lack has to render.
+  dv.selected = dialogue_session_.selected;
+  for (const DialogueOption& opt : dialogue_session_.options)
+    dv.options.push_back(opt.player_line);
   game_ui_.SetDialogue(dv);
 
   // Mirror the open container's contents into the HUD loot panel.
@@ -757,14 +756,16 @@ bool InteractionSystem::TryOpenContainer(u64 handle) {
     s.name = "Container";
   // What the player already carried out of this chest, so it is not offered
   // twice.
-  const base::Vector<u64>* taken = looted_.find(handle);
+  const base::Vector<u32>* taken = looted_.find(handle);
   // CNTO holds the contents: item form id (4) + count (4). Names resolve against
-  // the base record's owning plugin; the row pool caps how many we show.
+  // the base record's owning plugin. Every CNTO is kept, not just the ones the
+  // row pool can show, so Take All empties the whole chest rather than the first
+  // screenful; the panel caps what it draws.
+  u32 slot = 0;
   for (const bethesda::Subrecord& sub : cont.subrecords) {
-    if (s.items.size() >= 14)
-      break;
     if (sub.type != FourCc('C', 'N', 'T', 'O') || sub.data.size() < 8)
       continue;
+    const u32 this_slot = slot++;
     u32 item_raw;
     i32 count;
     std::memcpy(&item_raw, sub.data.data(), 4);
@@ -773,14 +774,15 @@ bool InteractionSystem::TryOpenContainer(u64 handle) {
         records_.ResolveFrom(bethesda::RawFormId{item_raw}, bstored->winning_plugin);
     if (taken) {
       bool already = false;
-      for (u64 packed : *taken)
-        already = already || packed == item.packed();
+      for (u32 looted_slot : *taken)
+        already = already || looted_slot == this_slot;
       if (already)
         continue;
     }
     ContainerItem ci;
     ci.count = count;
     ci.base = item;
+    ci.slot = this_slot;
     ci.name = RecordName(item);
     if (ci.name.empty())
       ci.name = "(item)";
@@ -804,16 +806,31 @@ void InteractionSystem::UpdateContainerInput(const InputState& input, const Acti
 }
 
 void InteractionSystem::TakeContainerItem(int index) {
+  if (TakeContainerRow(index) && ctx_.items)
+    ctx_.items->Save();
+}
+
+// Moves one row into the inventory without persisting, so Take All can write the
+// save once instead of once per row. Returns whether anything moved.
+bool InteractionSystem::TakeContainerRow(int index) {
   if (!container_session_.open || !ctx_.items)
-    return;
+    return false;
   if (index < 0 || index >= static_cast<int>(container_session_.items.size()))
-    return;
-  const ContainerItem& item = container_session_.items[index];
+    return false;
+  ContainerItem& item = container_session_.items[index];
   const u32 count = item.count > 0 ? static_cast<u32>(item.count) : 1u;
-  if (!ctx_.items->TakeItem(item.base, count))
-    return;  // not a carryable record (a leveled list, say): leave it on the pile
-  looted_[container_session_.container].push_back(item.base.packed());
+  const u32 added = ctx_.items->TakeItem(item.base, count);
+  if (added == 0)
+    return false;  // not a carryable record (a leveled list, say): leave it on the pile
+  // A full carry weight can accept part of a stack. Keep the remainder on the
+  // pile rather than erasing the row and destroying it.
+  if (added < count) {
+    item.count = static_cast<i32>(count - added);
+    return true;
+  }
+  looted_[container_session_.container].push_back(item.slot);
   container_session_.items.erase(container_session_.items.begin() + index);
+  return true;
 }
 
 void InteractionSystem::TakeAllContainerItems() {
@@ -821,8 +838,15 @@ void InteractionSystem::TakeAllContainerItems() {
     return;
   // Back to front so each removal leaves the untouched indices valid, and rows
   // TakeItem refuses simply stay put.
+  bool moved = false;
   for (int i = static_cast<int>(container_session_.items.size()) - 1; i >= 0; --i)
-    TakeContainerItem(i);
+    moved |= TakeContainerRow(i);
+  // One write for the whole chest: TakeItem's own Save() would otherwise
+  // serialize and flush the entire inventory once per row.
+  if (moved && ctx_.items)
+    ctx_.items->Save();
 }
+
+void InteractionSystem::ResetLootMemory() { looted_.clear(); }
 
 }  // namespace rx

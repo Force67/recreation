@@ -106,8 +106,10 @@
           text container_item13_lbl { text: ""; font-size: 15; color: #d8def0; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
           text container_item13_qty { text: ""; font-size: 13; color: #ffcc55; letter-spacing: 1; width: 46; text-align: right; }
         }
+        // No visibility here: the builder has no such property and drops it
+        // silently. C++ sets this row's visibility every frame in Build().
         text container_empty { text: "This container is empty."; font-size: 13; color: #8a93a8;
-          text-align: center; padding: 10 0; visibility: collapsed; }
+          text-align: center; padding: 10 0; }
       }
       panel container_rule_bot { width: 100%; height: 1; background: #ffffff1f; margin: 12 0 14 0; }
       panel container_footer { layout: row; align: center; gap: 10; width: 100%;

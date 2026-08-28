@@ -2,8 +2,9 @@
 // card. Left pane = the active quest list (journal_q0..q5, clickable rows with
 // _lbl/_tag children, journal_empty when there are none). Right pane = the
 // selected quest's detail (journal_sel_title/_status) and its objectives
-// (journal_obj0..obj5 with _mark/_lbl children; C++ writes "✓"/"•" into _mark,
-// recolors done rows, and may set text-decoration: line-through on done _lbl).
+// (journal_obj0..obj5 with _mark/_lbl children; C++ writes "•" into _mark for
+// every row - the UI font need not have a check mark - recolors done rows, and
+// may set text-decoration: line-through on done _lbl).
 // C++ fills all texts and toggles row visibility each frame; rows past the
 // filled count and journal_empty should start collapsed. The tracked quest is
 // marked by C++ (gold _tag text + row background #ffcc5522 / border #ffcc5544).

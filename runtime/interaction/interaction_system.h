@@ -53,6 +53,11 @@ class InteractionSystem {
   // container's own contents are read from the records each time it opens).
   void TakeContainerItem(int index);
   void TakeAllContainerItems();
+  // Drop what every chest remembers giving up. The memory lives only in this
+  // object, so a savegame load (which rewinds the world to a point where those
+  // chests may still be full) has to clear it or the player loses loot the save
+  // says is still there.
+  void ResetLootMemory();
 
   // Authoritative entry points the server / single-player run directly (a client
   // routes the request to the server, which calls these).
@@ -74,6 +79,10 @@ class InteractionSystem {
   base::String RecordName(bethesda::GlobalFormId id);
 
  private:
+  // Moves one row into the inventory without writing the save; the public
+  // entry points decide when to persist. True when anything moved.
+  bool TakeContainerRow(int index);
+
   // One selectable conversation line plus the INFO fragment it runs.
   struct DialogueOption {
     base::String player_line;
@@ -94,6 +103,10 @@ class InteractionSystem {
     base::String name;
     i32 count = 0;
     bethesda::GlobalFormId base;  // the item record, for moving it into the inventory
+    // Which CNTO subrecord this row came from. A CONT may list the same base in
+    // two subrecords, so the loot memory keys on the slot rather than the base;
+    // otherwise taking one stack of gold would hide the other as well.
+    u32 slot = 0;
   };
   struct ContainerSession {
     bool open = false;
@@ -123,9 +136,10 @@ class InteractionSystem {
 
   DialogueSession dialogue_session_;
   ContainerSession container_session_;
-  // Container handle -> the packed item bases already looted out of it, so a
-  // reopened chest offers only what is left.
-  base::UnorderedMap<u64, base::Vector<u64>> looted_;
+  // Container handle -> the CNTO slots already looted out of it, so a reopened
+  // chest offers only what is left. The handle is a packed REFR form id, unique
+  // across cells, so one chest's memory cannot mask another's.
+  base::UnorderedMap<u64, base::Vector<u32>> looted_;
   u64 activate_target_ = 0;
   base::String activate_label_;
   // Trigger references, keyed by form handle, plus the set of refs already

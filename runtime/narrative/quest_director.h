@@ -119,6 +119,10 @@ class QuestDirector {
   // Player journal controls (J toggles it; number keys pin a quest to track).
   bool journal_open() const { return journal_open_; }
   void ToggleJournal() { journal_open_ = !journal_open_; }
+  // The journal's own Close button. Distinct from the toggle because a click
+  // request can be raised on a frame the camera update skips (a cutscene taking
+  // over, say) and consumed later; a toggle would then re-open the journal.
+  void CloseJournal() { journal_open_ = false; }
   void PinJournalSlot(int i);
 
  private:

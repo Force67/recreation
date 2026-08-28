@@ -1341,6 +1341,7 @@ struct GameUi::Impl {
   int probe_pass = 0;     // widgets that hit-tested and routed
   int probe_fail = 0;     // widgets a click reaches but nothing handles
   int probe_covered = 0;  // widgets another panel is drawn over
+  bool probe_done = false;  // a run finished, so do not start another
   base::String probe_shot;  // screen the engine should capture, once it is laid out
   void ProbeStep();
   // Re-asserts the current step's screen state at the top of every Build. The
@@ -1470,7 +1471,12 @@ void GameUi::Impl::ApplyEditorView() {
   };
 
   // Keep the bottom browser spanning between the side docks at any window width.
-  const float bw = host.window_width - kEdSceneW - kEdInspectorW;
+  // Px lengths are multiplied by ui_scale during layout and the dock constants
+  // are authored in the 1080p design space, so this has to subtract them from
+  // the canvas width, not the raw backbuffer width; mixing the two stretched the
+  // browser off the right edge on any display where ui_scale != 1.
+  const float ui_scale = ui.ui_scale() > 0.0f ? ui.ui_scale() : 1.0f;
+  const float bw = host.window_width / ui_scale - kEdSceneW - kEdInspectorW;
   setLeft("editor_browser", kEdSceneW);
   setWidth("editor_browser", bw > 200.0f ? bw : 200.0f);
 
@@ -2480,6 +2486,7 @@ void GameUi::Impl::ProbeStep() {
     RX_INFO("ui probe: done - {} button(s) ok, {} broken, {} covered", probe_pass, probe_fail,
             probe_covered);
     probe_step = -1;
+    probe_done = true;
     ApplyMenuVisibility();
   }
 }
@@ -2963,7 +2970,10 @@ SettingsRequest GameUi::PollSettingsRequest() {
 bool GameUi::RunUiProbe() {
   if (!impl_->initialized)
     return false;
-  if (impl_->probe_step < 0 && impl_->probe_pass == 0 && impl_->probe_fail == 0) {
+  // An explicit "already ran" flag, not a counter test: a run where every widget
+  // came back covered leaves both counters at zero, which a counter test reads
+  // as "never started" and restarts forever, so RX_UI_PROBE never quits.
+  if (impl_->probe_step < 0 && !impl_->probe_done) {
     RX_INFO("ui probe: starting");
     impl_->probe_step = 0;
     impl_->probe_settle = 0;
@@ -3468,6 +3478,10 @@ void GameUi::Build(Window& window,
         ugui::SetText(impl->ui.FindWidget((row + "_num").c_str()),
                       base::ToString(i + 1).c_str());
         ugui::SetText(impl->ui.FindWidget((row + "_lbl").c_str()), dlg.options[i].c_str());
+        const bool picked = i == dlg.selected;
+        impl->SetTextColor((row + "_lbl").c_str(),
+                           picked ? Rgba(0xffcc55ffu) : Rgba(0xd8def0ffu));
+        impl->SetBackground(row.c_str(), picked ? Rgba(0xffcc5522u) : Rgba(0x00000000u));
       }
       impl->SetVisible(row.c_str(), i < static_cast<int>(dlg.options.size()));
     }

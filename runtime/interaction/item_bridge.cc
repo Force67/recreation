@@ -371,33 +371,32 @@ bool ItemBridge::TryPickUp(u64 ref_handle) {
   return true;
 }
 
-bool ItemBridge::TakeItem(bethesda::GlobalFormId base, u32 count) {
+u32 ItemBridge::TakeItem(bethesda::GlobalFormId item, u32 count) {
   if (!ctx_.world || count == 0)
-    return false;
-  if (!IsItemBase(base))
-    return false;
-  const inventory::ItemDefId def = DefForBase(base);
+    return 0;
+  if (!IsItemBase(item))
+    return 0;
+  const inventory::ItemDefId def = DefForBase(item);
   if (def == inventory::kInvalidItemDef)
-    return false;
+    return 0;
   const ecs::Entity player = PlayerInventoryEntity();
   if (!ctx_.world->IsAlive(player))
-    return false;
+    return 0;
   inventory::Inventory* inv = ctx_.world->Get<inventory::Inventory>(player);
   if (!inv)
-    return false;
+    return 0;
   const u32 added = inventory::AddItem(*inv, catalog_, def, count);
   if (added == 0)
-    return false;
+    return 0;
 
-  base::String display = RecordNameFor(base);
+  base::String display = RecordNameFor(item);
   if (display.empty())
     display = "item";
   if (ctx_.game_ui)
     ctx_.game_ui->FlashQuestUpdate("Took " + display);
-  RX_INFO("item: took '{}' x{} from a container (base {:04x}:{:06x})", display, added, base.plugin,
-          base.local_id);
-  Save();
-  return true;
+  RX_INFO("item: took '{}' x{} from a container (base {:04x}:{:06x})", display, added, item.plugin,
+          item.local_id);
+  return added;
 }
 
 base::String ItemBridge::RecordNameFor(bethesda::GlobalFormId id) const {

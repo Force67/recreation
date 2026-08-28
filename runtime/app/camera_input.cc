@@ -128,8 +128,14 @@ void Engine::UpdateCamera(f32 frame_delta) {
   // The war map (M): the Civil War campaign board, a modern overlay over the
   // managed campaign state. It is itself modal, so M stays live while it is up
   // (otherwise the key that opened the board could not close it again).
-  if (input.key_pressed(Key::kM) && !menu && !kb && !editor_on && (war_map_open_ || !modal))
+  // Only the game bindings can fill the board (see SetWarMap in the frame loop),
+  // and they do not exist for a demo scene or before a universe is entered;
+  // toggling it there would freeze the camera behind a panel that never draws.
+  if (script_bindings_ && input.key_pressed(Key::kM) && !menu && !kb && !editor_on &&
+      (war_map_open_ || !modal))
     war_map_open_ = !war_map_open_;
+  else if (!script_bindings_ && war_map_open_)
+    war_map_open_ = false;  // bindings went away (universe unloaded) while it was up
 
   if (editor_on) {
     // Free-fly builder camera: right mouse looks, WASD/QE move (unless the search
@@ -194,7 +200,7 @@ void Engine::UpdateCamera(f32 frame_delta) {
       quest_->PinJournalSlot(hud.index);
       break;
     case HudRequest::Kind::kJournalClose:
-      quest_->ToggleJournal();
+      quest_->CloseJournal();
       break;
     case HudRequest::Kind::kDialogueOption:
       interaction_->SelectDialogueOption(hud.index);

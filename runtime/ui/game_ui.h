@@ -46,6 +46,11 @@ struct DialogueView {
   base::String speaker;
   base::String npc_line;
   base::Vector<base::String> options;
+  // Which option the keyboard/pad has highlighted, or -1 for none. Marked with
+  // the accent colour rather than a caret glyph: the UI font is whatever
+  // fc-match resolves and need not have one (same reason the journal dropped
+  // its caret and the objective list its check mark).
+  int selected = -1;
 };
 
 // The open container the loot panel shows: its name and the items inside (name

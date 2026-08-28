@@ -47,9 +47,11 @@ class ItemBridge {
 
   // Adds `count` units of an item BASE record straight to the player's
   // inventory. Container loot has a base form and a count rather than a world
-  // reference, so it cannot go through TryPickUp. Returns false when the base is
-  // not a usable item or nothing fit.
-  bool TakeItem(bethesda::GlobalFormId base, u32 count);
+  // reference, so it cannot go through TryPickUp. Returns how many units the
+  // inventory accepted: 0 when the base is not a usable item, and fewer than
+  // `count` when carry limits took only part of the stack. Does not persist -
+  // the caller calls Save() once it has moved everything it means to.
+  u32 TakeItem(bethesda::GlobalFormId base, u32 count);
 
   // Drops the most recently added inventory stack in front of the player as a
   // dynamic physics body with a small forward toss. No-op when the inventory is
