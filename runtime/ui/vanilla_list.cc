@@ -17,13 +17,32 @@ const ugui::Color kSelected = ugui::Color::FromHex(0xffffff);
 const ugui::Color kUnselected = ugui::Color::FromHex(0xb4b4b4);
 const ugui::Color kDisabled = ugui::Color::FromHex(0x6e6e6e);
 
+// Matches `name` or the exporter's deduped form of it, "name_2", "name_3", ...
+// Every list component in a movie is called List_mc, so all but the first carry
+// a suffix by the time they are one flat tree.
+bool NameMatches(base::StringRef want, base::StringRef actual) {
+  if (want == actual)
+    return true;
+  if (actual.size() <= want.size() + 1)
+    return false;
+  for (mem_size i = 0; i < want.size(); ++i)
+    if (actual[i] != want[i])
+      return false;
+  if (actual[want.size()] != '_')
+    return false;
+  for (mem_size i = want.size() + 1; i < actual.size(); ++i)
+    if (actual[i] < '0' || actual[i] > '9')
+      return false;
+  return true;
+}
+
 ugui::wid ChildNamed(ugui::WidgetRegistry& world, ugui::wid parent, base::StringRef name) {
   const ugui::Hierarchy* h = world.Get<ugui::Hierarchy>(parent);
   if (!h)
     return ugui::kNullWidget;
   for (ugui::wid child : h->children) {
     const ugui::WidgetNode* node = world.Get<ugui::WidgetNode>(child);
-    if (node && name == node->name.c_str())
+    if (node && NameMatches(name, base::StringRef(node->name.c_str())))
       return child;
   }
   return ugui::kNullWidget;

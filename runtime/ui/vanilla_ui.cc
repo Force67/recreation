@@ -99,6 +99,37 @@ void SetVanillaText(ugui::UIContext& ui, base::StringRef widget, base::StringRef
     ugui::SetText(label, base::String(text).c_str());
 }
 
+namespace {
+ugui::wid DescendantNamed(ugui::WidgetRegistry& world, ugui::wid root, base::StringRef name) {
+  const ugui::WidgetNode* node = world.Get<ugui::WidgetNode>(root);
+  if (node && name == node->name.c_str())
+    return root;
+  const ugui::Hierarchy* h = world.Get<ugui::Hierarchy>(root);
+  if (!h)
+    return ugui::kNullWidget;
+  for (ugui::wid child : h->children) {
+    const ugui::wid found = DescendantNamed(world, child, name);
+    if (found.valid())
+      return found;
+  }
+  return ugui::kNullWidget;
+}
+}  // namespace
+
+void SetVanillaTextIn(ugui::UIContext& ui,
+                      base::StringRef root,
+                      base::StringRef widget,
+                      base::StringRef text) {
+  const ugui::wid root_widget = ui.FindWidget(base::String(root).c_str());
+  if (!root_widget.valid())
+    return;
+  ugui::WidgetRegistry& world = ui.world();
+  const ugui::wid found = DescendantNamed(world, root_widget, widget);
+  const ugui::wid label = found.valid() ? FirstTextUnder(world, found) : ugui::kNullWidget;
+  if (label.valid())
+    ugui::SetText(label, base::String(text).c_str());
+}
+
 void SetVanillaTextColor(ugui::UIContext& ui, base::StringRef widget, u32 rgb) {
   const ugui::wid root = ui.FindWidget(base::String(widget).c_str());
   if (!root.valid())
@@ -402,6 +433,7 @@ namespace rx::ui {
 
 void SetVanillaText(ugui::UIContext&, base::StringRef, base::StringRef) {}
 void SetVanillaTextColor(ugui::UIContext&, base::StringRef, u32) {}
+void SetVanillaTextIn(ugui::UIContext&, base::StringRef, base::StringRef, base::StringRef) {}
 void ShowVanillaSubtree(ugui::UIContext&, base::StringRef, bool) {}
 void ReleaseVanillaImages(ugui::TextureBackend&) {}
 

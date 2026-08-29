@@ -972,7 +972,12 @@ UguiScreen Exporter::Run() {
     out_.markup += '\n';
   }
 
-  const base::String root = UniqueName(options_.name, "screen");
+  // Namespaced: a movie's stem is its own name, and the host has fragments of
+  // its own. Fallout 4's mainmenu.swf and recreation's main_menu.ugui both want
+  // to be called "mainmenu", and two roots with one name merge into one tree.
+  // Only the root is prefixed; everything inside keeps its ActionScript instance
+  // name so the original bindings still address the same objects.
+  const base::String root = UniqueName("vanilla_" + options_.name, "screen");
   Line(0, base::Format(
               "panel {} {{ position: absolute; left: 0; top: 0; width: {}; height: {};",
               root, Px(width), Px(height)));

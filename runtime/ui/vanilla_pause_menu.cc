@@ -32,6 +32,11 @@ const char* const kOtherStatePanels[] = {
     "PanelRect",
 };
 
+// The panel each driven state puts up. MAIN_STATE shows none of them: the
+// category list on the left is the whole screen.
+const char* const kQuitPanel = "PCQuitPanel";
+const char* const kSettingsPanel = "SettingsPanel";
+
 // MAIN_STATE clears the bottom bar: the Delete / Character Selection buttons
 // the System tab defines only come up in the save/load state.
 const char* const kBottomBarButtons[] = {
@@ -132,6 +137,25 @@ bool VanillaPauseMenu::Build(
   add(Action::kQuit, "$QUIT");
   list_.SetEntries(base::move(entries));
 
+  // The sub-panels the states below need. Their lists carry the same entries
+  // SystemPage::onLoad pushes into them.
+  quit_list_.state_frames = true;
+  if (quit_list_.Bind(ui, kQuitPanel)) {
+    base::Vector<VanillaList::Entry> quit;
+    quit.push_back(VanillaList::Entry{Translate(strings, "$Main Menu"), false});
+    quit.push_back(VanillaList::Entry{Translate(strings, "$Desktop"), false});
+    quit_list_.SetEntries(base::move(quit));
+  }
+  settings_list_.state_frames = true;
+  if (settings_list_.Bind(ui, kSettingsPanel)) {
+    base::Vector<VanillaList::Entry> settings;
+    settings.push_back(VanillaList::Entry{Translate(strings, "$Gameplay"), false});
+    settings.push_back(VanillaList::Entry{Translate(strings, "$Display"), false});
+    settings.push_back(VanillaList::Entry{Translate(strings, "$Audio"), false});
+    settings_list_.SetEntries(base::move(settings));
+  }
+  state_ = State::kMain;
+
   // The tabs carry "BUTTON TEXT" until the game labels them. There is no
   // $STATS key in the interface table, so that one is the literal word.
   const base::String quest_tab = Translate(strings, "$QUEST");
@@ -159,14 +183,78 @@ bool VanillaPauseMenu::Build(
 
 void VanillaPauseMenu::Apply(ugui::UIContext& ui) {
   list_.Apply(ui);
+  // Exactly one sub-panel is up at a time, and the category list stays visible
+  // beside it the way the original leaves it.
+  ShowVanillaSubtree(ui, kQuitPanel, state_ == State::kQuit);
+  ShowVanillaSubtree(ui, kSettingsPanel, state_ == State::kSettings);
+  if (state_ == State::kQuit)
+    quit_list_.Apply(ui);
+  else if (state_ == State::kSettings)
+    settings_list_.Apply(ui);
+}
+
+VanillaList& VanillaPauseMenu::ActiveList() {
+  switch (state_) {
+    case State::kQuit:
+      return quit_list_;
+    case State::kSettings:
+      return settings_list_;
+    case State::kMain:
+      break;
+  }
+  return list_;
+}
+
+const VanillaList& VanillaPauseMenu::ActiveList() const {
+  return const_cast<VanillaPauseMenu*>(this)->ActiveList();
+}
+
+VanillaPauseMenu::Result VanillaPauseMenu::Activate(ugui::UIContext& ui) {
+  switch (state_) {
+    case State::kQuit:
+      // The movie's own two entries, in its order.
+      return quit_list_.selected() == 0 ? Result::kMainMenu : Result::kDesktop;
+    case State::kSettings:
+      return Result::kNone;  // no option lists stand behind these yet
+    case State::kMain:
+      break;
+  }
+  switch (Selected()) {
+    case Action::kQuit:
+      state_ = State::kQuit;
+      Apply(ui);
+      return Result::kNone;
+    case Action::kSettings:
+      state_ = State::kSettings;
+      Apply(ui);
+      return Result::kNone;
+    default:
+      // Save, load, installed content, controls, help and creations are panels
+      // the movie carries with nothing behind them yet; the row still selects,
+      // which is what the movie itself does before the game answers.
+      return Result::kNone;
+  }
+}
+
+bool VanillaPauseMenu::Back(ugui::UIContext& ui) {
+  if (state_ == State::kMain)
+    return false;
+  state_ = State::kMain;
+  Apply(ui);
+  return true;
+}
+
+void VanillaPauseMenu::Reset(ugui::UIContext& ui) {
+  state_ = State::kMain;
+  Apply(ui);
 }
 
 void VanillaPauseMenu::MoveSelection(int delta) {
-  list_.MoveSelection(delta);
+  ActiveList().MoveSelection(delta);
 }
 
 bool VanillaPauseMenu::HandleClick(ugui::UIContext& ui, u32 target_id) {
-  return list_.HandleClick(ui, target_id);
+  return ActiveList().HandleClick(ui, target_id);
 }
 
 VanillaPauseMenu::Action VanillaPauseMenu::Selected() const {
@@ -210,6 +298,19 @@ void VanillaPauseMenu::Apply(ugui::UIContext&) {}
 void VanillaPauseMenu::MoveSelection(int) {}
 bool VanillaPauseMenu::HandleClick(ugui::UIContext&, u32) {
   return false;
+}
+VanillaPauseMenu::Result VanillaPauseMenu::Activate(ugui::UIContext&) {
+  return Result::kNone;
+}
+bool VanillaPauseMenu::Back(ugui::UIContext&) {
+  return false;
+}
+void VanillaPauseMenu::Reset(ugui::UIContext&) {}
+VanillaList& VanillaPauseMenu::ActiveList() {
+  return list_;
+}
+const VanillaList& VanillaPauseMenu::ActiveList() const {
+  return list_;
 }
 VanillaPauseMenu::Action VanillaPauseMenu::Selected() const {
   return Action::kNone;

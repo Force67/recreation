@@ -457,6 +457,9 @@ class GameUi {
   bool menu_open() const;
   bool settings_open() const;  // pause menu's Settings sub-view is showing
   bool quit_requested() const;
+  // True once, when the translated pause menu's QUIT list picked "Main Menu".
+  // The host tears the world down and reopens the front screen.
+  bool PollReturnToMenu();
 
   // Pause-menu Settings sub-view: the engine pushes the current controls each
   // frame and polls the request the panel raises (rebind a row, nudge a

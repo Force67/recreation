@@ -50,6 +50,14 @@ base::UnorderedMap<base::String, base::String> LoadVanillaStrings(base::StringRe
 // `widget` is the instance name the movie gave it. SetVanillaText writes the
 // first text anywhere below that widget, since a tab or a row wraps its label.
 void SetVanillaText(ugui::UIContext& ui, base::StringRef widget, base::StringRef text);
+// The same, restricted to `root`'s subtree. A widget name is the movie's own
+// instance name, and two screens loaded together carry the same ones (every
+// menu has a VersionText), so an unscoped lookup finds whichever screen came
+// first in the document rather than the one meant.
+void SetVanillaTextIn(ugui::UIContext& ui,
+                      base::StringRef root,
+                      base::StringRef widget,
+                      base::StringRef text);
 void SetVanillaTextColor(ugui::UIContext& ui, base::StringRef widget, u32 rgb);
 
 // Turns a whole subtree on or off. ugui ignores `visibility` and its opacity

@@ -208,6 +208,18 @@ void Engine::UpdateCamera(f32 frame_delta) {
     game_ui_.ToggleMenu();
   if (game_ui_.quit_requested())
     RequestQuit();
+  // The pause menu's QUIT list picked "Main Menu": hand the screen back to the
+  // front menu. The loaded world stays put behind it, so re-entering a universe
+  // from here is a reopen rather than a fresh load.
+  if (game_ui_.PollReturnToMenu()) {
+    // Reopen the front screen rather than running SetupMainMenu again: that
+    // resolves universes and regenerates the menu backdrops on the GPU, which
+    // is init-time work and not safe from inside a frame. The world stays
+    // loaded behind the menu.
+    main_menu_active_ = true;
+    game_ui_.OpenMainMenu();
+    RX_INFO("returned to the front menu from the pause menu");
+  }
 }
 
 void Engine::LookCameraAt(const Vec3& eye, const Vec3& center) {

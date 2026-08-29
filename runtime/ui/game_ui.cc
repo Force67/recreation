@@ -59,6 +59,12 @@ base::Option<bool> FirstRun{"first.run", false, "RECREATION_FIRST_RUN"};
 // exists so the screenshot harnesses (which capture a frame a second or two in)
 // do not all photograph this card instead of the screen under test.
 base::Option<bool> ShowLegal{"legal", true, "RX_LEGAL"};
+// Test hook, matching RX_MENU_AUTOPLAY on the front menu: opens the pause menu
+// this many seconds in, so the journal path can be captured without a keypress.
+base::Option<float> PauseAt{"ui.pause_at", 0.0f, "RX_PAUSE_AT"};
+// With RX_PAUSE_AT, walk this many rows down the category list a second later
+// and pick that entry, so a sub-panel can be captured the same way.
+base::Option<int> PausePick{"ui.pause_pick", -1, "RX_PAUSE_PICK"};
 constexpr f32 kLegalSeconds = 5.0f;
 // The size legal.ugui is authored against. ugui's design space here is the raw
 // backbuffer, so the notice is scaled to the viewport for the few seconds it is
@@ -978,6 +984,26 @@ base::Vector<ui::VanillaScreen>& VanillaScreens() {
   return screens;
 }
 
+// Which state of the host's UI a translated screen stands in for. The movies
+// are separate files with no notion of when they are up: the game decides, and
+// so does this. A screen with no role is chrome that belongs to gameplay (the
+// HUD, the cursor, the fader), which is what most of them are.
+enum class VanillaRole : u8 { kHud, kFrontMenu, kPauseMenu };
+
+VanillaRole VanillaRoleOf(base::StringRef name) {
+  if (name == "startmenu")
+    return VanillaRole::kFrontMenu;  // Skyrim's boot menu
+  if (name == "quest_journal")
+    return VanillaRole::kPauseMenu;  // its System page is what Esc opens
+  return VanillaRole::kHud;
+}
+
+// The root panel the exporter emits for a screen. Namespaced, because a movie's
+// stem collides with the host's own fragments (Fallout 4 ships mainmenu.swf).
+base::String VanillaRootName(base::StringRef screen) {
+  return "vanilla_" + base::String(screen);
+}
+
 // True once any translated Scaleform screen is loaded. Asking for the game's own
 // interface means asking for it instead of recreation's, so the engine's HUD
 // fragments stay hidden rather than drawing a second one over the top.
@@ -1182,6 +1208,8 @@ struct GameUi::Impl {
   bool menu_open = false;
   bool settings_open = false;  // settings sub-view of the pause menu
   bool quit_requested = false;
+  bool return_to_menu = false;  // pause menu asked to leave the world
+  f32 ui_time = 0;              // seconds since the UI came up, for the test hooks
 
   // The translated Skyrim start menu, driven the way the game drives it. Only
   // live when that screen is one of the loaded vanilla screens.
@@ -1359,7 +1387,42 @@ struct GameUi::Impl {
   // the matching event to editor_sink. Returns true if it consumed the click.
   bool RouteEditorClick(ugui::wid target);
 
+  // Shows whichever translated screen belongs to the state the UI is in, and
+  // hides the rest. Without this every loaded screen draws at once, which is
+  // fine for a single screenshot and useless for actually playing.
+  void ApplyVanillaVisibility() {
+    for (const ui::VanillaScreen& screen : VanillaScreens()) {
+      bool show = false;
+      switch (VanillaRoleOf(screen.name)) {
+        case VanillaRole::kFrontMenu:
+          show = main_menu_open;
+          break;
+        case VanillaRole::kPauseMenu:
+          show = menu_open;
+          break;
+        case VanillaRole::kHud:
+          show = !main_menu_open && !menu_open;
+          break;
+      }
+      SetVisible(VanillaRootName(screen.name).c_str(), show);
+    }
+  }
+
+  // Whether a translated screen has taken over one of the host's own screens,
+  // so the host's version stays out of the way instead of drawing underneath.
+  bool VanillaCovers(VanillaRole role) const {
+    for (const ui::VanillaScreen& screen : VanillaScreens())
+      if (VanillaRoleOf(screen.name) == role)
+        return true;
+    return false;
+  }
+
   void ApplyMenuVisibility() {
+    if (VanillaCovers(VanillaRole::kPauseMenu)) {
+      SetVisible("menu", false);  // the journal is the pause menu now
+      ApplyVanillaVisibility();
+      return;
+    }
     SetStyleField(
         "menu",
         [](ugui::Style& s, float v) {
@@ -1409,7 +1472,7 @@ struct GameUi::Impl {
         if (start_menu.Build(ui, availability, &vanilla_strings)) {
           start_menu.Apply(ui);
           start_menu_active = true;
-          ugui::SetText(ui.FindWidget("VersionText"), "recreation");
+          ui::SetVanillaTextIn(ui, VanillaRootName(screen.name), "VersionText", "recreation");
           RX_INFO("ui: vanilla start menu hooked up");
         }
       } else if (screen.name == "quest_journal") {
@@ -1417,7 +1480,7 @@ struct GameUi::Impl {
         if (pause_menu.Build(ui, availability, &vanilla_strings)) {
           pause_menu.Apply(ui);
           pause_menu_active = true;
-          ugui::SetText(ui.FindWidget("VersionText"), "recreation");
+          ui::SetVanillaTextIn(ui, VanillaRootName(screen.name), "VersionText", "recreation");
           // The bottom bar's readout is a placeholder until the first stats
           // push; seed it so the menu never shows "Time, Date, Year".
           pause_menu.SetPlayerInfo(ui, mm_stats.game_days, mm_stats.level, 0.0f);
@@ -1502,24 +1565,20 @@ void GameUi::Impl::ActOnStartMenu() {
 }
 
 void GameUi::Impl::ActOnPauseMenu() {
-  using Action = ui::VanillaPauseMenu::Action;
-  switch (pause_menu.Selected()) {
-    case Action::kQuit:
-      // The original opens a two-entry list (main menu / desktop) here; without
-      // that state wired, QUIT means what the confirm's second entry does.
+  switch (pause_menu.Activate(ui)) {
+    case ui::VanillaPauseMenu::Result::kDesktop:
       quit_requested = true;
       break;
-    case Action::kQuickSave:
-    case Action::kSave:
-    case Action::kLoad:
-    case Action::kInstalledContent:
-    case Action::kCreations:
-    case Action::kSettings:
-    case Action::kControls:
-    case Action::kHelp:
-    case Action::kNone:
-      // No vanilla frame is wired to these yet; the row still selects, which is
-      // what the movie itself does before the game answers.
+    case ui::VanillaPauseMenu::Result::kMainMenu:
+      return_to_menu = true;
+      menu_open = false;
+      ApplyMenuVisibility();
+      break;
+    case ui::VanillaPauseMenu::Result::kCloseMenu:
+      menu_open = false;
+      ApplyMenuVisibility();
+      break;
+    case ui::VanillaPauseMenu::Result::kNone:
       break;
   }
 }
@@ -1997,7 +2056,10 @@ bool GameUi::Impl::RouteEditorClick(ugui::wid target) {
 }
 
 void GameUi::Impl::ApplyMainMenu() {
-  SetVisible("mainmenu", main_menu_open);
+  // A translated boot menu replaces the host's front screen rather than sitting
+  // on top of it; the two would otherwise both take the same clicks.
+  SetVisible("mainmenu", main_menu_open && !VanillaCovers(VanillaRole::kFrontMenu));
+  ApplyVanillaVisibility();
   if (!main_menu_open) {
     mm_prev_open = false;
     return;
@@ -2505,12 +2567,14 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   impl_->ui.input().set_on_click([impl](ugui::wid w, ugui::MouseButton btn) {
     if (btn != ugui::MouseButton::kLeft)
       return;
-    if (impl->start_menu_active && impl->start_menu.HandleClick(impl->ui, w.index)) {
+    if (impl->start_menu_active && impl->main_menu_open &&
+        impl->start_menu.HandleClick(impl->ui, w.index)) {
       impl->start_menu.Apply(impl->ui);
       impl->ActOnStartMenu();
       return;  // the vanilla start menu owns this click
     }
-    if (impl->pause_menu_active && impl->pause_menu.HandleClick(impl->ui, w.index)) {
+    if (impl->pause_menu_active && impl->menu_open &&
+        impl->pause_menu.HandleClick(impl->ui, w.index)) {
       impl->pause_menu.Apply(impl->ui);
       impl->ActOnPauseMenu();
       return;  // the vanilla pause menu owns this click
@@ -2588,9 +2652,22 @@ void GameUi::Shutdown() {
 void GameUi::ToggleMenu() {
   if (!impl_->initialized)
     return;
+  // With the journal standing in for the pause menu, Esc walks back out of
+  // whichever sub-panel is up before it closes the menu at all.
+  if (impl_->menu_open && impl_->pause_menu_active && impl_->pause_menu.Back(impl_->ui))
+    return;
   impl_->menu_open = !impl_->menu_open;
   impl_->settings_open = false;  // always reopen on the main pause screen
+  if (impl_->menu_open && impl_->pause_menu_active)
+    impl_->pause_menu.Reset(impl_->ui);
   impl_->ApplyMenuVisibility();
+}
+
+bool GameUi::PollReturnToMenu() {
+  if (!impl_->initialized || !impl_->return_to_menu)
+    return false;
+  impl_->return_to_menu = false;
+  return true;
 }
 
 bool GameUi::menu_open() const {
@@ -2620,6 +2697,13 @@ bool GameUi::main_menu_open() const {
 }
 
 void GameUi::MainMenuMove(int dx, int dy) {
+  if (impl_->initialized && impl_->main_menu_open && impl_->start_menu_active) {
+    if (dy != 0) {
+      impl_->start_menu.MoveSelection(dy);
+      impl_->start_menu.Apply(impl_->ui);
+    }
+    return;
+  }
   if (!impl_->initialized || !impl_->main_menu_open || impl_->mm_screen != 0)
     return;
   if (dy)
@@ -2629,7 +2713,13 @@ void GameUi::MainMenuMove(int dx, int dy) {
 }
 
 void GameUi::MainMenuActivate() {
-  if (!impl_->initialized || !impl_->main_menu_open || impl_->mm_screen != 0)
+  if (!impl_->initialized || !impl_->main_menu_open)
+    return;
+  if (impl_->start_menu_active) {
+    impl_->ActOnStartMenu();  // the translated boot menu is the front screen
+    return;
+  }
+  if (impl_->mm_screen != 0)
     return;
   impl_->ActivateNav();
 }
@@ -2949,6 +3039,24 @@ void GameUi::Build(Window& window,
   // from window space into the (possibly larger) backbuffer canvas so clicks
   // line up with the widgets.
   const InputState& in = window.input();
+  impl->ui_time += frame_delta;
+  if (const float at = PauseAt.get(); at > 0.0f) {
+    const auto crossed = [&](float t) {
+      return impl->ui_time >= t && impl->ui_time - frame_delta < t;
+    };
+    if (crossed(at))
+      ToggleMenu();
+    if (const int pick = PausePick.get(); pick >= 0 && crossed(at + 1.0f)) {
+      for (int i = 0; i < pick; ++i)
+        impl->pause_menu.MoveSelection(1);
+      impl->pause_menu.Apply(impl->ui);
+      impl->ActOnPauseMenu();
+    }
+    // A second beat picks the first entry of whatever sub-panel that opened,
+    // which is how the quit list's "Main Menu" gets exercised.
+    if (PausePick.get() >= 0 && crossed(at + 2.0f))
+      impl->ActOnPauseMenu();
+  }
 
   // The legal notice: counts itself down, and any key, pad button or click takes
   // it away early. It swallows that input so the press does not also land on
@@ -3067,7 +3175,9 @@ void GameUi::Build(Window& window,
   // The vanilla menus are lists the game drives itself rather than focus rings,
   // so they take up/down and activate directly instead of going through ugui's
   // navigation. Their rows are all one widget deep and carry no focus index.
-  if (!impl->legal_open && (impl->start_menu_active || impl->pause_menu_active)) {
+  const bool start_menu_live = impl->start_menu_active && impl->main_menu_open;
+  const bool pause_menu_live = impl->pause_menu_active && impl->menu_open;
+  if (!impl->legal_open && (start_menu_live || pause_menu_live)) {
     int step = 0;
     if (in.key_pressed(Key::kArrowUp) || pad_pressed[static_cast<int>(GamepadButton::kDpadUp)])
       --step;
@@ -3075,7 +3185,7 @@ void GameUi::Build(Window& window,
       ++step;
     const bool activate =
         in.key_pressed(Key::kReturn) || pad_pressed[static_cast<int>(GamepadButton::kSouth)];
-    if (impl->start_menu_active) {
+    if (start_menu_live) {
       if (step != 0) {
         impl->start_menu.MoveSelection(step);
         impl->start_menu.Apply(impl->ui);
@@ -3489,6 +3599,9 @@ SettingsRequest GameUi::PollSettingsRequest() {
   return {};
 }
 bool GameUi::quit_requested() const {
+  return false;
+}
+bool GameUi::PollReturnToMenu() {
   return false;
 }
 void GameUi::OpenMainMenu() {}

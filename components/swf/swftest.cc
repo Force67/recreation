@@ -334,7 +334,11 @@ int main() {
   options.name = "test";
   const swf::UguiScreen screen = swf::ExportUgui(m, options);
   Check(screen.widget_count >= 3, "the translation emits the root, shape and text");
-  Check(Contains(screen.markup, "panel test {"), "the root panel takes the screen name");
+  // Namespaced: a movie's stem collides with the host's own fragments, and two
+  // roots with one name merge into a single tree (Fallout 4 ships mainmenu.swf
+  // and recreation has main_menu.ugui).
+  Check(Contains(screen.markup, "panel vanilla_test {"),
+        "the root panel namespaces the screen name");
   Check(Contains(screen.markup, "MeterInstance"),
         "the instance name becomes the widget name");
   Check(Contains(screen.markup, "background: #4080c0"),
