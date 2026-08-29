@@ -1,0 +1,343 @@
+#include <base/containers/vector.h>
+#include <base/memory/move.h>
+#include <base/strings/format.h>
+#include <base/strings/string_ref.h>
+#include <base/strings/xstring.h>
+
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+
+#include "asset/vfs.h"
+#include "components/bethesda/archive.h"
+#include "components/swf/decompile.h"
+#include "components/swf/movie.h"
+#include "components/swf/svg_export.h"
+#include "components/swf/swf.h"
+#include "components/swf/ugui_export.h"
+
+// Reads the Scaleform movies the Bethesda games ship their whole UI in: the tag
+// stream, the vector art, the bitmaps, the text fields, and the ActionScript 2
+// bytecode behind all of it. `--ugui` translates a movie into libultragui
+// markup plus its assets, which is how the original interface gets rebuilt on
+// the engine's own UI stack rather than emulated.
+namespace {
+
+using namespace rx;
+
+base::Vector<u8> ReadFile(const char* path) {
+  base::Vector<u8> out;
+  std::ifstream file(path, std::ios::binary | std::ios::ate);
+  if (!file)
+    return out;
+  const std::streamsize size = file.tellg();
+  file.seekg(0);
+  out.resize(static_cast<mem_size>(size));
+  file.read(reinterpret_cast<char*>(out.data()), size);
+  return out;
+}
+
+bool WriteFile(const std::filesystem::path& path, const void* data, mem_size size) {
+  std::error_code ec;
+  std::filesystem::create_directories(path.parent_path(), ec);
+  std::ofstream file(path, std::ios::binary);
+  if (!file)
+    return false;
+  file.write(static_cast<const char*>(data), static_cast<std::streamsize>(size));
+  return file.good();
+}
+
+bool WriteText(const std::filesystem::path& path, const base::String& text) {
+  return WriteFile(path, text.data(), text.size());
+}
+
+const char* KindName(swf::CharacterKind kind) {
+  switch (kind) {
+    case swf::CharacterKind::kShape:
+      return "shape";
+    case swf::CharacterKind::kBitmap:
+      return "bitmap";
+    case swf::CharacterKind::kEditText:
+      return "edittext";
+    case swf::CharacterKind::kStaticText:
+      return "text";
+    case swf::CharacterKind::kFont:
+      return "font";
+    case swf::CharacterKind::kSprite:
+      return "sprite";
+    case swf::CharacterKind::kButton:
+      return "button";
+    default:
+      return "unknown";
+  }
+}
+
+void PrintSummary(const swf::SwfFile& file, const swf::Movie& movie) {
+  std::printf("%s v%u  stage %.0fx%.0f @ %.1f fps, %u frames\n",
+              file.gfx ? "gfx" : "swf", file.version,
+              static_cast<double>(swf::ToPixels(file.frame_size.width())),
+              static_cast<double>(swf::ToPixels(file.frame_size.height())),
+              static_cast<double>(file.frame_rate), file.frame_count);
+  std::printf("  tags %zu  shapes %zu  bitmaps %zu  edit texts %zu  static texts %zu\n",
+              static_cast<size_t>(file.tags.size()),
+              static_cast<size_t>(movie.shapes.size()),
+              static_cast<size_t>(movie.bitmaps.size()),
+              static_cast<size_t>(movie.edit_texts.size()),
+              static_cast<size_t>(movie.static_texts.size()));
+  std::printf("  fonts %zu  sprites %zu  buttons %zu  exports %zu  scripts %zu\n",
+              static_cast<size_t>(movie.fonts.size()),
+              static_cast<size_t>(movie.sprites.size()),
+              static_cast<size_t>(movie.buttons.size()),
+              static_cast<size_t>(movie.exports.size()),
+              static_cast<size_t>(movie.scripts.size()));
+  if (!movie.abc_blocks.empty())
+    std::printf("  actionscript 3: %zu DoABC block(s)\n",
+                static_cast<size_t>(movie.abc_blocks.size()));
+  for (const base::String& entry : movie.imports)
+    std::printf("  imports %s\n", entry.c_str());
+}
+
+void PrintTags(const swf::SwfFile& file) {
+  for (const swf::Tag& tag : file.tags) {
+    const base::StringRef name = swf::TagName(tag.code);
+    std::printf("  %6u  %-28.*s %zu bytes\n", tag.code, static_cast<int>(name.size()),
+                name.data(), static_cast<size_t>(tag.body.size()));
+  }
+}
+
+void PrintExports(const swf::Movie& movie) {
+  for (const auto& entry : movie.exports) {
+    const swf::CharacterRef* ref = movie.characters.find(entry.key);
+    std::printf("  %5u  %-9s %s\n", entry.key,
+                KindName(ref ? ref->kind : swf::CharacterKind::kUnknown),
+                entry.value.c_str());
+  }
+}
+
+void PrintTexts(const swf::Movie& movie) {
+  for (const swf::EditText& text : movie.edit_texts) {
+    std::printf("  %5u  %6.1fx%-6.1f %-34s %s\n", text.id,
+                static_cast<double>(swf::ToPixels(text.bounds.width())),
+                static_cast<double>(swf::ToPixels(text.bounds.height())),
+                text.variable.empty() ? "-" : text.variable.c_str(),
+                text.initial_text.c_str());
+  }
+  for (const swf::StaticText& text : movie.static_texts) {
+    base::String content;
+    for (const swf::TextRun& run : text.runs) {
+      if (const swf::Font* font = movie.FindFont(run.font_id))
+        content += swf::ResolveRunText(*font, run);
+    }
+    if (!content.empty())
+      std::printf("  %5u  static  %s\n", text.id, content.c_str());
+  }
+}
+
+// Mounts every archive in a game's Data directory plus its loose files, which
+// is where the shipped movies actually live (Skyrim - Interface.bsa,
+// Fallout4 - Interface.ba2, ...).
+void MountData(asset::Vfs& vfs, const char* data_dir) {
+  std::error_code ec;
+  for (const auto& entry : std::filesystem::directory_iterator(data_dir, ec)) {
+    if (auto provider = bethesda::OpenArchive(entry.path().string()))
+      vfs.Mount(base::move(provider));
+  }
+  vfs.Mount(asset::MakeLooseFileProvider(data_dir));
+}
+
+int TranslateAll(const char* data_dir, const char* out_dir, f32 scale,
+                 base::StringRef filter) {
+  asset::Vfs vfs;
+  MountData(vfs, data_dir);
+
+  base::Vector<base::String> movies;
+  vfs.Enumerate([&](base::StringRef path) {
+    if (!path.ends_with(".swf") && !path.ends_with(".gfx"))
+      return;
+    if (!filter.empty() && path.find(filter) == base::StringRef::npos)
+      return;
+    movies.push_back(base::String(path));
+  });
+
+  u32 translated = 0;
+  u32 skipped = 0;
+  // A .gfx twin sits beside its .swf under exported/, so the file stem alone
+  // collides; keep both rather than letting the second overwrite the first.
+  base::Vector<base::String> used;
+  for (const base::String& path : movies) {
+    auto bytes = vfs.Read(path);
+    if (!bytes.has_value()) {
+      ++skipped;
+      continue;
+    }
+    const base::Vector<u8>& data = bytes.value();
+    auto file = swf::OpenSwf(ByteSpan{data.data(), data.size()});
+    if (!file.has_value()) {
+      ++skipped;
+      continue;
+    }
+    auto movie = swf::LoadMovie(file.value());
+    if (!movie.has_value()) {
+      ++skipped;
+      continue;
+    }
+
+    swf::UguiExportOptions options;
+    options.name = std::filesystem::path(path.c_str()).stem().string().c_str();
+    for (u32 suffix = 2;; ++suffix) {
+      bool taken = false;
+      for (const base::String& name : used)
+        taken = taken || name == options.name;
+      if (!taken)
+        break;
+      options.name = base::Format("{}_{}",
+                                  std::filesystem::path(path.c_str()).stem().string().c_str(),
+                                  suffix);
+    }
+    used.push_back(options.name);
+    options.scale = scale;
+    swf::UguiScreen screen = swf::ExportUgui(movie.value(), options);
+    if (screen.widget_count <= 1) {
+      // A movie that is only a script stub has nothing to lay out.
+      ++skipped;
+      continue;
+    }
+
+    const std::filesystem::path dir = out_dir;
+    const std::string stem = options.name.c_str();
+    WriteText(dir / (stem + ".ugui"), screen.markup);
+    WriteText(dir / (stem + ".as"), screen.script);
+    WriteText(dir / (stem + ".manifest"), screen.manifest);
+    for (const swf::ExportedAsset& asset : screen.assets)
+      WriteFile(dir / asset.file.c_str(), asset.bytes.data(), asset.bytes.size());
+    std::printf("  %-34s %u widgets, %zu assets\n", stem.c_str(), screen.widget_count,
+                static_cast<size_t>(screen.assets.size()));
+    ++translated;
+  }
+  std::printf("%u movie(s) translated into %s, %u skipped\n", translated, out_dir,
+              skipped);
+  return translated == 0 ? 1 : 0;
+}
+
+int Usage() {
+  std::printf(
+      "usage: swfdump <file.swf|file.gfx> [mode]\n"
+      "  (default)          summary of the movie\n"
+      "  --tags             every tag in order\n"
+      "  --exports          exported linkage symbols\n"
+      "  --text             edit-text fields and their ActionScript bindings\n"
+      "  --script           decompiled ActionScript 2 for the whole movie\n"
+      "  --disasm           AVM1 disassembly listing\n"
+      "  --strings          every constant-pool string\n"
+      "  --ugui <out-dir> [frame] [scale]\n"
+      "                     translate to libultragui markup plus its assets;\n"
+      "                     scale 1.5 fits a 720p Bethesda stage to a 1080p ui\n"
+      "\n"
+      "       swfdump --data <data-dir> --ugui-all <out-dir> [scale] [filter]\n"
+      "                     translate every movie in a game's archives at once\n");
+  return 1;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+  if (argc < 2)
+    return Usage();
+
+  if (base::StringRef(argv[1]) == "--data") {
+    if (argc < 5 || base::StringRef(argv[3]) != "--ugui-all")
+      return Usage();
+    const f32 scale = argc > 5 ? static_cast<f32>(std::atof(argv[5])) : 1.0f;
+    const base::StringRef filter = argc > 6 ? base::StringRef(argv[6]) : base::StringRef();
+    return TranslateAll(argv[2], argv[4], scale, filter);
+  }
+
+  const base::Vector<u8> bytes = ReadFile(argv[1]);
+  if (bytes.empty()) {
+    std::printf("cannot read %s\n", argv[1]);
+    return 1;
+  }
+
+  auto file = swf::OpenSwf(ByteSpan{bytes.data(), bytes.size()});
+  if (!file.has_value()) {
+    std::printf("%s is not a readable swf/gfx movie\n", argv[1]);
+    return 1;
+  }
+
+  auto movie = swf::LoadMovie(file.value());
+  if (!movie.has_value()) {
+    std::printf("%s decoded no characters\n", argv[1]);
+    return 1;
+  }
+
+  const base::StringRef mode = argc > 2 ? base::StringRef(argv[2]) : base::StringRef();
+  if (mode.empty()) {
+    PrintSummary(file.value(), movie.value());
+    return 0;
+  }
+  if (mode == "--tags") {
+    PrintTags(file.value());
+    return 0;
+  }
+  if (mode == "--exports") {
+    PrintExports(movie.value());
+    return 0;
+  }
+  if (mode == "--text") {
+    PrintTexts(movie.value());
+    return 0;
+  }
+  if (mode == "--script") {
+    const base::String script = swf::ExportScript(movie.value());
+    std::fwrite(script.data(), 1, script.size(), stdout);
+    return 0;
+  }
+  if (mode == "--disasm") {
+    for (const swf::Script& script : movie.value().scripts) {
+      std::printf("// %s %u, sprite %u\n",
+                  script.kind == swf::Script::Kind::kInit ? "initclip" : "frame",
+                  script.frame, script.sprite_id);
+      const base::String listing = swf::Disassembly(script.code);
+      std::fwrite(listing.data(), 1, listing.size(), stdout);
+    }
+    return 0;
+  }
+  if (mode == "--strings") {
+    for (const swf::Script& script : movie.value().scripts) {
+      for (const base::String& s : swf::ConstantStrings(script.code))
+        std::printf("%s\n", s.c_str());
+    }
+    return 0;
+  }
+  if (mode == "--ugui") {
+    if (argc < 4)
+      return Usage();
+    const std::filesystem::path out_dir = argv[3];
+    swf::UguiExportOptions options;
+    options.name = std::filesystem::path(argv[1]).stem().string().c_str();
+    if (argc > 4)
+      options.frame = static_cast<u32>(std::atoi(argv[4]));
+    if (argc > 5)
+      options.scale = static_cast<f32>(std::atof(argv[5]));
+
+    swf::UguiScreen screen = swf::ExportUgui(movie.value(), options);
+    const std::filesystem::path markup = out_dir / (options.name.c_str() + std::string(".ugui"));
+    if (!WriteText(markup, screen.markup)) {
+      std::printf("cannot write %s\n", markup.string().c_str());
+      return 1;
+    }
+    WriteText(out_dir / (options.name.c_str() + std::string(".as")), screen.script);
+    WriteText(out_dir / (options.name.c_str() + std::string(".manifest")),
+              screen.manifest);
+    for (const swf::ExportedAsset& asset : screen.assets)
+      WriteFile(out_dir / asset.file.c_str(), asset.bytes.data(), asset.bytes.size());
+
+    std::printf("%s: %u widgets, %zu assets, %u display objects skipped\n",
+                markup.string().c_str(), screen.widget_count,
+                static_cast<size_t>(screen.assets.size()), screen.skipped_count);
+    return 0;
+  }
+
+  return Usage();
+}
