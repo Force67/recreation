@@ -1,5 +1,6 @@
 #include "components/swf/shape.h"
 
+#include <base/containers/unordered_map.h>
 #include <base/memory/move.h>
 
 #include <cmath>
@@ -141,6 +142,29 @@ void Stitch(base::Vector<Segment>& edges, base::Vector<Contour>& out) {
   for (mem_size i = 0; i < edges.size(); ++i)
     used[i] = false;
 
+  // Edges bucketed by their start point, in draw order. Without this the walk
+  // rescans the whole edge list every time it extends a contour, which is
+  // quadratic and turns one dense piece of vector art into a multi-second stall.
+  // `cursor` remembers how far into a bucket the walk has already consumed, so
+  // the total scan across all lookups stays linear.
+  auto key = [](i32 x, i32 y) -> u64 {
+    return (static_cast<u64>(static_cast<u32>(x)) << 32) | static_cast<u32>(y);
+  };
+  base::UnorderedMap<u64, mem_size> bucket_of;
+  base::Vector<base::Vector<mem_size>> buckets;
+  base::Vector<mem_size> cursor;
+  for (mem_size i = 0; i < edges.size(); ++i) {
+    const u64 k = key(edges[i].from_x, edges[i].from_y);
+    mem_size* slot = bucket_of.find(k);
+    if (!slot) {
+      bucket_of[k] = buckets.size();
+      buckets.push_back(base::Vector<mem_size>());
+      cursor.push_back(0);
+      slot = bucket_of.find(k);
+    }
+    buckets[*slot].push_back(i);
+  }
+
   for (mem_size i = 0; i < edges.size(); ++i) {
     if (used[i])
       continue;
@@ -159,16 +183,21 @@ void Stitch(base::Vector<Segment>& edges, base::Vector<Contour>& out) {
         contour.closed = true;
         break;
       }
-      for (mem_size j = i + 1; j < edges.size(); ++j) {
-        if (used[j] || edges[j].from_x != head_x || edges[j].from_y != head_y)
-          continue;
-        used[j] = true;
-        contour.segments.push_back(edges[j]);
-        head_x = edges[j].to_x;
-        head_y = edges[j].to_y;
-        extended = true;
+      const mem_size* slot = bucket_of.find(key(head_x, head_y));
+      if (!slot)
         break;
-      }
+      base::Vector<mem_size>& bucket = buckets[*slot];
+      mem_size& next = cursor[*slot];
+      while (next < bucket.size() && used[bucket[next]])
+        ++next;
+      if (next >= bucket.size())
+        break;
+      const mem_size j = bucket[next];
+      used[j] = true;
+      contour.segments.push_back(edges[j]);
+      head_x = edges[j].to_x;
+      head_y = edges[j].to_y;
+      extended = true;
     }
     if (head_x == start_x && head_y == start_y)
       contour.closed = true;

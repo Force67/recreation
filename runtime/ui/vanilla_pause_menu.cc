@@ -214,7 +214,7 @@ bool VanillaPauseMenu::HandleClick(ugui::UIContext&, u32) {
 VanillaPauseMenu::Action VanillaPauseMenu::Selected() const {
   return Action::kNone;
 }
-void VanillaPauseMenu::SetPlayerInfo(ugui::UIContext&, base::StringRef, base::StringRef, f32) {}
+void VanillaPauseMenu::SetPlayerInfo(ugui::UIContext&, f64, int, f32) {}
 
 }  // namespace rx::ui
 

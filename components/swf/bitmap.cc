@@ -11,6 +11,12 @@ namespace rx::swf {
 namespace {
 
 constexpr u32 kMaxDimension = 8192;
+// A ceiling on what one bitmap tag may allocate, and on how far its declared
+// size may exceed the deflate stream it is supposed to come out of. Both figures
+// are read from the tag header, so without these a 20-byte tag can ask for
+// hundreds of megabytes before the inflate fails.
+constexpr u64 kMaxBitmapBytes = 64ull * 1024 * 1024;
+constexpr u64 kMaxInflateRatio = 1024;
 
 // Rows of an indexed or 15-bit lossless bitmap are padded out to a 32-bit
 // boundary; 24/32-bit rows never need it.
@@ -59,11 +65,23 @@ bool DecodeLossless(Reader& r, bool with_alpha, ByteSpan body, Bitmap& out) {
       row_bytes = out.width * 4;
       break;
   }
-  const u32 raw_size = table_size * entry_bytes + row_bytes * out.height;
+  // Computed wide: 8192x8192 at 4 bytes a pixel already overflows a u32, and
+  // both figures come straight from the tag header.
+  const u64 raw_size64 = static_cast<u64>(table_size) * entry_bytes +
+                         static_cast<u64>(row_bytes) * out.height;
+  if (raw_size64 == 0 || raw_size64 > kMaxBitmapBytes)
+    return false;
+  const u32 raw_size = static_cast<u32>(raw_size64);
+  if (r.pos() >= body.size())
+    return false;
+  const ByteSpan compressed = body.subspan(r.pos());
+  // Refuse a header that claims more than deflate could possibly produce from
+  // what is actually there, rather than allocating it and finding out.
+  if (raw_size64 > static_cast<u64>(compressed.size()) * kMaxInflateRatio)
+    return false;
 
   base::Vector<u8> raw;
   raw.resize(raw_size);
-  const ByteSpan compressed = body.subspan(r.pos());
   if (!bethesda::ZlibInflate(compressed, raw.data(), raw_size))
     return false;
 

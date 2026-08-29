@@ -198,17 +198,20 @@ base::Vector<u8> BuildCmap(const base::Vector<u16>& codes) {
 
   Buffer sub;
   const u16 seg_count = static_cast<u16>(segments.size());
-  u16 search_range = 2;
+  // The largest power of two <= seg_count, doubled. Computed in u32: a font
+  // with 16384 or more segments (a CJK face has that many scattered codes)
+  // overflows the u16 the table stores, and the doubling loop never ends.
+  u32 search_range = 2;
   u16 entry_selector = 0;
-  while (static_cast<u16>(search_range * 2) <= seg_count * 2) {
-    search_range = static_cast<u16>(search_range * 2);
+  while (search_range * 2 <= static_cast<u32>(seg_count) * 2) {
+    search_range *= 2;
     ++entry_selector;
   }
   sub.U16(4);
   sub.U16(static_cast<u16>(16 + seg_count * 8));
   sub.U16(0);
   sub.U16(static_cast<u16>(seg_count * 2));
-  sub.U16(search_range);
+  sub.U16(static_cast<u16>(search_range));
   sub.U16(entry_selector);
   sub.U16(static_cast<u16>(seg_count * 2 - search_range));
   for (const Segment& s : segments)

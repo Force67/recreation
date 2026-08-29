@@ -125,7 +125,7 @@ struct Pools {
     return index < strings.size() ? base::StringRef(strings[index]) : base::StringRef();
   }
 
-  base::String Name(u32 index) const {
+  base::String Name(u32 index, u32 depth = 0) const {
     if (index == 0 || index >= multinames.size())
       return base::String("*");  // index 0 is the "any" name
     const Multiname& m = multinames[index];
@@ -150,7 +150,11 @@ struct Pools {
       case 0x10:
         return base::String(String(m.name));
       case 0x1d: {  // TypeName, e.g. Vector.<String>
-        base::String out = Name(m.type_name);
+        // A TypeName names another multiname, and nothing in the format stops
+        // that chain from looping back on itself.
+        if (depth >= 16)
+          return base::String("*");
+        base::String out = Name(m.type_name, depth + 1);
         out += ".<>";
         return out;
       }

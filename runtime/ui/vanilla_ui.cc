@@ -305,6 +305,22 @@ u32 LoadVanillaFonts(ugui::UIContext& ui,
   return loaded;
 }
 
+namespace {
+// Everything uploaded for the currently bound screens, so it can be handed back
+// when they are bound again.
+base::Vector<ugui::TextureId>& BoundTextures() {
+  static base::Vector<ugui::TextureId> textures;
+  return textures;
+}
+}  // namespace
+
+void ReleaseVanillaImages(ugui::TextureBackend& backend) {
+  base::Vector<ugui::TextureId>& textures = BoundTextures();
+  for (ugui::TextureId texture : textures)
+    backend.DestroyTexture(texture);
+  textures.clear();
+}
+
 u32 BindVanillaImages(ugui::UIContext& ui,
                       ugui::TextureBackend& backend,
                       base::StringRef dir,
@@ -344,6 +360,7 @@ u32 BindVanillaImages(ugui::UIContext& ui,
                                 image.pixels.data(), ugui::RHIFilter::kLinear);
       if (texture == ugui::kNullTextureId)
         continue;
+      BoundTextures().push_back(texture);
       uploaded[file] = UploadedImage{texture, static_cast<f32>(image.width),
                                      static_cast<f32>(image.height)};
       ugui::SetImageTexture(widget, texture, static_cast<float>(image.width),
@@ -367,6 +384,7 @@ u32 BindVanillaImages(ugui::UIContext& ui,
     stbi_image_free(pixels);
     if (texture == ugui::kNullTextureId)
       continue;
+    BoundTextures().push_back(texture);
     uploaded[file] = UploadedImage{texture, static_cast<f32>(width),
                                    static_cast<f32>(height)};
     ugui::SetImageTexture(widget, texture, static_cast<float>(width),
@@ -385,6 +403,7 @@ namespace rx::ui {
 void SetVanillaText(ugui::UIContext&, base::StringRef, base::StringRef) {}
 void SetVanillaTextColor(ugui::UIContext&, base::StringRef, u32) {}
 void ShowVanillaSubtree(ugui::UIContext&, base::StringRef, bool) {}
+void ReleaseVanillaImages(ugui::TextureBackend&) {}
 
 base::Vector<base::String> VanillaScreenNames() {
   return {};

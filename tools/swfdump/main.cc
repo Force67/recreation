@@ -35,10 +35,17 @@ base::Vector<u8> ReadFile(const char* path) {
   std::ifstream file(path, std::ios::binary | std::ios::ate);
   if (!file)
     return out;
+  // A directory opens happily and reports LLONG_MAX here, which sizes the
+  // vector past any allocator. Anything this large is not a movie either way.
+  constexpr std::streamsize kMaxFileSize = 512ll * 1024 * 1024;
   const std::streamsize size = file.tellg();
+  if (size <= 0 || size > kMaxFileSize)
+    return out;
   file.seekg(0);
   out.resize(static_cast<mem_size>(size));
   file.read(reinterpret_cast<char*>(out.data()), size);
+  if (!file)
+    out.clear();
   return out;
 }
 
@@ -387,6 +394,8 @@ int main(int argc, char** argv) {
   }
   argc = static_cast<int>(args.size());
   argv = args.data();
+  if (argc < 2)
+    return Usage();  // the count above was checked before --reveal was removed
 
   if (base::StringRef(argv[1]) == "--data") {
     if (argc < 5 || base::StringRef(argv[3]) != "--ugui-all")

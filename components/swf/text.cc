@@ -83,8 +83,12 @@ bool ParseStaticText(u16 tag_code, ByteSpan body, StaticText& out) {
   out.id = r.U16();
   out.bounds = r.ReadRect();
   out.matrix = r.ReadMatrix();
+  // Both are a raw byte in the tag; a bit count past 32 is undefined behaviour
+  // in the shifts Bits/SignedBits do, so a malformed tag is refused outright.
   const u32 glyph_bits = r.U8();
   const u32 advance_bits = r.U8();
+  if (glyph_bits > 32 || advance_bits > 32)
+    return false;
   if (!r.ok())
     return false;
 

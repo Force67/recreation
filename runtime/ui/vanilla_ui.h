@@ -72,6 +72,12 @@ base::String VanillaScreenDir();
 // warning when either is missing.
 bool LoadVanillaScreen(base::StringRef dir, base::StringRef name, VanillaScreen& out);
 
+// Frees every texture the last BindVanillaImages uploaded. ugui does not own
+// user textures and rebuilding the widget tree does not touch them, so the
+// screens have to be released before they are bound again or each hot reload
+// orphans a full set of images (a translated screen brings hundreds).
+void ReleaseVanillaImages(ugui::TextureBackend& backend);
+
 // Registers the TrueType files in <dir>/fonts that `screens` ask for, so a
 // screen's `font:` property resolves to the typeface the game embeds in its own
 // font movies. Only the referenced families are loaded: the shipped set spans

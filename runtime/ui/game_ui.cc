@@ -991,6 +991,7 @@ void BindVanillaScreens(ugui::UIContext& context, ugui::TextureBackend& backend)
   base::Vector<ui::VanillaScreen>& screens = VanillaScreens();
   if (screens.empty())
     return;
+  ui::ReleaseVanillaImages(backend);  // a rebuild re-uploads them all
   const base::String dir = ui::VanillaScreenDir();
   u32 bound = 0;
   for (const ui::VanillaScreen& screen : screens)
@@ -1395,11 +1396,49 @@ struct GameUi::Impl {
   // Reassemble the tree from the (edited) fragments and reapply the live
   // visibility state the rebuild reset to markup defaults. Per-frame value
   // updates (HUD text, editor view, main-menu data) refresh the rest next frame.
+  // Fills the translated menus the way the game fills them on open. Runs at
+  // startup and again after a hot reload, which rebuilds the tree from markup
+  // and so throws away everything written into it here.
+  void BuildVanillaMenus() {
+    start_menu_active = false;
+    pause_menu_active = false;
+    for (const ui::VanillaScreen& screen : VanillaScreens()) {
+      if (screen.name == "startmenu") {
+        ui::VanillaStartMenu::Availability availability;
+        availability.has_save = false;  // no save browser wired to the vanilla frame yet
+        if (start_menu.Build(ui, availability, &vanilla_strings)) {
+          start_menu.Apply(ui);
+          start_menu_active = true;
+          ugui::SetText(ui.FindWidget("VersionText"), "recreation");
+          RX_INFO("ui: vanilla start menu hooked up");
+        }
+      } else if (screen.name == "quest_journal") {
+        ui::VanillaPauseMenu::Availability availability;
+        if (pause_menu.Build(ui, availability, &vanilla_strings)) {
+          pause_menu.Apply(ui);
+          pause_menu_active = true;
+          ugui::SetText(ui.FindWidget("VersionText"), "recreation");
+          // The bottom bar's readout is a placeholder until the first stats
+          // push; seed it so the menu never shows "Time, Date, Year".
+          pause_menu.SetPlayerInfo(ui, mm_stats.game_days, mm_stats.level, 0.0f);
+          RX_INFO("ui: vanilla pause menu hooked up");
+        }
+      }
+    }
+  }
+
   void ReloadUi() {
     const base::String doc = BuildUi();
     ui.LoadUiString(doc.c_str(), "hud");
     BindVanillaScreens(ui, backend);
     CaptureFragmentMtimes();
+    // The tree came back from markup, so everything written into it by hand is
+    // gone: the vanilla menus are placeholder frames again and the legal notice
+    // is visible again (its markup has no `visibility`, and ugui ignores that
+    // property anyway). Both have to be re-applied, and the notice has to go
+    // back to whatever state it was actually in.
+    BuildVanillaMenus();
+    SetVisible("legal", legal_open);
     const bool hud = !editor.active && !UsingVanillaUi();
     SetVisible("topbar", hud);
     SetVisible("crosshair", hud);
@@ -2446,30 +2485,7 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   // does this. See runtime/ui/vanilla_start_menu and vanilla_pause_menu.
   if (UsingVanillaUi())
     impl_->vanilla_strings = ui::LoadVanillaStrings(ui::VanillaScreenDir());
-  for (const ui::VanillaScreen& screen : VanillaScreens()) {
-    if (screen.name == "startmenu") {
-      ui::VanillaStartMenu::Availability availability;
-      availability.has_save = false;  // no save browser wired to the vanilla frame yet
-      if (impl_->start_menu.Build(impl_->ui, availability, &impl_->vanilla_strings)) {
-        impl_->start_menu.Apply(impl_->ui);
-        impl_->start_menu_active = true;
-        ugui::SetText(impl_->ui.FindWidget("VersionText"), "recreation");
-        RX_INFO("ui: vanilla start menu hooked up");
-      }
-    } else if (screen.name == "quest_journal") {
-      ui::VanillaPauseMenu::Availability availability;
-      if (impl_->pause_menu.Build(impl_->ui, availability, &impl_->vanilla_strings)) {
-        impl_->pause_menu.Apply(impl_->ui);
-        impl_->pause_menu_active = true;
-        ugui::SetText(impl_->ui.FindWidget("VersionText"), "recreation");
-        // The bottom bar's readout is a placeholder until the first stats push;
-        // seed it so the menu never shows "Time, Date, Year".
-        impl_->pause_menu.SetPlayerInfo(impl_->ui, impl_->mm_stats.game_days,
-                                        impl_->mm_stats.level, 0.0f);
-        RX_INFO("ui: vanilla pause menu hooked up");
-      }
-    }
-  }
+  impl_->BuildVanillaMenus();
   if (UsingVanillaUi()) {
     for (const char* fragment : {"topbar", "crosshair", "vitals", "readout", "quest"})
       impl_->SetVisible(fragment, false);

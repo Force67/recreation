@@ -524,6 +524,8 @@ void TimelineBuilder::Run(u16 timeline_id, const base::Vector<Tag>& tags, Timeli
         break;
       }
       case TagCode::kDoInitAction: {
+        if (body.size() < 2)
+          break;  // a truncated tag carries no sprite id, let alone code
         Reader rr(body);
         Script script;
         script.kind = Script::Kind::kInit;

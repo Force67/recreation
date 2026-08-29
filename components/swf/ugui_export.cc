@@ -71,10 +71,19 @@ bool SamePath(base::StringRef a, base::StringRef b) {
   };
   const base::String left = normalize(a);
   const base::String right = normalize(b);
-  if (left.size() < right.size())
-    return right.size() - left.size() <= right.size() &&
-           right.find(left) != base::String::npos;
-  return left.find(right) != base::String::npos;
+  if (left.empty() || right.empty())
+    return false;
+  // An import names a movie by a path that rarely matches the archive's, so the
+  // comparison is on the file name. A substring test would let "list.gfx" claim
+  // "interface/itemlist.gfx", and with every movie in the archive kept loaded
+  // the first wrong match wins silently.
+  auto file_name = [](const base::String& path) -> base::StringRef {
+    const mem_size slash = path.rfind('/');
+    return slash == base::String::npos
+               ? base::StringRef(path)
+               : base::StringRef(path).subslice(slash + 1, path.size() - slash - 1);
+  };
+  return file_name(left) == file_name(right);
 }
 
 // Bethesda leaves a developer overlay inside several menus and hides it from
@@ -424,6 +433,11 @@ const Movie* Exporter::ResolveImport(u16 character_id, u32& index, u16& resolved
 }
 
 Rect Exporter::CharacterBounds(u16 character_id, u32 depth) {
+  // Buttons place characters and imports resolve into other movies, and either
+  // can name its way back round to where it started. Only the sprite path below
+  // keeps its own cycle set, so the depth cap has to cover the rest.
+  if (depth > options_.max_depth)
+    return Rect{};
   if (const Shape* shape = current_->FindShape(character_id))
     return shape->bounds;
   if (const EditText* text = current_->FindEditText(character_id))
@@ -720,6 +734,13 @@ void Exporter::EmitPlace(const Place& place,
                          const Box& parent_box,
                          u32 indent,
                          u32 depth) {
+  // Buttons place characters and imports resolve into other movies, and either
+  // can lead back to where it started. The sprite branch below keeps its own
+  // cycle set; this covers the rest.
+  if (depth > options_.max_depth) {
+    ++out_.skipped_count;
+    return;
+  }
   if (!place.has_character || !place.visible) {
     ++out_.skipped_count;
     return;

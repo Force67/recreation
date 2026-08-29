@@ -31,6 +31,20 @@ enum Prec : int {
   kPrimary = 15,
 };
 
+// How far branch structuring may nest before it gives up and emits the rest
+// linearly. Compiled AS2 nests a handful deep; a script built to nest further
+// would run the stack out.
+constexpr u32 kMaxStructureDepth = 64;
+
+// Holds a counter up for the length of a scope, on every exit path.
+struct DepthGuard {
+  explicit DepthGuard(u32& depth) : depth_(depth) { ++depth_; }
+  ~DepthGuard() { --depth_; }
+  DepthGuard(const DepthGuard&) = delete;
+  DepthGuard& operator=(const DepthGuard&) = delete;
+  u32& depth_;
+};
+
 struct Expr {
   base::String text;
   int precedence = kPrimary;
@@ -179,7 +193,8 @@ class Scope {
   mem_size IndexOfOffset(u32 offset) const;
 
   ByteSpan code_;
-  u32 depth_ = 0;
+  u32 depth_ = 0;            // nested function scopes
+  u32 structure_depth_ = 0;  // nested branches within this scope
   base::Vector<Action> actions_;
   base::Vector<base::String> pool_;
   base::Vector<Expr> stack_;
@@ -1068,9 +1083,20 @@ void Scope::Step(const Action& action) {
 }
 
 mem_size Scope::IndexOfOffset(u32 offset) const {
-  for (mem_size i = 0; i < actions_.size(); ++i)
-    if (actions_[i].offset == offset)
-      return i;
+  // Actions are decoded in order, so their offsets are strictly increasing and
+  // this can bisect. A linear scan here is called once per branch inside a loop
+  // over branches, which made structuring a script cubic in its length.
+  mem_size low = 0;
+  mem_size high = actions_.size();
+  while (low < high) {
+    const mem_size mid = low + (high - low) / 2;
+    if (actions_[mid].offset < offset)
+      low = mid + 1;
+    else
+      high = mid;
+  }
+  if (low < actions_.size() && actions_[low].offset == offset)
+    return low;
   return actions_.size();
 }
 
@@ -1249,6 +1275,13 @@ mem_size Scope::ConditionalChain(mem_size branch, mem_size to) {
 // Recovers the control-flow shapes the ActionScript 2 compiler emits. Anything
 // outside them falls back to a label and an explicit goto.
 void Scope::Structure(mem_size from, mem_size to) {
+  // Deeply nested branches recurse here; a script built to nest far enough would
+  // otherwise run the stack out. The body is still emitted, just not structured.
+  if (structure_depth_ >= kMaxStructureDepth) {
+    EmitLinear(from, to);  // still emitted, just not folded into control flow
+    return;
+  }
+  const DepthGuard guard(structure_depth_);
   // A do/while is a conditional branch back to an earlier action; the head has
   // to be known before the walk reaches it so the opening brace lands there.
   base::Vector<mem_size> do_heads;
