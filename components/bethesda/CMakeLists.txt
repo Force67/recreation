@@ -24,6 +24,7 @@ recreation_add_module(bethesda
   material_db.cc
   biom.cc
   planet.cc
+  shader_package.cc
   movement_type.cc
   converters.cc
   strings.cc
@@ -46,9 +47,9 @@ target_link_libraries(recreation_bethesda PUBLIC rx::core rx::asset rx::physics 
 # and asserts the decoded fields, so none of them needs game data on disk.
 foreach(t
     ba2test biomtest writertest edit_sessiontest deflatetest string_writertest
-    roundtriptest raw_rewritertest nif_fo4test nif_starfieldtest
+    roundtriptest raw_rewritertest nif_fo4test nif_skyrim_shadertest nif_starfieldtest
     starfield_skinned_meshtest material_dbtest facemorphtest bgsm_fo4test
-    dds_srgb_fo4test)
+    dds_srgb_fo4test shader_packagetest)
   recreation_add_test(${t} recreation::bethesda rx::asset)
 endforeach()
 recreation_add_test(tritest recreation::bethesda)
