@@ -55,6 +55,11 @@ base::Option<bool> UiHotReload{"ui.hot.reload", false, "RECREATION_UI_HOT_RELOAD
 base::Option<bool> UiMenu{"ui.menu", false, "RECREATION_UI_MENU"};
 base::Option<bool> MainMenu{"main.menu", false, "RECREATION_MAIN_MENU"};
 base::Option<bool> FirstRun{"first.run", false, "RECREATION_FIRST_RUN"};
+// The startup legal notice. On by default and meant to stay that way; RX_LEGAL=0
+// exists so the screenshot harnesses (which capture a frame a second or two in)
+// do not all photograph this card instead of the screen under test.
+base::Option<bool> ShowLegal{"legal", true, "RX_LEGAL"};
+constexpr f32 kLegalSeconds = 5.0f;
 base::Option<const char*> FirstRunStep{"first.run.step", nullptr, "RECREATION_FIRST_RUN_STEP"};
 
 // Scrolling compass geometry. 8 marks per 360deg turn, 3 turns so the strip
@@ -920,6 +925,7 @@ const char* const kUiFragments[] = {
     "hud_gauge.ugui", "chat.ugui",       "scoreboard.ugui", "mp_prompt.ugui",
     "nametag.ugui",   "journal.ugui",    "war_map.ugui",    "dialogue.ugui",
     "container.ugui", "pause_menu.ugui", "main_menu.ugui",  "first_run.ugui",
+    "legal.ugui",
 };
 
 // Directory holding the .ugui fragments: RECREATION_UI_DIR, else the compiled-in
@@ -1064,6 +1070,7 @@ base::String BuildUi() {
   s += LoadUiFragment("first_run.ugui");  // out-of-box wizard, overlays the menu
   for (const ui::VanillaScreen& screen : VanillaScreens())
     s += screen.markup;  // translated Scaleform, on top of everything
+  s += LoadUiFragment("legal.ugui");  // the startup notice, over all of it
   s += "}\n";
   return s;
 }
@@ -1172,6 +1179,12 @@ struct GameUi::Impl {
 
   // The translated Skyrim start menu, driven the way the game drives it. Only
   // live when that screen is one of the loaded vanilla screens.
+  // The startup legal notice: a full-bleed card over everything, dismissed by
+  // any input or by its own countdown running out.
+  bool legal_open = false;
+  f32 legal_left = kLegalSeconds;
+  int legal_shown = -1;  // last count written, so the text is not set every frame
+
   bool start_menu_active = false;
   ui::VanillaStartMenu start_menu;
   // The translated pause menu (the journal's System page), same deal.
@@ -2456,6 +2469,10 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
     for (const char* fragment : {"topbar", "crosshair", "vitals", "readout", "quest"})
       impl_->SetVisible(fragment, false);
   }
+  // The legal notice comes up over everything and is the first thing seen.
+  impl_->legal_open = bool(ShowLegal);
+  impl_->SetVisible("legal", impl_->legal_open);
+
   // Hot reload: when enabled, the .ugui fragments are polled for edits and the
   // tree is rebuilt in place (see GameUi::Build). Off by default.
   impl_->hot_reload = bool(UiHotReload);
@@ -2911,6 +2928,32 @@ void GameUi::Build(Window& window,
   // from window space into the (possibly larger) backbuffer canvas so clicks
   // line up with the widgets.
   const InputState& in = window.input();
+
+  // The legal notice: counts itself down, and any key, pad button or click takes
+  // it away early. It swallows that input so the press does not also land on
+  // whatever it is covering.
+  if (impl->legal_open) {
+    impl->legal_left -= frame_delta;
+    const int remaining = static_cast<int>(std::ceil(base::Max(0.0f, impl->legal_left)));
+    if (remaining != impl->legal_shown) {
+      impl->legal_shown = remaining;
+      ugui::SetText(impl->ui.FindWidget("legal_count"), base::ToString(remaining).c_str());
+    }
+    bool dismiss = impl->legal_left <= 0.0f;
+    for (int k = 0; !dismiss && k < static_cast<int>(Key::kCount); ++k)
+      dismiss = in.pressed[k];
+    for (int b = 0; !dismiss && b < static_cast<int>(MouseButton::kCount); ++b)
+      dismiss = in.mouse[b] && !impl->prev_mouse[b];
+    if (!dismiss && window.gamepad().connected) {
+      for (int b = 0; !dismiss && b < static_cast<int>(GamepadButton::kCount); ++b)
+        dismiss = window.gamepad().pressed[b];
+    }
+    if (dismiss) {
+      impl->legal_open = false;
+      impl->SetVisible("legal", false);
+      RX_INFO("ui: legal notice dismissed");
+    }
+  }
   ugui::InputQueue& q = impl->ui.platform()->input_queue();
   const float msx = window.width() > 0 ? fb_w / static_cast<float>(window.width()) : 1.f;
   const float msy = window.height() > 0 ? fb_h / static_cast<float>(window.height()) : 1.f;
@@ -2990,15 +3033,17 @@ void GameUi::Build(Window& window,
   }
   // Keyboard focus nav: Tab cycles, Enter/Space activate (ugui uses GLFW codes).
   const int shift_mod = in.key(Key::kLeftShift) ? 0x0001 : 0;
-  if (in.key_pressed(Key::kTab))
-    q.PushKey(258, 0, true, false, shift_mod);
-  if (in.key_pressed(Key::kReturn))
-    q.PushKey(257, 0, true, false, 0);
+  if (!impl->legal_open) {
+    if (in.key_pressed(Key::kTab))
+      q.PushKey(258, 0, true, false, shift_mod);
+    if (in.key_pressed(Key::kReturn))
+      q.PushKey(257, 0, true, false, 0);
+  }
 
   // The vanilla menus are lists the game drives itself rather than focus rings,
   // so they take up/down and activate directly instead of going through ugui's
   // navigation. Their rows are all one widget deep and carry no focus index.
-  if (impl->start_menu_active || impl->pause_menu_active) {
+  if (!impl->legal_open && (impl->start_menu_active || impl->pause_menu_active)) {
     int step = 0;
     if (in.key_pressed(Key::kArrowUp) || pad_pressed[static_cast<int>(GamepadButton::kDpadUp)])
       --step;
