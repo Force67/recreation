@@ -60,6 +60,11 @@ base::Option<bool> FirstRun{"first.run", false, "RECREATION_FIRST_RUN"};
 // do not all photograph this card instead of the screen under test.
 base::Option<bool> ShowLegal{"legal", true, "RX_LEGAL"};
 constexpr f32 kLegalSeconds = 5.0f;
+// The size legal.ugui is authored against. ugui's design space here is the raw
+// backbuffer, so the notice is scaled to the viewport for the few seconds it is
+// up; left alone, a 1920-wide card shrinks into the middle of a larger screen.
+constexpr f32 kLegalDesignWidth = 1920.0f;
+constexpr f32 kLegalDesignHeight = 1080.0f;
 base::Option<const char*> FirstRunStep{"first.run.step", nullptr, "RECREATION_FIRST_RUN_STEP"};
 
 // Scrolling compass geometry. 8 marks per 360deg turn, 3 turns so the strip
@@ -2933,6 +2938,8 @@ void GameUi::Build(Window& window,
   // it away early. It swallows that input so the press does not also land on
   // whatever it is covering.
   if (impl->legal_open) {
+    impl->ui.set_ui_scale(base::Min(impl->host.window_width / kLegalDesignWidth,
+                                    impl->host.window_height / kLegalDesignHeight));
     impl->legal_left -= frame_delta;
     const int remaining = static_cast<int>(std::ceil(base::Max(0.0f, impl->legal_left)));
     if (remaining != impl->legal_shown) {
@@ -2951,6 +2958,7 @@ void GameUi::Build(Window& window,
     if (dismiss) {
       impl->legal_open = false;
       impl->SetVisible("legal", false);
+      impl->ui.set_ui_scale(0.0f);  // back to whatever the config asks for
       RX_INFO("ui: legal notice dismissed");
     }
   }
