@@ -15,8 +15,9 @@ builds its whole interface in. Nothing above this component parses a SWF tag.
   attached.
 - Logic: `avm1` and `decompile` lift ActionScript 2 bytecode back to source;
   `abc` reads the ActionScript 3 (AVM2) blocks the newer games use.
-- Output: `svg_export` writes a shape as an SVG document, `ugui_export`
-  translates a whole movie into libultragui markup plus its assets.
+- Output: `svg_export` writes a shape as an SVG document, `font_export` converts
+  an embedded typeface to TrueType, and `ugui_export` translates a whole movie
+  into libultragui markup plus its assets.
 
 ## Which bytecode a game uses
 
@@ -47,6 +48,28 @@ translate identically for every game.
 | clip-depth mask | `panel` with `overflow: hidden` wrapping the depths it covers |
 | colour transform | folded down the tree into leaf colours and `opacity` |
 
+### What a menu needs besides its own tags
+
+A shipped menu is not self-contained, and a translation that ignores that comes
+out as an empty shell:
+
+- **Its text is keys.** Fields hold `$LEVEL`, `$Saving...`; the real strings live
+  in `interface/translate_<language>.txt` (`bethesda::InterfaceStrings`).
+- **Its typeface is embedded.** A field names a symbol like
+  `$EverywhereMediumFont`; `interface/fontconfig.txt`
+  (`bethesda::InterfaceFontConfig`) maps that onto a family inside one of the
+  font movies, whose glyphs `font_export` turns into a TrueType file.
+- **Its formatting is HTML.** A field's real face, size, colour, letter spacing
+  and alignment sit in the `<p align><font face size color letterSpacing>` markup
+  of its own value, not in the DefineEditText tag.
+- **It is several movies.** An inventory screen is a frame that imports its
+  lists, item card and button bar; following those imports is the difference
+  between fifteen widgets and three hundred.
+- **Some of it is never drawn.** Flash marks a hit area or a component's state
+  swatch by outlining it with a stroke at an alpha of a couple of 255ths, and
+  Bethesda leaves a developer overlay in a few menus under an instance whose
+  name says `Debug`. Both are skipped.
+
 Two details are worth knowing. Colour transforms are concatenated on the way
 down rather than emitted per node, because ugui's `opacity` does not inherit and
 Flash's does; without that, every plate a menu fades in would draw at full
@@ -55,6 +78,9 @@ mask in the shipped menus is a rectangle, so the two agree, but a shaped mask
 would clip wider than the original.
 
 What cannot come across is anything the movie only knows at runtime: list rows
-the game fills in, tweened positions, and masks installed from ActionScript
-rather than by clip depth. The translation is the movie's opening frame, which
-is the state the screen is authored to.
+the game fills in, tweened positions, meter fills the code scales, and masks
+installed from ActionScript rather than by clip depth. The translation is the
+movie's opening frame, which for a menu is its fade-in state - mostly empty,
+because Scaleform ships a menu transparent and its own code fades it in.
+`reveal_faded` shows what the movie is authored to look like instead, at the
+cost of stacking every page of a multi-page screen on top of each other.

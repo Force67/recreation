@@ -99,14 +99,22 @@ bodies come back as a full symbol outline plus disassembly.
 swfdump 'Interface/hudmenu.swf'                    # what the movie contains
 swfdump 'Interface/hudmenu.swf' --script           # the ActionScript behind it
 swfdump 'Interface/hudmenu.swf' --text             # fields and their bindings
-swfdump 'Interface/hudmenu.swf' --ugui out/ 0 1.5  # translate to ugui markup
+swfdump 'Interface/hudmenu.swf' --fonts out/       # its embedded typeface, as TTF
+swfdump --data "$SKYRIM/Data" --ugui-all out/ 1.5  # every menu at once
 ```
 
-`--ugui` writes a `.ugui` screen, the SVG and PNG assets it references and a
-manifest binding them to widgets. The engine loads those like any other screen:
+`--ugui-all` mounts the game's archives and translates the whole interface: a
+`.ugui` screen per menu, the SVG and PNG art it references, a manifest binding
+that art to widgets, the decompiled ActionScript beside it, and the game's own
+typeface converted to TrueType. Text comes out in the player's language and in
+Skyrim's own Futura Condensed, and a menu the game splices together from several
+movies is spliced together here too. The scale argument fits Bethesda's 720p
+stage to the engine's 1080p ui space.
+
+The engine loads the result like any other screen:
 
 ```sh
-RX_VANILLA_UI=hudmenu ./run-skyrim.sh
+RX_VANILLA_UI=hudmenu,quest_journal ./run-skyrim.sh
 ```
 
 Set `RX_VANILLA_UI_DIR` to load them from somewhere other than
