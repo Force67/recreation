@@ -164,8 +164,17 @@ int TranslateAll(const char* data_dir, const char* out_dir, f32 scale,
 
   // The interface's own key table, so the screens read as the player sees them
   // rather than as "$LEVEL" and "$Saving...".
+  // The language token differs by game: Skyrim spells it out, Fallout 4 and
+  // Starfield use the two-letter code. Take whichever table is actually there.
   bethesda::InterfaceStrings strings;
-  if (strings.Load(vfs, "english")) {
+  bool have_strings = false;
+  for (const char* language : {"english", "en"}) {
+    if (strings.Load(vfs, language)) {
+      have_strings = true;
+      break;
+    }
+  }
+  if (have_strings) {
     std::printf("%zu interface string(s)\n", static_cast<size_t>(strings.size()));
     // Written out beside the screens: a host driving a menu the way the game
     // does needs the same table, and it has no other way to reach it.
