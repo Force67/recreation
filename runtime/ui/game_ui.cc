@@ -36,6 +36,7 @@
 #include "render/rhi/vulkan_interop.h"
 #include "runtime/ui/gui_backend.h"
 #include "runtime/ui/ugui_platform.h"
+#include "runtime/ui/vanilla_ui.h"
 
 namespace rx {
 namespace {
@@ -944,6 +945,39 @@ base::String LoadUiFragment(const char* name) {
   return ss.str();
 }
 
+// Screens translated from the games' own Scaleform movies by tools/swfdump
+// (see RX_VANILLA_UI). Loaded once and kept, so the image manifests survive a
+// hot reload of the hand-written fragments.
+base::Vector<ui::VanillaScreen>& VanillaScreens() {
+  static base::Vector<ui::VanillaScreen> screens;
+  static bool loaded = false;
+  if (loaded)
+    return screens;
+  loaded = true;
+  const base::String dir = ui::VanillaScreenDir();
+  for (const base::String& name : ui::VanillaScreenNames()) {
+    ui::VanillaScreen screen;
+    if (ui::LoadVanillaScreen(dir, name, screen))
+      screens.push_back(base::move(screen));
+  }
+  if (!screens.empty())
+    RX_INFO("ui: {} vanilla screen(s) from {}", screens.size(), dir);
+  return screens;
+}
+
+// The vanilla screens reference their art by widget name; the textures have to
+// be re-bound every time the tree is rebuilt.
+void BindVanillaScreens(ugui::UIContext& context, ugui::TextureBackend& backend) {
+  base::Vector<ui::VanillaScreen>& screens = VanillaScreens();
+  if (screens.empty())
+    return;
+  const base::String dir = ui::VanillaScreenDir();
+  u32 bound = 0;
+  for (const ui::VanillaScreen& screen : screens)
+    bound += ui::BindVanillaImages(context, backend, dir, screen);
+  RX_INFO("ui: bound {} vanilla image(s)", bound);
+}
+
 // The scrolling compass topbar. Procedural: the cardinal strip is generated per
 // index (colour/size by direction), so it stays in code rather than a fragment.
 base::String BuildTopbarSection() {
@@ -1019,6 +1053,8 @@ base::String BuildUi() {
   s += LoadUiFragment("pause_menu.ugui");
   s += LoadUiFragment("main_menu.ugui");
   s += LoadUiFragment("first_run.ugui");  // out-of-box wizard, overlays the menu
+  for (const ui::VanillaScreen& screen : VanillaScreens())
+    s += screen.markup;  // translated Scaleform, on top of everything
   s += "}\n";
   return s;
 }
@@ -1324,6 +1360,7 @@ struct GameUi::Impl {
   void ReloadUi() {
     const base::String doc = BuildUi();
     ui.LoadUiString(doc.c_str(), "hud");
+    BindVanillaScreens(ui, backend);
     CaptureFragmentMtimes();
     const bool hud = !editor.active;
     SetVisible("topbar", hud);
@@ -2293,6 +2330,7 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
 
   base::String doc = BuildUi();
   impl_->ui.LoadUiString(doc.c_str(), "hud");
+  BindVanillaScreens(impl_->ui, impl_->backend);
   // Hot reload: when enabled, the .ugui fragments are polled for edits and the
   // tree is rebuilt in place (see GameUi::Build). Off by default.
   impl_->hot_reload = bool(UiHotReload);

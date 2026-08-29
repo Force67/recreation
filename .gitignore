@@ -48,3 +48,7 @@ run-local.sh
 
 # Generated native-coverage report (pex2cs/nativescan --list-missing)
 missing_natives.txt
+
+# Screens translated from an installed game's own Scaleform movies
+# (tools/swfdump --ugui). Derived from game data, so generated locally.
+runtime/ui/vanilla/

@@ -315,11 +315,11 @@ GuiRenderBackend::Texture GuiRenderBackend::MakeTexture(uint32_t w,
   vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
   vkCreateImageView(info_.device, &vci, nullptr, &t.view);
 
-  VkDescriptorSetAllocateInfo dai{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-  dai.descriptorPool = descriptor_pool_;
-  dai.descriptorSetCount = 1;
-  dai.pSetLayouts = &set_layout_;
-  vkAllocateDescriptorSets(info_.device, &dai, &t.set);
+  t.set = AllocateTextureSet(t.pool);
+  if (t.set == VK_NULL_HANDLE) {
+    FreeTexture(t);
+    return Texture{};
+  }
 
   VkDescriptorImageInfo dii{};
   dii.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -335,9 +335,49 @@ GuiRenderBackend::Texture GuiRenderBackend::MakeTexture(uint32_t w,
   return t;
 }
 
+VkDescriptorPool GuiRenderBackend::NewDescriptorPool() {
+  VkDescriptorPoolSize ps{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 256};
+  VkDescriptorPoolCreateInfo dpci{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+  dpci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+  dpci.poolSizeCount = 1;
+  dpci.pPoolSizes = &ps;
+  dpci.maxSets = 256;
+  VkDescriptorPool pool = VK_NULL_HANDLE;
+  if (vkCreateDescriptorPool(info_.device, &dpci, nullptr, &pool) != VK_SUCCESS)
+    return VK_NULL_HANDLE;
+  return pool;
+}
+
+VkDescriptorSet GuiRenderBackend::AllocateTextureSet(VkDescriptorPool& out_pool) {
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    if (texture_pools_.empty()) {
+      VkDescriptorPool fresh = NewDescriptorPool();
+      if (fresh == VK_NULL_HANDLE)
+        return VK_NULL_HANDLE;
+      texture_pools_.push_back(fresh);
+    }
+    VkDescriptorPool pool = texture_pools_[texture_pools_.size() - 1];
+    VkDescriptorSetAllocateInfo dai{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    dai.descriptorPool = pool;
+    dai.descriptorSetCount = 1;
+    dai.pSetLayouts = &set_layout_;
+    VkDescriptorSet set = VK_NULL_HANDLE;
+    if (vkAllocateDescriptorSets(info_.device, &dai, &set) == VK_SUCCESS) {
+      out_pool = pool;
+      return set;
+    }
+    // Block full: chain another and retry once.
+    VkDescriptorPool grown = NewDescriptorPool();
+    if (grown == VK_NULL_HANDLE)
+      return VK_NULL_HANDLE;
+    texture_pools_.push_back(grown);
+  }
+  return VK_NULL_HANDLE;
+}
+
 void GuiRenderBackend::FreeTexture(Texture& t) {
-  if (t.set)
-    vkFreeDescriptorSets(info_.device, descriptor_pool_, 1, &t.set);
+  if (t.set && t.pool)
+    vkFreeDescriptorSets(info_.device, t.pool, 1, &t.set);
   if (t.view)
     vkDestroyImageView(info_.device, t.view, nullptr);
   if (t.image)
@@ -456,6 +496,9 @@ void GuiRenderBackend::Shutdown() {
     vkDestroyPipelineLayout(info_.device, pipeline_layout_, nullptr);
   if (set_layout_)
     vkDestroyDescriptorSetLayout(info_.device, set_layout_, nullptr);
+  for (VkDescriptorPool pool : texture_pools_)
+    vkDestroyDescriptorPool(info_.device, pool, nullptr);
+  texture_pools_.clear();
   if (descriptor_pool_)
     vkDestroyDescriptorPool(info_.device, descriptor_pool_, nullptr);
   if (linear_sampler_)

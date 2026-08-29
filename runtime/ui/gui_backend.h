@@ -78,6 +78,7 @@ class GuiRenderBackend final : public ugui::TextureBackend {
     VkDeviceMemory memory = VK_NULL_HANDLE;
     VkImageView view = VK_NULL_HANDLE;
     VkDescriptorSet set = VK_NULL_HANDLE;
+    VkDescriptorPool pool = VK_NULL_HANDLE;  // the block `set` came from
   };
   struct UserTexture {
     Texture tex;
@@ -100,6 +101,11 @@ class GuiRenderBackend final : public ugui::TextureBackend {
                             const unsigned char* fs,
                             size_t fs_size,
                             uint32_t attr_count);
+  VkDescriptorPool NewDescriptorPool();
+  // One combined-image-sampler set per texture, from a chain of pools that
+  // grows on demand: a screen translated from a vanilla Scaleform movie brings
+  // hundreds of pieces of art with it, far past any fixed block.
+  VkDescriptorSet AllocateTextureSet(VkDescriptorPool& out_pool);
   Texture MakeTexture(uint32_t w,
                       uint32_t h,
                       VkFormat fmt,
@@ -118,6 +124,7 @@ class GuiRenderBackend final : public ugui::TextureBackend {
   VkSampler linear_sampler_ = VK_NULL_HANDLE;
   VkSampler nearest_sampler_ = VK_NULL_HANDLE;
   VkDescriptorPool descriptor_pool_ = VK_NULL_HANDLE;
+  base::Vector<VkDescriptorPool> texture_pools_;
   Texture white_{};
   Texture font_{};
   base::UnorderedMap<ugui::TextureId, UserTexture> user_textures_;

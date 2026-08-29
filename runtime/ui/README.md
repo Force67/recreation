@@ -4,6 +4,9 @@ Hides **everything drawn on top of the scene**.
 
 - `game_ui`: the player-facing HUD and menus, emitted as libultragui draw data.
   The editable screen fragments live in `screens/` and hot-reload.
+- `vanilla_ui`: loads screens `tools/swfdump` translated out of the games' own
+  Scaleform movies (`RX_VANILLA_UI`), binding their SVG and PNG art back onto
+  the image widgets the manifest names.
 - `debug_ui`: the developer imgui overlay (render settings, quest browser,
   profilers). Never shipped to the player.
 - `gui_backend`, `ugui_platform`, `ugui_rhi`, `ugui_script_csharp`: the ugui

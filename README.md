@@ -17,6 +17,7 @@ runtime on top of it.
 | Module | Purpose |
 | --- | --- |
 | `components/bethesda` | ESM/ESL/BSA/BA2/NIF readers and converters |
+| `components/swf` | Flash/Scaleform readers, ActionScript decompiler, ugui translation |
 | `components/world` | cell streaming and gameplay components |
 | `components/quest` | quest definitions, stages, objectives and tracking |
 | `components/dialogue` | dialogue topics, responses and scene playback |
@@ -85,6 +86,32 @@ validation layers and tools. Configure with the pinned dependency set via
 `cmake -B build/nix -G Ninja $RECREATION_FETCHCONTENT_FLAGS`, and launch
 Vulkan binaries through the `vkrun` wrapper so the loader and the host GPU
 driver are found. `nix build` produces a hermetic build from the same pins.
+
+## The games' own interface
+
+The menus every Bethesda game ships are Scaleform movies. `tools/swfdump` reads
+them: the tag stream, the vector art, the bitmaps, the text fields and the
+ActionScript behind all of it. Skyrim's ActionScript 2 decompiles back to
+source; Fallout 4 and Starfield use ActionScript 3, whose classes and method
+bodies come back as a full symbol outline plus disassembly.
+
+```sh
+swfdump 'Interface/hudmenu.swf'                    # what the movie contains
+swfdump 'Interface/hudmenu.swf' --script           # the ActionScript behind it
+swfdump 'Interface/hudmenu.swf' --text             # fields and their bindings
+swfdump 'Interface/hudmenu.swf' --ugui out/ 0 1.5  # translate to ugui markup
+```
+
+`--ugui` writes a `.ugui` screen, the SVG and PNG assets it references and a
+manifest binding them to widgets. The engine loads those like any other screen:
+
+```sh
+RX_VANILLA_UI=hudmenu ./run-skyrim.sh
+```
+
+Set `RX_VANILLA_UI_DIR` to load them from somewhere other than
+`runtime/ui/vanilla`. The translated screens are derived from an installed game,
+so they are generated locally and never checked in.
 
 ## Mods
 

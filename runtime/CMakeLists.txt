@@ -117,7 +117,7 @@ endif()
 # compiles ui/game_ui.cc to a stub. The draw list is rendered by gui_backend.cc
 # with engine-embedded shaders.
 if(RECREATION_HAS_UGUI)
-  target_sources(recreation PRIVATE ui/gui_backend.cc ui/shader_pack.cc)
+  target_sources(recreation PRIVATE ui/gui_backend.cc ui/shader_pack.cc ui/vanilla_ui.cc)
   target_link_libraries(recreation PRIVATE ultragui recreation::stb)
   target_compile_definitions(recreation PRIVATE RECREATION_HAS_UGUI=1)
   # The recreation-owned HUD/thumbnail shaders ship in this archive; the engine
@@ -130,6 +130,11 @@ if(RECREATION_HAS_UGUI)
   # RECREATION_UI_DIR. Absolute so the dev build finds the source files.
   target_compile_definitions(recreation PRIVATE
     RECREATION_UI_DIR_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/ui/screens")
+  # Default location of the screens tools/swfdump translated out of the games'
+  # own Scaleform movies. RX_VANILLA_UI names which ones to load, RX_VANILLA_UI_DIR
+  # overrides this path.
+  target_compile_definitions(recreation PRIVATE
+    RECREATION_VANILLA_UI_DIR_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/ui/vanilla")
   recreation_embed_shaders(recreation
     ui/shaders/ugui_quad.vs.hlsl
     ui/shaders/ugui_quad.ps.hlsl
@@ -158,6 +163,14 @@ endif()
 # over the pure-data parts of a runtime component, so none of them boots the
 # engine or needs a window.
 if(RECREATION_BUILD_TOOLS)
+  # The translated Scaleform screens have to be markup ultragui accepts; this
+  # parses whatever tools/swfdump produced and passes trivially when a checkout
+  # has none (they are derived from an installed game, so they are not in tree).
+  if(RECREATION_HAS_UGUI)
+    recreation_add_test(ui/vanilla_uitest ultragui)
+    target_compile_definitions(vanilla_uitest PRIVATE
+      RECREATION_VANILLA_UI_DIR_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/ui/vanilla")
+  endif()
   recreation_add_test(demo/trailertest recreation::weather rx::core SRCS demo/trailer.cc)
   recreation_add_test(editor/editor_layouttest rx::core)
   recreation_add_test(character/chargen_presettest rx::core)
