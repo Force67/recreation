@@ -2,6 +2,7 @@
 #define RECREATION_RUNTIME_UI_VANILLA_UI_H_
 
 #include <base/containers/pair.h>
+#include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
@@ -35,6 +36,11 @@ struct VanillaScreen {
   // The font families the markup asks for, so only those are loaded.
   base::Vector<base::String> fonts;
 };
+
+// The interface's "$KEY" table written beside the screens (strings.txt), so a
+// host driving a menu the way the game does resolves the same strings. Empty
+// when the file is absent.
+base::UnorderedMap<base::String, base::String> LoadVanillaStrings(base::StringRef dir);
 
 // Which screens to load, from RX_VANILLA_UI (comma separated, e.g.
 // "hudmenu,startmenu"). Empty when the feature is off.

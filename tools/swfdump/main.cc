@@ -158,8 +158,19 @@ int TranslateAll(const char* data_dir, const char* out_dir, f32 scale,
   // The interface's own key table, so the screens read as the player sees them
   // rather than as "$LEVEL" and "$Saving...".
   bethesda::InterfaceStrings strings;
-  if (strings.Load(vfs, "english"))
+  if (strings.Load(vfs, "english")) {
     std::printf("%zu interface string(s)\n", static_cast<size_t>(strings.size()));
+    // Written out beside the screens: a host driving a menu the way the game
+    // does needs the same table, and it has no other way to reach it.
+    base::String table;
+    for (const auto& entry : strings.entries()) {
+      table += entry.key;
+      table += '\t';
+      table += entry.value;
+      table += '\n';
+    }
+    WriteText(std::filesystem::path(out_dir) / "strings.txt", table);
+  }
 
   // The typeface: the games embed it in the font movies rather than shipping a
   // font file, and interface/fontconfig.txt says which family each "$Font"

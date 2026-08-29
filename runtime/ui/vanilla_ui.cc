@@ -43,6 +43,32 @@ base::String ReadTextFile(const fs::path& path) {
 
 }  // namespace
 
+base::UnorderedMap<base::String, base::String> LoadVanillaStrings(base::StringRef dir) {
+  base::UnorderedMap<base::String, base::String> out;
+  const base::String text =
+      ReadTextFile(fs::path(base::String(dir).c_str()) / "strings.txt");
+  base::String key;
+  base::String value;
+  bool on_value = false;
+  for (mem_size i = 0; i <= text.size(); ++i) {
+    const char c = i < text.size() ? text[i] : '\n';
+    if (c == '\t' && !on_value) {
+      on_value = true;
+      continue;
+    }
+    if (c == '\n' || c == '\r') {
+      if (!key.empty())
+        out[key] = value;
+      key = base::String();
+      value = base::String();
+      on_value = false;
+      continue;
+    }
+    (on_value ? value : key).push_back(c);
+  }
+  return out;
+}
+
 base::Vector<base::String> VanillaScreenNames() {
   base::Vector<base::String> out;
   const char* value = VanillaUi.get();
@@ -294,6 +320,10 @@ base::Vector<base::String> VanillaScreenNames() {
 }
 
 base::String VanillaScreenDir() {
+  return {};
+}
+
+base::UnorderedMap<base::String, base::String> LoadVanillaStrings(base::StringRef) {
   return {};
 }
 

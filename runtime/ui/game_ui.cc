@@ -36,6 +36,7 @@
 #include "render/rhi/vulkan_interop.h"
 #include "runtime/ui/gui_backend.h"
 #include "runtime/ui/ugui_platform.h"
+#include "runtime/ui/vanilla_start_menu.h"
 #include "runtime/ui/vanilla_ui.h"
 
 namespace rx {
@@ -1167,6 +1168,13 @@ struct GameUi::Impl {
   bool menu_open = false;
   bool settings_open = false;  // settings sub-view of the pause menu
   bool quit_requested = false;
+
+  // The translated Skyrim start menu, driven the way the game drives it. Only
+  // live when that screen is one of the loaded vanilla screens.
+  bool start_menu_active = false;
+  ui::VanillaStartMenu start_menu;
+  base::UnorderedMap<base::String, base::String> vanilla_strings;
+  void ActOnStartMenu();
   SettingsRequest settings_request;  // raised by the settings panel, polled by the engine
   bool prev_mouse[3] = {};
   float pointer_scale_x = 1.0f;
@@ -1405,6 +1413,31 @@ const ugui::Color kEdIcoLight = Rgba(0xe8b54aff);
 const ugui::Color kEdCardBorder = Rgba(0xffffff14);
 const ugui::Color kEdCat = Rgba(0xc2c9d6ff);
 }  // namespace
+
+// What the player picked in the vanilla start menu, routed onto the requests the
+// engine already answers for its own front screen.
+void GameUi::Impl::ActOnStartMenu() {
+  using Action = ui::VanillaStartMenu::Action;
+  switch (start_menu.Selected()) {
+    case Action::kQuit:
+      quit_requested = true;
+      break;
+    case Action::kContinue:
+    case Action::kNew:
+      mm_request.kind = MainMenuRequest::Kind::kEnterUniverse;
+      mm_request.universe = 0;  // Skyrim
+      mm_request.multiplayer = false;
+      break;
+    case Action::kCredits:
+    case Action::kLoad:
+    case Action::kCreations:
+    case Action::kMods:
+    case Action::kNone:
+      // No vanilla frame is wired to these yet; the row still selects, which is
+      // what the movie itself does before the game answers.
+      break;
+  }
+}
 
 void GameUi::Impl::ApplyEditorView() {
   // On the active<->inactive edge, hide the gameplay HUD while editing and
@@ -2362,6 +2395,22 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   base::String doc = BuildUi();
   impl_->ui.LoadUiString(doc.c_str(), "hud");
   BindVanillaScreens(impl_->ui, impl_->backend);
+
+  // The start menu ships as an empty frame; the game fills it on open, and so
+  // does this. See runtime/ui/vanilla_start_menu.
+  for (const ui::VanillaScreen& screen : VanillaScreens()) {
+    if (screen.name != "startmenu")
+      continue;
+    impl_->vanilla_strings = ui::LoadVanillaStrings(ui::VanillaScreenDir());
+    ui::VanillaStartMenu::Availability availability;
+    availability.has_save = false;  // no save browser wired to the vanilla frame yet
+    impl_->start_menu.Build(availability, &impl_->vanilla_strings);
+    impl_->start_menu.Apply(impl_->ui);
+    impl_->start_menu_active = true;
+    ugui::SetText(impl_->ui.FindWidget("VersionText"), "recreation");
+    RX_INFO("ui: vanilla start menu hooked up");
+    break;
+  }
   if (UsingVanillaUi()) {
     for (const char* fragment : {"topbar", "crosshair", "vitals", "readout", "quest"})
       impl_->SetVisible(fragment, false);
@@ -2377,6 +2426,11 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   impl_->ui.input().set_on_click([impl](ugui::wid w, ugui::MouseButton btn) {
     if (btn != ugui::MouseButton::kLeft)
       return;
+    if (impl->start_menu_active && impl->start_menu.HandleClick(impl->ui, w.index)) {
+      impl->start_menu.Apply(impl->ui);
+      impl->ActOnStartMenu();
+      return;  // the vanilla start menu owns this click
+    }
     if (impl->RouteFirstRunClick(w))
       return;  // the setup wizard owns this click
     if (impl->RouteMainMenuClick(w))
@@ -2828,6 +2882,7 @@ void GameUi::Build(Window& window,
   // tab-index'd widgets (pause / settings) are navigable by pad and keyboard.
   // ugui drives nav/activation internally from these queued events.
   const GamepadState& pad = window.gamepad();
+  bool pad_pressed[static_cast<int>(GamepadButton::kCount)] = {};
   if (pad.connected) {
     // Map our buttons to ugui's (the enums differ in order); skip unmapped ones.
     static constexpr int kNoUgui = -1;
@@ -2872,6 +2927,7 @@ void GameUi::Build(Window& window,
       if (down == impl->prev_pad[b])
         continue;
       impl->prev_pad[b] = down;
+      pad_pressed[b] = down;
       int u = to_ugui(static_cast<GamepadButton>(b));
       if (u != kNoUgui)
         q.PushGamepadButton(static_cast<ugui::GamepadButton>(u), down);
@@ -2886,6 +2942,23 @@ void GameUi::Build(Window& window,
     q.PushKey(258, 0, true, false, shift_mod);
   if (in.key_pressed(Key::kReturn))
     q.PushKey(257, 0, true, false, 0);
+
+  // The start menu is a list the game drives itself rather than a focus ring,
+  // so it takes up/down and activate directly instead of going through ugui's
+  // navigation. Its rows are all one widget deep and carry no focus index.
+  if (impl->start_menu_active) {
+    int step = 0;
+    if (in.key_pressed(Key::kArrowUp) || pad_pressed[static_cast<int>(GamepadButton::kDpadUp)])
+      --step;
+    if (in.key_pressed(Key::kArrowDown) || pad_pressed[static_cast<int>(GamepadButton::kDpadDown)])
+      ++step;
+    if (step != 0) {
+      impl->start_menu.MoveSelection(step);
+      impl->start_menu.Apply(impl->ui);
+    }
+    if (in.key_pressed(Key::kReturn) || pad_pressed[static_cast<int>(GamepadButton::kSouth)])
+      impl->ActOnStartMenu();
+  }
 
   // --- Drive HUD values from real engine state ---
   // Compass heading from the camera's facing direction.
