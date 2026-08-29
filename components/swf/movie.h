@@ -1,0 +1,146 @@
+#ifndef RECREATION_SWF_MOVIE_H_
+#define RECREATION_SWF_MOVIE_H_
+
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+#include <base/optional.h>
+#include <base/strings/xstring.h>
+
+#include "components/swf/bitmap.h"
+#include "components/swf/shape.h"
+#include "components/swf/swf.h"
+#include "components/swf/text.h"
+#include "components/swf/types.h"
+#include "core/types.h"
+
+namespace rx::swf {
+
+enum class CharacterKind : u8 {
+  kUnknown,
+  kShape,
+  kBitmap,
+  kEditText,
+  kStaticText,
+  kFont,
+  kSprite,
+  kButton,
+};
+
+// Where a character id lives: which of the Movie's typed arrays, and at what
+// index. The dictionary is one map so a display-list walk resolves any id
+// without knowing its kind up front.
+struct CharacterRef {
+  CharacterKind kind = CharacterKind::kUnknown;
+  u32 index = 0;
+};
+
+// One PlaceObject on a timeline. A place with `move` set and no character id
+// re-styles whatever already sits at that depth.
+struct Place {
+  u16 depth = 0;
+  u16 character_id = 0;
+  base::String name;  // instance name, the handle ActionScript uses
+  Matrix matrix;
+  ColorTransform color_transform;
+  u16 clip_depth = 0;  // non-zero: this object masks the depths below it
+  u16 ratio = 0;
+  u8 blend_mode = 0;
+  bool move = false;
+  bool has_character = false;
+  bool has_matrix = false;
+  bool has_color_transform = false;
+  bool visible = true;
+  // Clip event handlers attached to this instance (on(release), onEnterFrame,
+  // ...). The span points into the SwfFile's decompressed body.
+  base::Vector<u32> clip_event_flags;
+  base::Vector<ByteSpan> clip_event_code;
+};
+
+struct Frame {
+  base::String label;
+  base::Vector<Place> places;
+  base::Vector<u16> removes;  // depths cleared this frame
+};
+
+// A timeline: the movie root (id 0) or a DefineSprite.
+struct Timeline {
+  u16 id = 0;
+  base::Vector<Frame> frames;
+};
+
+struct ButtonRecord {
+  u16 character_id = 0;
+  u16 depth = 0;
+  Matrix matrix;
+  ColorTransform color_transform;
+  bool up = false;
+  bool over = false;
+  bool down = false;
+  bool hit_test = false;
+};
+
+struct Button {
+  u16 id = 0;
+  bool track_as_menu = false;
+  base::Vector<ButtonRecord> records;
+  base::Vector<u16> condition_flags;  // parallel to `condition_code`
+  base::Vector<ByteSpan> condition_code;
+};
+
+// An ActionScript block, still as bytecode. `sprite_id` is set for init actions
+// (the `#initclip` a class definition compiles into) and zero otherwise.
+struct Script {
+  enum class Kind : u8 { kFrame, kInit, kClipEvent, kButtonCondition };
+  Kind kind = Kind::kFrame;
+  u16 timeline_id = 0;  // 0 = root
+  u16 sprite_id = 0;    // init actions: the sprite the class is bound to
+  u32 frame = 0;
+  ByteSpan code;
+};
+
+// A whole decoded movie. Every ByteSpan points into `file.body`, so the SwfFile
+// that produced a Movie has to outlive it.
+struct Movie {
+  Rect frame_size;
+  f32 frame_rate = 0;
+  u16 frame_count = 0;
+  Rgba background{255, 255, 255, 255};
+  bool gfx = false;
+
+  base::Vector<Shape> shapes;
+  base::Vector<Bitmap> bitmaps;
+  base::Vector<EditText> edit_texts;
+  base::Vector<StaticText> static_texts;
+  base::Vector<Font> fonts;
+  base::Vector<Timeline> sprites;
+  base::Vector<Button> buttons;
+  Timeline root;
+
+  base::UnorderedMap<u16, CharacterRef> characters;
+  base::UnorderedMap<u16, base::String> exports;  // character id -> symbol name
+  base::UnorderedMap<u16, Rect> scaling_grids;    // character id -> 9-slice splits
+  base::Vector<base::String> imports;             // "url#symbol" of ImportAssets2
+  base::Vector<Script> scripts;
+  // DoABC tag bodies: ActionScript 3 bytecode. Skyrim's menus carry none;
+  // Fallout 4 and Starfield put all their logic here. See components/swf/abc.h.
+  base::Vector<ByteSpan> abc_blocks;
+
+  const Shape* FindShape(u16 id) const;
+  const Bitmap* FindBitmap(u16 id) const;
+  const EditText* FindEditText(u16 id) const;
+  const StaticText* FindStaticText(u16 id) const;
+  const Font* FindFont(u16 id) const;
+  const Timeline* FindSprite(u16 id) const;
+  const Button* FindButton(u16 id) const;
+  // The export name of a character, empty when it was never exported.
+  base::StringRef ExportName(u16 id) const;
+};
+
+// Decodes every tag in `file` into the dictionary and timelines. Tags the
+// menus never use (sound, video, morph shapes, DoABC) are skipped, not failed
+// on, so an unexpected movie still yields everything else.
+base::Optional<Movie> LoadMovie(const SwfFile& file);
+
+}  // namespace rx::swf
+
+#endif  // RECREATION_SWF_MOVIE_H_

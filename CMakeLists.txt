@@ -319,6 +319,7 @@ endif()
 # game modules.
 set(RECREATION_MODULES
   bethesda
+  swf
   audio
   world
   quest
