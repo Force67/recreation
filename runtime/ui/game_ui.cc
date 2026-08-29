@@ -36,6 +36,7 @@
 #include "render/rhi/vulkan_interop.h"
 #include "runtime/ui/gui_backend.h"
 #include "runtime/ui/ugui_platform.h"
+#include "runtime/ui/vanilla_list.h"
 #include "runtime/ui/vanilla_pause_menu.h"
 #include "runtime/ui/vanilla_start_menu.h"
 #include "runtime/ui/vanilla_ui.h"
@@ -1224,6 +1225,7 @@ struct GameUi::Impl {
   // The translated pause menu (the journal's System page), same deal.
   bool pause_menu_active = false;
   ui::VanillaPauseMenu pause_menu;
+  ui::VanillaList fallout_list_;  // Fallout 4's main menu option list
   base::UnorderedMap<base::String, base::String> vanilla_strings;
   void ActOnStartMenu();
   void ActOnPauseMenu();
@@ -1484,6 +1486,21 @@ struct GameUi::Impl {
     for (const char* panel : kStatePanels)
       ui::ShowVanillaSubtree(ui, panel, false);
     ui::SetVanillaTextIn(ui, VanillaRootName(screen), "VersionText_tf", "recreation");
+
+    // The order MainMenu.InitList pushes, minus the entries that need a save or
+    // a console. That is nine, which is what the bytecode asks the list to show.
+    if (fallout_list_.Bind(ui, "MainPanel_mc")) {
+      base::Vector<ui::VanillaList::Entry> entries;
+      for (const char* key : {"$NEW", "$LOAD", "$ADD-ONS", "$CREATION CLUB",
+                              "$INSTALLED CONTENT", "$HELP", "$SETTINGS", "$CREW",
+                              "$QUIT"}) {
+        const base::String* hit = vanilla_strings.find(base::String(key));
+        entries.push_back(
+            ui::VanillaList::Entry{hit ? *hit : base::String(key + 1), false});
+      }
+      fallout_list_.SetEntries(base::move(entries));
+      fallout_list_.Apply(ui);
+    }
     RX_INFO("ui: vanilla fallout main menu put in its main state");
   }
 

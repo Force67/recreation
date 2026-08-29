@@ -14,6 +14,7 @@
 #include "asset/vfs.h"
 #include "components/bethesda/archive.h"
 #include "components/bethesda/strings.h"
+#include "components/swf/abc.h"
 #include "components/swf/decompile.h"
 #include "components/swf/font_export.h"
 #include "components/swf/movie.h"
@@ -102,9 +103,17 @@ void PrintSummary(const swf::SwfFile& file, const swf::Movie& movie) {
               static_cast<size_t>(movie.buttons.size()),
               static_cast<size_t>(movie.exports.size()),
               static_cast<size_t>(movie.scripts.size()));
-  if (!movie.abc_blocks.empty())
+  if (!movie.abc_blocks.empty()) {
     std::printf("  actionscript 3: %zu DoABC block(s)\n",
                 static_cast<size_t>(movie.abc_blocks.size()));
+    for (const ByteSpan& block : movie.abc_blocks) {
+      swf::AbcFile abc;
+      swf::ParseAbc(block, abc);
+      for (const swf::ListBinding& b : swf::ParseListBindings(abc))
+        std::printf("  list %s.%s -> %u x %s\n", b.owner.c_str(), b.instance.c_str(),
+                    b.count, b.entry.c_str());
+    }
+  }
   for (const base::String& entry : movie.imports)
     std::printf("  imports %s\n", entry.c_str());
 }

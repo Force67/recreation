@@ -95,6 +95,32 @@ base::String AbcDisassembly(const AbcFile& abc);
 
 base::StringRef Avm2OpName(u8 code);
 
+// How an ActionScript 3 list is wired to the rows it shows.
+//
+// The AS2 games place their list rows on the timeline, so a static translation
+// finds them already there. AS3 does not: a list ships as an empty container and
+// the code fills it, which is why a translated Fallout 4 menu comes out with the
+// panel but no entries. The wiring is still in the bytecode as a literal, in the
+// component-property setter Flash generates for the instance:
+//
+//   getproperty  List_mc
+//   pushstring   "MainMenuListEntry"
+//   setproperty  listEntryClass
+//   getproperty  List_mc
+//   pushbyte     9
+//   setproperty  numListItems
+//
+// so the rows can be stamped out statically after all.
+struct ListBinding {
+  base::String owner;     // class holding the list, e.g. "MainMenu_fla.MainListPanel_49"
+  base::String instance;  // the list's instance name, e.g. "List_mc"
+  base::String entry;     // the row symbol to instantiate, e.g. "MainMenuListEntry"
+  u32 count = 0;          // numListItems: how many rows fit at once
+};
+
+// Every list wiring the bytecode declares. Empty for a movie with no DoABC.
+base::Vector<ListBinding> ParseListBindings(const AbcFile& abc);
+
 }  // namespace rx::swf
 
 #endif  // RECREATION_SWF_ABC_H_

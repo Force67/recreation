@@ -7,6 +7,7 @@
 
 #include <cstdio>
 
+#include "components/swf/abc.h"
 #include "components/swf/movie.h"
 #include "components/swf/shape.h"
 #include "components/swf/swf.h"
@@ -357,6 +358,27 @@ int main() {
             !Contains(screen.markup, "width: 0.") &&
             !Contains(screen.markup, "height: 0."),
         "no unitless sub-pixel length reaches the markup");
+
+  // AS3 lists ship empty and name their row class in the bytecode, so the
+  // scanner that finds the wiring has to survive a body it cannot fully decode.
+  {
+    swf::AbcFile abc;
+    Check(swf::ParseListBindings(abc).empty(), "no bindings without a DoABC block");
+    // A body whose opcode stream desynchronises must stop, not run away.
+    abc.strings.push_back("");
+    abc.methods.push_back(swf::AbcMethod{});
+    abc.methods[0].body = 0;
+    static const u8 kGarbage[] = {0xff, 0xff, 0xff, 0xff};
+    swf::AbcMethodBody body;
+    body.method = 0;
+    body.code = ByteSpan{kGarbage, sizeof(kGarbage)};
+    abc.bodies.push_back(base::move(body));
+    swf::AbcClass klass;
+    klass.name = "Test";
+    klass.constructor = 0;
+    abc.classes.push_back(base::move(klass));
+    Check(swf::ParseListBindings(abc).empty(), "an undecodable body yields no bindings");
+  }
 
   std::printf("swftest: %d failure(s)\n", failures);
   return failures == 0 ? 0 : 1;

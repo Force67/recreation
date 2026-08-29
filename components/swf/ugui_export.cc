@@ -217,7 +217,9 @@ base::Vector<Place> DisplayList(const Timeline& timeline, u32 frame) {
 class Exporter {
  public:
   Exporter(const Movie& movie, const UguiExportOptions& options)
-      : movie_(movie), current_(&movie), options_(options) {}
+      : movie_(movie), current_(&movie), options_(options) {
+    LoadListBindings();
+  }
 
   UguiScreen Run();
 
@@ -284,6 +286,19 @@ class Exporter {
   // imported placeholder switches it to the movie that owns the symbol.
   const Movie* current_ = nullptr;
   u32 current_index_ = 0;  // salts asset keys, which are only unique per movie
+  // AS3 lists ship empty and are filled by code; the bytecode says with what.
+  base::Vector<ListBinding> list_bindings_;
+  base::String current_owner_;  // export symbol of the sprite being walked
+  void LoadListBindings();
+  const ListBinding* FindListBinding(base::StringRef owner, base::StringRef instance) const;
+  void StampListRows(base::StringRef owner,
+                     const Place& place,
+                     const Matrix& absolute,
+                     const ColorTransform& color,
+                     bool revealed,
+                     const Box& box,
+                     u32 indent,
+                     u32 depth);
   const UguiExportOptions& options_;
   UguiScreen out_;
   base::UnorderedMap<base::String, u32> used_names_;
@@ -853,8 +868,18 @@ void Exporter::EmitPlace(const Place& place,
       Line(indent, base::Format("panel {} {{ {}", name, style));
     else
       Line(indent, base::Format("panel {} {{ {}  // handlers: {}", name, style, note));
+    const base::String owner = current_owner_;
+    base::String previous_owner = current_owner_;
+    if (const base::String* symbol = current_->exports.find(sprite->id))
+      current_owner_ = *symbol;
     EmitTimeline(*sprite, absolute, color, revealed, absolute_box, indent + 1,
                  depth + 1);
+    // A list the code fills: stamp the rows the bytecode asks for, so the
+    // translation carries the same clips an AS2 movie would have on its
+    // timeline and a host can drive it the same way.
+    StampListRows(owner, place, absolute, color, revealed, absolute_box, indent + 1,
+                  depth + 1);
+    current_owner_ = base::move(previous_owner);
     Line(indent, "}");
     ++out_.widget_count;
     return;
@@ -876,6 +901,71 @@ void Exporter::EmitPlace(const Place& place,
   }
 
   ++out_.skipped_count;
+}
+
+void Exporter::LoadListBindings() {
+  for (const ByteSpan& block : movie_.abc_blocks) {
+    AbcFile abc;
+    if (!ParseAbc(block, abc))
+      continue;
+    for (ListBinding& binding : ParseListBindings(abc))
+      list_bindings_.push_back(base::move(binding));
+  }
+}
+
+const ListBinding* Exporter::FindListBinding(base::StringRef owner,
+                                             base::StringRef instance) const {
+  if (owner.empty() || instance.empty())
+    return nullptr;
+  for (const ListBinding& binding : list_bindings_)
+    if (binding.owner == owner && binding.instance == instance)
+      return &binding;
+  return nullptr;
+}
+
+void Exporter::StampListRows(base::StringRef owner,
+                             const Place& place,
+                             const Matrix& absolute,
+                             const ColorTransform& color,
+                             bool revealed,
+                             const Box& box,
+                             u32 indent,
+                             u32 depth) {
+  const ListBinding* binding = FindListBinding(owner, place.name);
+  if (!binding || binding->count == 0)
+    return;
+  // The entry symbol has to be one this movie exports; the row is whatever
+  // character that name is bound to.
+  u16 entry_id = 0;
+  for (const auto& entry : current_->exports) {
+    if (entry.value == binding->entry) {
+      entry_id = entry.key;
+      break;
+    }
+  }
+  if (entry_id == 0)
+    return;
+  const Rect bounds = CharacterBounds(entry_id, depth);
+  const i32 pitch = bounds.height();
+  if (pitch <= 0)
+    return;
+
+  Line(indent, base::Format("// {} rows of {}, stamped from the bytecode's own"
+                            " listEntryClass / numListItems",
+                            binding->count, binding->entry));
+  for (u32 row = 0; row < binding->count; ++row) {
+    Place stamped;
+    stamped.has_character = true;
+    stamped.character_id = entry_id;
+    stamped.depth = static_cast<u16>(row);
+    stamped.has_matrix = true;
+    stamped.matrix.translate_y = static_cast<i32>(row) * pitch;
+    // The instance names a host addresses the rows by, matching how the AS2
+    // movies name the clips they place on the timeline.
+    stamped.name = base::Format("Entry{}", row);
+    EmitPlace(stamped, Concat(absolute, stamped.matrix), color, revealed, box, indent,
+              depth);
+  }
 }
 
 void Exporter::EmitTimeline(const Timeline& timeline,

@@ -571,6 +571,114 @@ base::String Render(const AbcFile& abc, bool with_bodies) {
 
 }  // namespace
 
+base::Vector<ListBinding> ParseListBindings(const AbcFile& abc) {
+  base::Vector<ListBinding> out;
+  // Flash puts each instance's component-property setter in the class that owns
+  // the instance, so the class the method belongs to names the owning symbol.
+  for (const AbcClass& klass : abc.classes) {
+    base::Vector<u32> methods;
+    methods.push_back(klass.constructor);
+    for (const AbcTrait& trait : klass.instance_traits)
+      if (trait.kind == TraitKind::kMethod)
+        methods.push_back(trait.method);
+
+    for (u32 method_index : methods) {
+      if (method_index >= abc.methods.size())
+        continue;
+      const AbcMethod& method = abc.methods[method_index];
+      if (method.body >= abc.bodies.size())
+        continue;
+
+      // A tiny peephole over the op stream: remember the last property read and
+      // the last literal pushed, and act when a setproperty names one of the
+      // two properties that carry the wiring.
+      base::String last_property;
+      base::String last_string;
+      u32 last_int = 0;
+      AbcReader r(abc.bodies[method.body].code);
+      while (r.ok() && !r.eof()) {
+        const u8 code = r.U8();
+        const AbcOp* op = FindOp(code);
+        if (!op)
+          break;  // an unknown opcode desynchronises the stream
+        base::String name;
+        u32 pushed = 0;
+        bool has_string = false;
+        for (const char* operand = op->operands; *operand; ++operand) {
+          switch (*operand) {
+            case 'j':
+              r.U8();
+              r.U8();
+              r.U8();
+              break;
+            case 'b':
+              pushed = r.U8();
+              break;
+            case 'L': {
+              r.U8();
+              r.U8();
+              r.U8();
+              const u32 count = r.U30();
+              for (u32 i = 0; i <= count && r.ok(); ++i) {
+                r.U8();
+                r.U8();
+                r.U8();
+              }
+              break;
+            }
+            case 'D':
+              r.U8();
+              r.U30();
+              r.U8();
+              r.U30();
+              break;
+            default: {
+              const u32 index = r.U30();
+              if (*operand == 's' && index < abc.strings.size()) {
+                name = abc.strings[index];
+                has_string = true;
+              } else if (*operand == 'm' && index < abc.names.size()) {
+                name = abc.names[index];
+              } else if (*operand == 'i' && index < abc.ints.size()) {
+                pushed = static_cast<u32>(abc.ints[index]);
+              }
+              break;
+            }
+          }
+        }
+        if (!r.ok())
+          break;
+
+        const base::StringRef op_name(op->name);
+        if (op_name == "getproperty") {
+          last_property = name;
+        } else if (op_name == "pushstring" && has_string) {
+          last_string = name;
+        } else if (op_name == "pushbyte" || op_name == "pushshort" ||
+                   op_name == "pushint") {
+          last_int = pushed;
+        } else if (op_name == "setproperty" && !last_property.empty()) {
+          if (name == "listEntryClass" && !last_string.empty()) {
+            ListBinding binding;
+            binding.owner = klass.name;
+            binding.instance = last_property;
+            binding.entry = last_string;
+            out.push_back(base::move(binding));
+          } else if (name == "numListItems") {
+            for (mem_size i = out.size(); i-- > 0;) {
+              if (out[i].owner == klass.name && out[i].instance == last_property) {
+                out[i].count = last_int;
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
 base::StringRef Avm2OpName(u8 code) {
   const AbcOp* op = FindOp(code);
   return op ? base::StringRef(op->name) : base::StringRef("unknown");
