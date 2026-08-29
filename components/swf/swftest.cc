@@ -345,7 +345,14 @@ int main() {
         "the ActionScript binding is kept as a note");
   Check(Contains(screen.markup, "text-align: center"), "the alignment carries over");
   // The sprite sits at 100,50 px and the text 10,3 px inside it.
-  Check(Contains(screen.markup, "left: 100; top: 50"), "the sprite lands where placed");
+  Check(Contains(screen.markup, "left: 100px; top: 50px"),
+        "the sprite lands where placed");
+  // Every length carries its unit: ugui reads a bare decimal between 0 and 1 as
+  // a flex fraction, which silently collapses the widget.
+  Check(!Contains(screen.markup, "left: 0.") && !Contains(screen.markup, "top: 0.") &&
+            !Contains(screen.markup, "width: 0.") &&
+            !Contains(screen.markup, "height: 0."),
+        "no unitless sub-pixel length reaches the markup");
 
   std::printf("swftest: %d failure(s)\n", failures);
   return failures == 0 ? 0 : 1;

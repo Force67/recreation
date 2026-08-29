@@ -70,7 +70,19 @@ out as an empty shell:
   Bethesda leaves a developer overlay in a few menus under an instance whose
   name says `Debug`. Both are skipped.
 
-Two details are worth knowing. Colour transforms are concatenated on the way
+### Two coordinate traps
+
+The exporter writes the movie's own stage coordinates and lets the host scale
+the stage to the viewport, the way Scaleform does; the manifest leads with
+`!stage <w> <h>` so the host knows what to scale from. Baking a scale in instead
+pins the screen to a corner at a fixed size.
+
+Every length carries an explicit `px`. ugui reads a bare decimal between 0 and 1
+as a flex fraction rather than pixels, and a movie's coordinates land in that
+range constantly (a half-pixel nudge on a list row); without the unit those
+widgets silently collapse and whole columns of a menu go missing.
+
+Two more details are worth knowing. Colour transforms are concatenated on the way
 down rather than emitted per node, because ugui's `opacity` does not inherit and
 Flash's does; without that, every plate a menu fades in would draw at full
 strength. And a Flash mask clips to its shape while ugui clips to a box - every

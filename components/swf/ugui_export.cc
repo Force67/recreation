@@ -107,6 +107,16 @@ base::String Number(f32 v) {
   return base::Format("{:.2f}", v);
 }
 
+// A length always carries its unit. ugui reads a bare decimal between 0 and 1
+// as a flex fraction rather than pixels, and a movie's coordinates land in that
+// range often enough (a half-pixel nudge on a list row) that leaving the unit
+// off silently collapses those widgets.
+base::String Px(f32 v) {
+  base::String out = Number(v);
+  out += "px";
+  return out;
+}
+
 // The screen-space box a character occupies once `m` is applied to its local
 // bounds, decomposed so a rotated placement keeps its real size instead of
 // growing to the axis-aligned hull.
@@ -503,8 +513,7 @@ base::String Exporter::Placement(const Box& box, const ColorTransform* color) co
   const f32 s = options_.scale;
   base::String style = base::Format(
       "position: absolute; left: {}; top: {}; width: {}; height: {};",
-      Number(box.left * s), Number(box.top * s), Number(box.width * s),
-      Number(box.height * s));
+      Px(box.left * s), Px(box.top * s), Px(box.width * s), Px(box.height * s));
   if (box.rotation > 0.5f || box.rotation < -0.5f)
     style += base::Format(" rotation: {};", Number(box.rotation));
   if (color) {
@@ -945,7 +954,7 @@ UguiScreen Exporter::Run() {
   const base::String root = UniqueName(options_.name, "screen");
   Line(0, base::Format(
               "panel {} {{ position: absolute; left: 0; top: 0; width: {}; height: {};",
-              root, Number(width), Number(height)));
+              root, Px(width), Px(height)));
 
   Matrix identity;
   identity.translate_x = -current_->frame_size.x_min;
@@ -955,6 +964,14 @@ UguiScreen Exporter::Run() {
   stage.height = ToPixels(current_->frame_size.height());
   EmitTimeline(current_->root, identity, ColorTransform{}, false, stage, 1, 0);
   Line(0, "}");
+
+  // The host has to scale the stage to its viewport the way Scaleform does, so
+  // the size it was authored against leads the manifest.
+  base::String manifest = base::Format("!stage\t{}\t{}\n",
+                                       Number(ToPixels(movie_.frame_size.width())),
+                                       Number(ToPixels(movie_.frame_size.height())));
+  manifest += out_.manifest;
+  out_.manifest = base::move(manifest);
 
   out_.script = ExportScript(movie_);
   return base::move(out_);

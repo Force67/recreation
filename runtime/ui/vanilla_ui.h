@@ -25,6 +25,11 @@ namespace rx::ui {
 struct VanillaScreen {
   base::String name;
   base::String markup;
+  // The stage the movie was authored against (1280x720 for every Skyrim menu).
+  // Scaleform scales that to the viewport, so the host does the same rather
+  // than pinning the screen to a corner at its authored size.
+  f32 stage_width = 0;
+  f32 stage_height = 0;
   // widget name -> asset path, relative to the screen directory.
   base::Vector<base::Pair<base::String, base::String>> images;
   // The font families the markup asks for, so only those are loaded.

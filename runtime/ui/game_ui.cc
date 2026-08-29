@@ -2298,6 +2298,21 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   cfg.external_window = &impl_->host;
   cfg.width = static_cast<int>(window.width());
   cfg.height = static_cast<int>(window.height());
+  // A translated Scaleform screen is authored against the movie's own stage
+  // (1280x720 for every Skyrim menu), and Scaleform scales that stage to the
+  // viewport. ugui's equivalent is a design size with a contain fit; without it
+  // the screen sits at its authored size in a corner. The vanilla screens stand
+  // in for the engine's own interface, so switching the whole context is right.
+  if (!VanillaScreens().empty()) {
+    const ui::VanillaScreen& first = VanillaScreens()[0];
+    if (first.stage_width > 0 && first.stage_height > 0) {
+      cfg.scale_mode = ugui::ViewportScaleMode::kContain;
+      cfg.design_width = first.stage_width;
+      cfg.design_height = first.stage_height;
+      RX_INFO("ui: vanilla stage {}x{}, scaled to the viewport",
+              static_cast<int>(first.stage_width), static_cast<int>(first.stage_height));
+    }
+  }
   if (!impl_->ui.Init(cfg)) {
     RX_WARN("ultragui init failed");
     return false;

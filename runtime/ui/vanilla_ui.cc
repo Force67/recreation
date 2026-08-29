@@ -93,7 +93,50 @@ bool LoadVanillaScreen(base::StringRef dir, base::StringRef name, VanillaScreen&
   base::String widget;
   base::String file;
   bool on_file = false;
-  for (mem_size i = 0; i <= manifest.size(); ++i) {
+  // Leading "!stage<tab>w<tab>h": the size the movie was authored against.
+  mem_size start = 0;
+  if (manifest.size() > 7 && manifest[0] == '!') {
+    mem_size end = 0;
+    while (end < manifest.size() && manifest[end] != '\n')
+      ++end;
+    base::String field;
+    int index = 0;
+    for (mem_size i = 6; i <= end; ++i) {
+      const char c = i < end ? manifest[i] : '\t';
+      if (c == '\t' || i == end) {
+        if (!field.empty()) {
+          f32 value = 0;
+          f32 fraction = 0;
+          f32 place = 0.1f;
+          bool after_point = false;
+          for (mem_size k = 0; k < field.size(); ++k) {
+            const char d = field[k];
+            if (d == '.') {
+              after_point = true;
+            } else if (d >= '0' && d <= '9') {
+              if (after_point) {
+                fraction += static_cast<f32>(d - '0') * place;
+                place *= 0.1f;
+              } else {
+                value = value * 10 + static_cast<f32>(d - '0');
+              }
+            }
+          }
+          const f32 number = value + fraction;
+          if (index == 0)
+            out.stage_width = number;
+          else if (index == 1)
+            out.stage_height = number;
+          ++index;
+          field = base::String();
+        }
+        continue;
+      }
+      field.push_back(c);
+    }
+    start = end + 1;
+  }
+  for (mem_size i = start; i <= manifest.size(); ++i) {
     const char c = i < manifest.size() ? manifest[i] : '\n';
     if (c == '\t' && !on_file) {
       on_file = true;

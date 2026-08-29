@@ -65,6 +65,10 @@ int main(int argc, char** argv) {
   for (const auto& entry : fs::directory_iterator(dir, ec)) {
     if (!entry.is_regular_file() || entry.path().extension() != ".ugui")
       continue;
+    // A leading underscore marks a screen that is not a translated movie (a
+    // backdrop dropped in to review the others against, say).
+    if (entry.path().filename().string().rfind("_", 0) == 0)
+      continue;
     ++screens;
     const std::string path = entry.path().string();
 
