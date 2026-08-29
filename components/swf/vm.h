@@ -139,6 +139,12 @@ class Vm {
     external_user_ = user;
   }
   AsValue DispatchExternal(base::StringRef name, const base::Vector<AsValue>& args);
+
+  // The object that owns the display list, for the natives that drive it. A
+  // native only gets the Vm and its `self`, so this is how a clip method reaches
+  // the stage that knows which timeline the clip came from.
+  void set_host(void* host) { host_ = host; }
+  void* host() const { return host_; }
   // Every external call the scripts made, in order, whether or not a handler
   // answered. This is the list of native functions a menu actually needs.
   const base::Vector<base::String>& external_calls() const { return external_calls_; }
@@ -191,6 +197,7 @@ class Vm {
   u32 function_prototype_ = 0;
   ExternalHandler external_handler_ = nullptr;
   void* external_user_ = nullptr;
+  void* host_ = nullptr;
   base::Vector<base::String> external_calls_;
   base::UnorderedMap<base::String, AsValue> registered_classes_;
   AsValue root_;

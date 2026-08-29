@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "components/swf/abc.h"
+#include "components/swf/stage.h"
 #include "components/swf/vm.h"
 #include "components/swf/movie.h"
 #include "components/swf/shape.h"
@@ -527,6 +528,72 @@ int main() {
     vm.Run(script, swf::AsValue::Undefined());
     Check(vm.traces().size() == 1 && vm.traces()[0] == "ran",
           "CallMethod with no method name calls the target itself");
+  }
+
+
+  {
+    // The timeline is what resolves a menu's states: each state lives on its
+    // own frame of the same clip and the script switches with gotoAndStop, so
+    // a frame-0 snapshot shows all of them at once. Built here as a Movie
+    // directly - no SWF parsing in the way of what is being tested.
+    swf::Movie movie;
+    // Two sprites to place, ids 1 and 2.
+    movie.sprites.push_back(swf::Timeline{});
+    movie.sprites[0].id = 1;
+    movie.sprites[0].frames.push_back(swf::Frame{});
+    movie.sprites.push_back(swf::Timeline{});
+    movie.sprites[1].id = 2;
+    movie.sprites[1].frames.push_back(swf::Frame{});
+    movie.characters[1] = swf::CharacterRef{swf::CharacterKind::kSprite, 0};
+    movie.characters[2] = swf::CharacterRef{swf::CharacterKind::kSprite, 1};
+
+    // Frame 0 places "normal"; frame 1 is labelled "Selected", clears it and
+    // places "highlight" in its stead.
+    swf::Frame first;
+    swf::Place a;
+    a.depth = 1;
+    a.character_id = 1;
+    a.has_character = true;
+    a.name = "normal";
+    first.places.push_back(base::move(a));
+    movie.root.frames.push_back(base::move(first));
+
+    swf::Frame second;
+    second.label = "Selected";
+    second.removes.push_back(1);
+    swf::Place b;
+    b.depth = 1;
+    b.character_id = 2;
+    b.has_character = true;
+    b.name = "highlight";
+    second.places.push_back(base::move(b));
+    movie.root.frames.push_back(base::move(second));
+
+    swf::Vm vm;
+    swf::Stage stage(vm, movie);
+    stage.Run();
+    const swf::AsValue root = stage.root();
+    Check(vm.GetMember(root, "normal").is_object(),
+          "frame 0 places the clip that frame authored");
+    Check(!vm.GetMember(root, "highlight").is_object(),
+          "a later frame's clip is not present on frame 0");
+    Check(vm.ToNumber(vm.GetMember(root, "_totalframes")) == 2,
+          "the clip reports how many frames it has");
+
+    Check(stage.GotoLabel(root, "Selected"), "a frame label resolves");
+    Check(vm.GetMember(root, "highlight").is_object(),
+          "the frame's own clip is placed on arrival");
+    Check(!vm.GetMember(root, "normal").is_object(),
+          "what the frame removes is gone");
+    Check(vm.ToNumber(vm.GetMember(root, "_currentframe")) == 2,
+          "_currentframe follows the goto");
+
+    Check(stage.Goto(root, 0), "and back again");
+    Check(vm.GetMember(root, "normal").is_object(), "the first frame's clip returns");
+    Check(!vm.GetMember(root, "highlight").is_object(),
+          "and the second frame's is dropped");
+    Check(!stage.GotoLabel(root, "NoSuchLabel"),
+          "an unknown label leaves the clip where it is");
   }
 
   std::printf("swftest: %d failure(s)\n", failures);

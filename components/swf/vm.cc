@@ -1060,23 +1060,44 @@ void Vm::Execute(u32 script_index, u32 first, u32 count, Frame& frame) {
         frame.Push(AsValue::Str(""));
         break;
 
-      // Timeline control has no meaning without a running display list; the
-      // host drives frames itself. Popping what they consume keeps the stack
-      // balanced for the code that follows.
-      case op::kGotoFrame2:
-        frame.Pop();
+      // The timeline opcodes are the statement forms of the clip methods, so
+      // they go through the same place: whatever the host installed on the
+      // movie-clip prototype. A frame is 1-based in the language.
+      case op::kGotoFrame: {
+        base::Vector<AsValue> args;
+        args.push_back(AsValue::Number(static_cast<f64>(action.word_arg) + 1));
+        CallInternal(GetMember(frame.self, "gotoAndStop"), frame.self, args, depth_ + 1);
         break;
+      }
+      case op::kGotoLabel: {
+        base::Vector<AsValue> args;
+        args.push_back(AsValue::Str(action.name));
+        CallInternal(GetMember(frame.self, "gotoAndStop"), frame.self, args, depth_ + 1);
+        break;
+      }
+      case op::kGotoFrame2: {
+        const AsValue target = frame.Pop();
+        base::Vector<AsValue> args;
+        args.push_back(target);
+        // Bit 0 of the flags says play rather than stop; both land on the same
+        // native, which stops either way.
+        CallInternal(GetMember(frame.self, "gotoAndStop"), frame.self, args, depth_ + 1);
+        break;
+      }
       case op::kCall:
         frame.Pop();
         break;
+      case op::kNextFrame:
+      case op::kPrevFrame: {
+        const char* method = code == op::kNextFrame ? "nextFrame" : "prevFrame";
+        CallInternal(GetMember(frame.self, method), frame.self,
+                     base::Vector<AsValue>(), depth_ + 1);
+        break;
+      }
       case op::kStop:
       case op::kPlay:
-      case op::kNextFrame:
-      case op::kPrevFrame:
       case op::kStopSounds:
       case op::kToggleQuality:
-      case op::kGotoFrame:
-      case op::kGotoLabel:
       case op::kWaitForFrame:
       case op::kWaitForFrame2:
       case op::kSetTarget:

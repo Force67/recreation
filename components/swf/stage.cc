@@ -1,5 +1,6 @@
 #include "components/swf/stage.h"
 
+#include <base/algorithm.h>
 #include <base/memory/move.h>
 #include <base/strings/format.h>
 
@@ -10,25 +11,51 @@ namespace {
 // eagerly rather than on demand.
 constexpr u32 kMaxDepth = 24;
 
-// Frame 0's display list, in depth order. The exporter has its own copy of this
-// walk that also applies later frames; a menu opens on its first frame, so this
-// one only needs the first.
-base::Vector<Place> FirstFrame(const Timeline& timeline) {
+// The display list as it stands on `frame`, applying every frame up to it in
+// order: a later frame moves, replaces or clears what an earlier one placed.
+base::Vector<Place> DisplayListAt(const Timeline& timeline, u32 frame) {
   base::Vector<Place> list;
-  if (timeline.frames.empty())
-    return list;
-  for (const Place& place : timeline.frames[0].places) {
-    mem_size existing = list.size();
-    for (mem_size i = 0; i < list.size(); ++i) {
-      if (list[i].depth == place.depth) {
-        existing = i;
-        break;
+  const mem_size last =
+      timeline.frames.empty()
+          ? 0
+          : base::Min<mem_size>(static_cast<mem_size>(frame) + 1, timeline.frames.size());
+  for (mem_size f = 0; f < last; ++f) {
+    const Frame& source = timeline.frames[f];
+    for (u16 depth : source.removes) {
+      for (mem_size i = 0; i < list.size(); ++i) {
+        if (list[i].depth == depth) {
+          list.erase(i);
+          break;
+        }
       }
     }
-    if (existing == list.size())
-      list.push_back(place);
-    else
-      list[existing] = place;
+    for (const Place& place : source.places) {
+      mem_size existing = list.size();
+      for (mem_size i = 0; i < list.size(); ++i) {
+        if (list[i].depth == place.depth) {
+          existing = i;
+          break;
+        }
+      }
+      if (existing == list.size()) {
+        list.push_back(place);
+        continue;
+      }
+      if (!place.move && place.has_character) {
+        list[existing] = place;
+        continue;
+      }
+      // A move updates only the fields it carries.
+      Place& target = list[existing];
+      if (place.has_character)
+        target.character_id = place.character_id;
+      if (place.has_matrix) {
+        target.matrix = place.matrix;
+        target.has_matrix = true;
+      }
+      if (!place.name.empty())
+        target.name = place.name;
+    }
   }
   for (mem_size i = 1; i < list.size(); ++i) {
     Place key = base::move(list[i]);
@@ -42,9 +69,27 @@ base::Vector<Place> FirstFrame(const Timeline& timeline) {
   return list;
 }
 
+base::String NameFor(const Place& place) {
+  return place.name.empty() ? base::Format("instance{}", place.depth) : place.name;
+}
+
+// The clip a native was called on, as the stage's 1-based table index. Zero is
+// "not a clip this stage built".
+u32 HostIndex(Vm& vm, const AsValue& self) {
+  if (!self.is_object() || !vm.Valid(self.object()))
+    return 0;
+  return static_cast<u32>(vm.Get(self.object()).host);
+}
+
 }  // namespace
 
 Stage::Stage(Vm& vm, const Movie& movie) : vm_(vm), movie_(movie) {}
+
+u32 Stage::StateIndexOf(const AsValue& clip) const {
+  if (!clip.is_object() || !vm_.Valid(clip.object()))
+    return 0;
+  return static_cast<u32>(vm_.Get(clip.object()).host);
+}
 
 u32 Stage::BuildClip(const Timeline& timeline, u32 parent, base::StringRef name,
                      u16 character, u32 depth) {
@@ -72,32 +117,19 @@ u32 Stage::BuildClip(const Timeline& timeline, u32 parent, base::StringRef name,
   if (parent != 0)
     vm_.SetMember(self, "_parent", AsValue::Obj(parent));
 
-  if (depth < kMaxDepth) {
-    for (const Place& place : FirstFrame(timeline)) {
-      if (!place.has_character)
-        continue;
-      const Timeline* sprite = movie_.FindSprite(place.character_id);
-      base::String child_name = place.name;
-      if (child_name.empty())
-        child_name = base::Format("instance{}", place.depth);
-      if (sprite) {
-        const u32 child = BuildClip(*sprite, clip, child_name, place.character_id,
-                                    depth + 1);
-        vm_.SetMember(self, child_name, AsValue::Obj(child));
-        continue;
-      }
-      // A text field is the other thing a script addresses by name; give it
-      // enough shape that reads and writes of its text land somewhere.
-      if (const EditText* text = movie_.FindEditText(place.character_id)) {
-        const u32 field = vm_.NewObject(vm_.movie_clip_prototype());
-        const AsValue field_value = AsValue::Obj(field);
-        vm_.SetMember(field_value, "_name", AsValue::Str(child_name));
-        vm_.SetMember(field_value, "text", AsValue::Str(text->initial_text));
-        vm_.SetMember(field_value, "_parent", self);
-        vm_.SetMember(self, child_name, field_value);
-      }
-    }
-  }
+  // Registered before its children, so a child's goto can find this clip.
+  ClipState state;
+  state.timeline = &timeline;
+  state.object = clip;
+  clips_.push_back(base::move(state));
+  const u32 index = static_cast<u32>(clips_.size() - 1);
+  vm_.Get(clip).host = index + 1;  // 1-based; 0 means "not a stage clip"
+  vm_.SetMember(self, "_totalframes",
+                AsValue::Number(static_cast<f64>(timeline.frames.size())));
+  vm_.SetMember(self, "_currentframe", AsValue::Number(1));
+
+  if (depth < kMaxDepth)
+    ApplyFrame(index, 0, depth);
 
   // The constructor last, so it finds its children already in place - which is
   // what the movie's own code expects (`this.MainList` in a constructor body).
@@ -110,7 +142,163 @@ u32 Stage::BuildClip(const Timeline& timeline, u32 parent, base::StringRef name,
   return clip;
 }
 
+void Stage::ApplyFrame(u32 state_index, u32 frame, u32 depth) {
+  if (state_index >= clips_.size())
+    return;
+  // Copied, not referenced: building children pushes onto clips_, which can
+  // reallocate underneath a reference held across the loop.
+  const Timeline* timeline = clips_[state_index].timeline;
+  const u32 object = clips_[state_index].object;
+  if (!timeline)
+    return;
+  const AsValue self = AsValue::Obj(object);
+  const base::Vector<Place> list = DisplayListAt(*timeline, frame);
+  const base::Vector<base::Pair<u16, base::String>> previous = clips_[state_index].placed;
+
+  // Drop what this frame no longer places. A clip the script still holds on to
+  // keeps working; it is only unreachable by name from its parent, which is
+  // what leaving the display list means.
+  for (const auto& had : previous) {
+    bool still_there = false;
+    for (const Place& place : list) {
+      if (place.has_character && place.depth == had.first && NameFor(place) == had.second)
+        still_there = true;
+    }
+    if (!still_there)
+      vm_.SetMember(self, had.second, AsValue::Undefined());
+  }
+
+  base::Vector<base::Pair<u16, base::String>> now;
+  for (const Place& place : list) {
+    if (!place.has_character)
+      continue;
+    const base::String name = NameFor(place);
+    now.push_back(base::Pair<u16, base::String>{place.depth, name});
+
+    // Already there at the same depth and name: leave it alone, so a clip keeps
+    // whatever state its own script gave it across a frame change.
+    bool kept = false;
+    for (const auto& had : previous) {
+      if (had.first == place.depth && had.second == name)
+        kept = true;
+    }
+    if (kept && vm_.GetMember(self, name).is_object())
+      continue;
+
+    if (const Timeline* sprite = movie_.FindSprite(place.character_id)) {
+      if (depth >= kMaxDepth)
+        continue;
+      const u32 child = BuildClip(*sprite, object, name, place.character_id, depth + 1);
+      vm_.SetMember(self, name, AsValue::Obj(child));
+      continue;
+    }
+    // A text field is the other thing a script addresses by name; give it
+    // enough shape that reads and writes of its text land somewhere.
+    if (const EditText* text = movie_.FindEditText(place.character_id)) {
+      const u32 field = vm_.NewObject(vm_.movie_clip_prototype());
+      const AsValue field_value = AsValue::Obj(field);
+      vm_.SetMember(field_value, "_name", AsValue::Str(name));
+      vm_.SetMember(field_value, "text", AsValue::Str(text->initial_text));
+      vm_.SetMember(field_value, "_parent", self);
+      vm_.SetMember(self, name, field_value);
+    }
+  }
+
+  clips_[state_index].placed = base::move(now);
+  clips_[state_index].frame = frame;
+  vm_.SetMember(self, "_currentframe", AsValue::Number(static_cast<f64>(frame + 1)));
+}
+
+bool Stage::Goto(const AsValue& clip, u32 frame) {
+  const u32 index = StateIndexOf(clip);
+  if (index == 0 || index > clips_.size())
+    return false;
+  const u32 state = index - 1;
+  const Timeline* timeline = clips_[state].timeline;
+  if (!timeline || timeline->frames.empty())
+    return false;
+  if (frame >= timeline->frames.size())
+    frame = static_cast<u32>(timeline->frames.size() - 1);
+  ++goto_count_;
+  ApplyFrame(state, frame, 0);
+  return true;
+}
+
+bool Stage::GotoLabel(const AsValue& clip, base::StringRef label) {
+  const u32 index = StateIndexOf(clip);
+  if (index == 0 || index > clips_.size())
+    return false;
+  const Timeline* timeline = clips_[index - 1].timeline;
+  if (!timeline)
+    return false;
+  for (mem_size i = 0; i < timeline->frames.size(); ++i) {
+    if (timeline->frames[i].label == label)
+      return Goto(clip, static_cast<u32>(i));
+  }
+  return false;
+}
+
+namespace {
+
+// The timeline API a menu drives its states with. Frames are 1-based in the
+// language and 0-based here.
+AsValue ClipGoto(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  Stage* stage = static_cast<Stage*>(vm.host());
+  if (!stage || args.empty() || HostIndex(vm, self) == 0)
+    return AsValue::Undefined();
+  if (args[0].is_string()) {
+    // A label that is not on this timeline is not an error in the language: the
+    // clip stays where it is.
+    stage->GotoLabel(self, args[0].string());
+    return AsValue::Undefined();
+  }
+  const f64 frame = vm.ToNumber(args[0]);
+  stage->Goto(self, frame < 1 ? 0 : static_cast<u32>(frame) - 1);
+  return AsValue::Undefined();
+}
+
+AsValue ClipNextFrame(Vm& vm, const AsValue& self, const base::Vector<AsValue>&) {
+  Stage* stage = static_cast<Stage*>(vm.host());
+  if (!stage || HostIndex(vm, self) == 0)
+    return AsValue::Undefined();
+  const f64 current = vm.ToNumber(vm.GetMember(self, "_currentframe"));
+  stage->Goto(self, static_cast<u32>(current));  // 1-based current is the next 0-based
+  return AsValue::Undefined();
+}
+
+AsValue ClipPrevFrame(Vm& vm, const AsValue& self, const base::Vector<AsValue>&) {
+  Stage* stage = static_cast<Stage*>(vm.host());
+  if (!stage || HostIndex(vm, self) == 0)
+    return AsValue::Undefined();
+  const f64 current = vm.ToNumber(vm.GetMember(self, "_currentframe"));
+  if (current > 1)
+    stage->Goto(self, static_cast<u32>(current) - 2);
+  return AsValue::Undefined();
+}
+
+AsValue ClipNoOp(Vm&, const AsValue&, const base::Vector<AsValue>&) {
+  // play() and stop() without a clock. Every state a menu shows is reached by
+  // an explicit goto; what is left is the tween between them, which a
+  // translated screen does not show anyway.
+  return AsValue::Undefined();
+}
+
+}  // namespace
+
+void Stage::InstallClipApi() {
+  const AsValue proto = AsValue::Obj(vm_.movie_clip_prototype());
+  vm_.SetMember(proto, "gotoAndStop", AsValue::Obj(vm_.NewNative(ClipGoto)));
+  vm_.SetMember(proto, "gotoAndPlay", AsValue::Obj(vm_.NewNative(ClipGoto)));
+  vm_.SetMember(proto, "nextFrame", AsValue::Obj(vm_.NewNative(ClipNextFrame)));
+  vm_.SetMember(proto, "prevFrame", AsValue::Obj(vm_.NewNative(ClipPrevFrame)));
+  vm_.SetMember(proto, "play", AsValue::Obj(vm_.NewNative(ClipNoOp)));
+  vm_.SetMember(proto, "stop", AsValue::Obj(vm_.NewNative(ClipNoOp)));
+}
+
 void Stage::Run() {
+  vm_.set_host(this);
+  InstallClipApi();
+
   // Everything the library defines runs before the stage is built: the init
   // blocks, and the frame scripts of the sprites that are only there to carry
   // code. The AS2 compiler puts a class in a `__Packages.<name>` sprite that is
@@ -134,6 +322,34 @@ void Stage::Run() {
 
   for (u32 index : root_scripts)
     vm_.Run(index, root_);
+}
+
+base::Vector<AsValue> Stage::StatefulClips() const {
+  base::Vector<AsValue> out;
+  for (const ClipState& state : clips_) {
+    if (!state.timeline)
+      continue;
+    bool labelled = false;
+    for (const Frame& frame : state.timeline->frames)
+      labelled = labelled || !frame.label.empty();
+    if (labelled)
+      out.push_back(AsValue::Obj(state.object));
+  }
+  return out;
+}
+
+base::Vector<base::String> Stage::LabelsOf(const AsValue& clip) const {
+  base::Vector<base::String> out;
+  const u32 index = StateIndexOf(clip);
+  if (index == 0 || index > clips_.size())
+    return out;
+  const Timeline* timeline = clips_[index - 1].timeline;
+  if (!timeline)
+    return out;
+  for (const Frame& frame : timeline->frames)
+    if (!frame.label.empty())
+      out.push_back(frame.label);
+  return out;
 }
 
 AsValue Stage::Find(base::StringRef path) const {

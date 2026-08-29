@@ -180,10 +180,59 @@ void RunScripts(const swf::Movie& movie) {
   swf::Vm vm;
   swf::Stage stage(vm, movie);
   stage.Run();
+  // What there is to play: a menu keeps its states on labelled frames.
+  u32 multiframe = 0;
+  base::Vector<base::String> labels;
+  for (const swf::Timeline& sprite : movie.sprites) {
+    if (sprite.frames.size() > 1)
+      ++multiframe;
+    for (const swf::Frame& f : sprite.frames) {
+      if (f.label.empty())
+        continue;
+      bool seen = false;
+      for (const base::String& l : labels)
+        seen = seen || l == f.label;
+      if (!seen)
+        labels.push_back(f.label);
+    }
+  }
+  std::printf("%u multi-frame sprite(s), %zu distinct frame label(s)\n", multiframe,
+              static_cast<size_t>(labels.size()));
+  for (mem_size i = 0; i < labels.size() && i < 12; ++i)
+    std::printf("  label %s\n", labels[i].c_str());
+
+  // Exercise the timeline on real assets: take a clip that carries states and
+  // step it through each, reporting what the display list did.
+  const base::Vector<swf::AsValue> stateful = stage.StatefulClips();
+  std::printf("%zu clip(s) on the stage carry named frames\n",
+              static_cast<size_t>(stateful.size()));
+  for (const swf::AsValue& clip : stateful) {
+    const base::Vector<base::String> names = stage.LabelsOf(clip);
+    if (names.size() < 2)
+      continue;
+    std::printf("  stepping '%s' through %zu state(s):\n",
+                vm.ToString(vm.GetMember(clip, "_name")).c_str(),
+                static_cast<size_t>(names.size()));
+    for (const base::String& label : names) {
+      if (!stage.GotoLabel(clip, label))
+        continue;
+      u32 children = 0;
+      if (clip.is_object() && vm.Valid(clip.object()))
+        for (const base::String& key : vm.Get(clip.object()).order)
+          if (vm.GetMember(clip, key).is_object())
+            ++children;
+      std::printf("    %-18s frame %d, %u child object(s)\n", label.c_str(),
+                  static_cast<int>(vm.ToNumber(vm.GetMember(clip, "_currentframe"))),
+                  children);
+    }
+    break;
+  }
+
   std::printf("%zu unclassed exported clip(s)\n",
               static_cast<size_t>(stage.unclassed().size()));
-  std::printf("%u clip(s), %u with a registered class, %llu instruction(s)%s\n",
-              stage.clip_count(), stage.classed_count(),
+  std::printf("%u clip(s), %u with a registered class, %u frame change(s), "
+              "%llu instruction(s)%s\n",
+              stage.clip_count(), stage.classed_count(), stage.goto_count(),
               static_cast<unsigned long long>(vm.steps()),
               vm.exhausted() ? "  [step budget exhausted]" : "");
 
