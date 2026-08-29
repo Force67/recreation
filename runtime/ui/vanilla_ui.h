@@ -27,6 +27,8 @@ struct VanillaScreen {
   base::String markup;
   // widget name -> asset path, relative to the screen directory.
   base::Vector<base::Pair<base::String, base::String>> images;
+  // The font families the markup asks for, so only those are loaded.
+  base::Vector<base::String> fonts;
 };
 
 // Which screens to load, from RX_VANILLA_UI (comma separated, e.g.
@@ -40,6 +42,15 @@ base::String VanillaScreenDir();
 // Reads <dir>/<name>.ugui and <dir>/<name>.manifest. Returns false with a
 // warning when either is missing.
 bool LoadVanillaScreen(base::StringRef dir, base::StringRef name, VanillaScreen& out);
+
+// Registers the TrueType files in <dir>/fonts that `screens` ask for, so a
+// screen's `font:` property resolves to the typeface the game embeds in its own
+// font movies. Only the referenced families are loaded: the shipped set spans
+// every language, and a glyph atlas holding all of them does not fit. Must run
+// before the widget tree is built. Returns how many were registered.
+u32 LoadVanillaFonts(ugui::UIContext& ui,
+                     base::StringRef dir,
+                     const base::Vector<VanillaScreen>& screens);
 
 // Rasterizes every asset the screen's manifest lists and binds it to its widget.
 // SVG goes through libultragui's own rasterizer, so the vector art stays vector

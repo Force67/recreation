@@ -965,6 +965,13 @@ base::Vector<ui::VanillaScreen>& VanillaScreens() {
   return screens;
 }
 
+// True once any translated Scaleform screen is loaded. Asking for the game's own
+// interface means asking for it instead of recreation's, so the engine's HUD
+// fragments stay hidden rather than drawing a second one over the top.
+bool UsingVanillaUi() {
+  return !VanillaScreens().empty();
+}
+
 // The vanilla screens reference their art by widget name; the textures have to
 // be re-bound every time the tree is rebuilt.
 void BindVanillaScreens(ugui::UIContext& context, ugui::TextureBackend& backend) {
@@ -1362,7 +1369,7 @@ struct GameUi::Impl {
     ui.LoadUiString(doc.c_str(), "hud");
     BindVanillaScreens(ui, backend);
     CaptureFragmentMtimes();
-    const bool hud = !editor.active;
+    const bool hud = !editor.active && !UsingVanillaUi();
     SetVisible("topbar", hud);
     SetVisible("crosshair", hud);
     SetVisible("vitals", hud);
@@ -1403,7 +1410,7 @@ void GameUi::Impl::ApplyEditorView() {
   // On the active<->inactive edge, hide the gameplay HUD while editing and
   // restore it on exit (the editor has its own reticle and chrome).
   if (editor.active != editor_prev_active) {
-    const bool hud = !editor.active;
+    const bool hud = !editor.active && !UsingVanillaUi();
     SetVisible("topbar", hud);
     SetVisible("crosshair", hud);
     SetVisible("vitals", hud);
@@ -1651,7 +1658,7 @@ void GameUi::Impl::ApplyCharGenView() {
   // On the active<->inactive edge, hide the gameplay HUD while creating a
   // character and restore it on exit (the overlay owns the whole screen).
   if (chargen.active != chargen_prev_active) {
-    const bool hud = !chargen.active;
+    const bool hud = !chargen.active && !UsingVanillaUi();
     SetVisible("topbar", hud);
     SetVisible("crosshair", hud);
     SetVisible("vitals", hud);
@@ -2328,9 +2335,22 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   }
   impl_->ui.set_texture_backend(&impl_->backend);
 
+  // The screens name the game's own typeface, so those fonts have to be
+  // registered before the tree that asks for them is built.
+  if (UsingVanillaUi()) {
+    const u32 fonts =
+        ui::LoadVanillaFonts(impl_->ui, ui::VanillaScreenDir(), VanillaScreens());
+    if (fonts != 0)
+      RX_INFO("ui: {} vanilla font(s)", fonts);
+  }
+
   base::String doc = BuildUi();
   impl_->ui.LoadUiString(doc.c_str(), "hud");
   BindVanillaScreens(impl_->ui, impl_->backend);
+  if (UsingVanillaUi()) {
+    for (const char* fragment : {"topbar", "crosshair", "vitals", "readout", "quest"})
+      impl_->SetVisible(fragment, false);
+  }
   // Hot reload: when enabled, the .ugui fragments are polled for edits and the
   // tree is rebuilt in place (see GameUi::Build). Off by default.
   impl_->hot_reload = bool(UiHotReload);

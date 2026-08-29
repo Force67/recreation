@@ -112,7 +112,61 @@ bool LoadVanillaScreen(base::StringRef dir, base::StringRef name, VanillaScreen&
     else
       widget.push_back(c);
   }
+  // Which typefaces the markup asks for: "font: Futura Condensed Medium;".
+  for (mem_size i = 0; i + 6 < out.markup.size(); ++i) {
+    if (out.markup[i] != 'f' || out.markup[i + 1] != 'o' || out.markup[i + 2] != 'n' ||
+        out.markup[i + 3] != 't' || out.markup[i + 4] != ':' || out.markup[i + 5] != ' ')
+      continue;
+    base::String family;
+    mem_size k = i + 6;
+    for (; k < out.markup.size() && out.markup[k] != ';'; ++k)
+      family.push_back(out.markup[k]);
+    i = k;
+    bool known = false;
+    for (const base::String& seen : out.fonts)
+      known = known || seen == family;
+    if (!known && !family.empty())
+      out.fonts.push_back(base::move(family));
+  }
   return true;
+}
+
+u32 LoadVanillaFonts(ugui::UIContext& ui,
+                     base::StringRef dir,
+                     const base::Vector<VanillaScreen>& screens) {
+  const fs::path root = fs::path(base::String(dir).c_str()) / "fonts";
+  std::error_code ec;
+  if (!fs::is_directory(root, ec))
+    return 0;
+
+  base::Vector<base::String> wanted;
+  for (const VanillaScreen& screen : screens) {
+    for (const base::String& family : screen.fonts) {
+      bool known = false;
+      for (const base::String& seen : wanted)
+        known = known || seen == family;
+      if (!known)
+        wanted.push_back(family);
+    }
+  }
+
+  u32 loaded = 0;
+  for (const base::String& family : wanted) {
+    const fs::path path = root / (base::String(family) + ".ttf").c_str();
+    if (!fs::is_regular_file(path, ec)) {
+      RX_WARN("vanilla ui: {} not converted, falling back to the default font",
+              family);
+      continue;
+    }
+    const ugui::FontHandle handle = ui.LoadFont(path.string().c_str());
+    if (handle == ugui::kInvalidFont) {
+      RX_WARN("vanilla ui: cannot load {}", path.string());
+      continue;
+    }
+    ui.builder().RegisterFont(family.c_str(), handle);
+    ++loaded;
+  }
+  return loaded;
 }
 
 u32 BindVanillaImages(ugui::UIContext& ui,
@@ -202,6 +256,10 @@ base::String VanillaScreenDir() {
 
 bool LoadVanillaScreen(base::StringRef, base::StringRef, VanillaScreen&) {
   return false;
+}
+
+u32 LoadVanillaFonts(ugui::UIContext&, base::StringRef, const base::Vector<VanillaScreen>&) {
+  return 0;
 }
 
 u32 BindVanillaImages(ugui::UIContext&,
