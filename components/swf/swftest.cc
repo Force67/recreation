@@ -6,8 +6,10 @@
 #include <base/strings/xstring.h>
 
 #include <cstdio>
+#include <cstring>
 
 #include "components/swf/abc.h"
+#include "components/swf/vm.h"
 #include "components/swf/movie.h"
 #include "components/swf/shape.h"
 #include "components/swf/swf.h"
@@ -378,6 +380,84 @@ int main() {
     klass.constructor = 0;
     abc.classes.push_back(base::move(klass));
     Check(swf::ParseListBindings(abc).empty(), "an undecodable body yields no bindings");
+  }
+
+
+  // --- the interpreter ------------------------------------------------------
+  // Hand-assembled AVM1: the disassembler is exercised elsewhere, so these
+  // build bytecode directly and assert on what the machine computed.
+  {
+    auto push_string = [](base::Vector<rx::u8>& out, const char* text) {
+      out.push_back(0x96);  // Push
+      const rx::u16 len = static_cast<rx::u16>(std::strlen(text) + 2);
+      out.push_back(static_cast<rx::u8>(len & 0xff));
+      out.push_back(static_cast<rx::u8>(len >> 8));
+      out.push_back(0);  // string
+      for (const char* c = text; *c; ++c)
+        out.push_back(static_cast<rx::u8>(*c));
+      out.push_back(0);
+    };
+    auto push_double = [](base::Vector<rx::u8>& out, double value) {
+      out.push_back(0x96);
+      out.push_back(9);
+      out.push_back(0);
+      out.push_back(6);  // double
+      rx::u8 raw[8];
+      std::memcpy(raw, &value, 8);
+      // AVM1 stores a double as two 32-bit halves, high word first.
+      for (int i = 4; i < 8; ++i) out.push_back(raw[i]);
+      for (int i = 0; i < 4; ++i) out.push_back(raw[i]);
+    };
+
+    // trace("a" + "b") and trace(2 + 3)
+    base::Vector<rx::u8> code;
+    push_string(code, "a");
+    push_string(code, "b");
+    code.push_back(0x47);  // Add2
+    code.push_back(0x26);  // Trace
+    push_double(code, 2);
+    push_double(code, 3);
+    code.push_back(0x47);  // Add2
+    code.push_back(0x26);  // Trace
+    code.push_back(0x00);  // End
+
+    swf::Vm vm;
+    const rx::u32 script = vm.AddScript(ByteSpan{code.data(), code.size()});
+    vm.Run(script, swf::AsValue::Undefined());
+    Check(vm.traces().size() == 2, "the interpreter reached both traces");
+    Check(vm.traces().size() == 2 && vm.traces()[0] == "ab",
+          "Add2 concatenates when either side is a string");
+    Check(vm.traces().size() == 2 && vm.traces()[1] == "5",
+          "Add2 adds when both sides are numbers");
+    Check(!vm.exhausted(), "a finite script does not hit the step budget");
+  }
+  {
+    // A jump backwards to itself is the shape a runaway loop takes; the budget
+    // has to stop it rather than let it hang the caller.
+    base::Vector<rx::u8> code;
+    code.push_back(0x99);  // Jump, payload is one s16
+    code.push_back(2);
+    code.push_back(0);
+    code.push_back(0xfb);  // -5: end (5) + -5 = 0, this same action
+    code.push_back(0xff);
+    code.push_back(0x00);
+    swf::Vm vm;
+    const rx::u32 script = vm.AddScript(ByteSpan{code.data(), code.size()});
+    vm.Run(script, swf::AsValue::Undefined());
+    Check(vm.exhausted(), "an endless script stops on the step budget");
+  }
+  {
+    // The object model: a prototype chain resolves a member the instance does
+    // not carry, which is what every one of these menus is built on.
+    swf::Vm vm;
+    const rx::u32 base_object = vm.NewObject();
+    vm.SetMember(swf::AsValue::Obj(base_object), "kind", swf::AsValue::Str("base"));
+    const rx::u32 derived = vm.NewObject(base_object);
+    Check(vm.ToString(vm.GetMember(swf::AsValue::Obj(derived), "kind")) == "base",
+          "a member resolves through the prototype chain");
+    vm.SetMember(swf::AsValue::Obj(derived), "kind", swf::AsValue::Str("derived"));
+    Check(vm.ToString(vm.GetMember(swf::AsValue::Obj(derived), "kind")) == "derived",
+          "an own member shadows the prototype's");
   }
 
   std::printf("swftest: %d failure(s)\n", failures);

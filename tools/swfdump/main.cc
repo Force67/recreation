@@ -15,6 +15,7 @@
 #include "components/bethesda/archive.h"
 #include "components/bethesda/strings.h"
 #include "components/swf/abc.h"
+#include "components/swf/vm.h"
 #include "components/swf/decompile.h"
 #include "components/swf/font_export.h"
 #include "components/swf/movie.h"
@@ -164,6 +165,47 @@ void MountData(asset::Vfs& vfs, const char* data_dir) {
       vfs.Mount(base::move(provider));
   }
   vfs.Mount(asset::MakeLooseFileProvider(data_dir));
+}
+
+// Executes a movie's scripts and reports what they built. This is the direct
+// test of the interpreter: a shipped menu's init blocks define its classes on
+// _global, so the names that turn up there are the ones the game would have.
+void RunScripts(const swf::Movie& movie) {
+  swf::Vm vm;
+  const swf::AsValue root = swf::AsValue::Obj(vm.NewObject());
+  vm.set_root(root);
+
+  u32 ran = 0;
+  for (const swf::Script& script : movie.scripts) {
+    if (script.code.empty())
+      continue;
+    const u32 index = vm.AddScript(script.code);
+    vm.Run(index, root);
+    ++ran;
+  }
+  std::printf("ran %u script(s), %llu instruction(s)%s\n", ran,
+              static_cast<unsigned long long>(vm.steps()),
+              vm.exhausted() ? "  [step budget exhausted]" : "");
+
+  const swf::AsObject& global = vm.Get(vm.global());
+  u32 classes = 0;
+  for (const base::String& name : global.order) {
+    const swf::AsValue value = vm.GetMember(swf::AsValue::Obj(vm.global()), name);
+    if (!value.is_object() || !vm.Valid(value.object()))
+      continue;
+    if (!vm.Get(value.object()).is_function)
+      continue;
+    ++classes;
+    if (classes <= 24)
+      std::printf("  _global.%s\n", name.c_str());
+  }
+  std::printf("%u function(s)/class(es) defined on _global\n", classes);
+  if (!vm.traces().empty()) {
+    std::printf("%zu trace(s), first few:\n",
+                static_cast<size_t>(vm.traces().size()));
+    for (mem_size i = 0; i < vm.traces().size() && i < 8; ++i)
+      std::printf("  %s\n", vm.traces()[i].c_str());
+  }
 }
 
 int TranslateAll(const char* data_dir, const char* out_dir, f32 scale,
@@ -461,6 +503,10 @@ int main(int argc, char** argv) {
   if (mode == "--script") {
     const base::String script = swf::ExportScript(movie.value());
     std::fwrite(script.data(), 1, script.size(), stdout);
+    return 0;
+  }
+  if (mode == "--run") {
+    RunScripts(movie.value());
     return 0;
   }
   if (mode == "--disasm") {

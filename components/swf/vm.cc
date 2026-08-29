@@ -1,0 +1,1282 @@
+#include "components/swf/vm.h"
+
+#include <base/algorithm.h>
+#include <base/memory/move.h>
+#include <base/strings/format.h>
+
+#include <cmath>
+
+namespace rx::swf {
+namespace {
+
+// A run is bounded so a script that loops forever stops instead of hanging the
+// caller. Menus settle in well under this; the start menu's whole init is a few
+// hundred thousand instructions.
+constexpr u64 kMaxSteps = 40'000'000;
+constexpr u32 kMaxDepth = 64;
+
+// The AVM1 indexed property table, in opcode order. GetProperty/SetProperty
+// address a clip's properties by number; they become ordinary member names so a
+// host native can implement them alongside everything else.
+const char* const kProperties[] = {
+    "_x",            "_y",       "_xscale",   "_yscale",    "_currentframe",
+    "_totalframes",  "_alpha",   "_visible",  "_width",     "_height",
+    "_rotation",     "_target",  "_framesloaded", "_name",  "_droptarget",
+    "_url",          "_highquality", "_focusrect", "_soundbuftime", "_quality",
+    "_xmouse",       "_ymouse",
+};
+
+bool IsNumericString(base::StringRef s, f64& out) {
+  if (s.empty())
+    return false;
+  base::String copy(s);
+  char* end = nullptr;
+  const f64 value = std::strtod(copy.c_str(), &end);
+  if (!end || *end != '\0')
+    return false;
+  out = value;
+  return true;
+}
+
+}  // namespace
+
+AsValue AsValue::Null() {
+  AsValue v;
+  v.type_ = Type::kNull;
+  return v;
+}
+AsValue AsValue::Bool(bool b) {
+  AsValue v;
+  v.type_ = Type::kBool;
+  v.bool_ = b;
+  return v;
+}
+AsValue AsValue::Number(f64 n) {
+  AsValue v;
+  v.type_ = Type::kNumber;
+  v.number_ = n;
+  return v;
+}
+AsValue AsValue::Str(base::StringRef s) {
+  AsValue v;
+  v.type_ = Type::kString;
+  v.string_ = base::String(s);
+  return v;
+}
+AsValue AsValue::Obj(u32 index) {
+  AsValue v;
+  v.type_ = Type::kObject;
+  v.object_ = index;
+  return v;
+}
+
+// One activation: the operand stack, registers, and the places a bare name is
+// looked up in.
+struct Vm::Frame {
+  AsValue self;
+  base::Vector<AsValue> stack;
+  base::Vector<AsValue> registers;
+  base::Vector<u32> with_chain;
+  base::Vector<base::String> pool;
+  u32 locals = 0;  // object holding this activation's `var`s
+  u32 scope = 0;   // the scope a closure captured
+  AsValue result;
+  bool returned = false;
+
+  AsValue Pop() {
+    if (stack.empty())
+      return AsValue::Undefined();  // an underflowing script gets undefined, not a crash
+    AsValue v = base::move(stack[stack.size() - 1]);
+    stack.pop_back();
+    return v;
+  }
+  void Push(AsValue v) { stack.push_back(base::move(v)); }
+};
+
+Vm::Vm() {
+  objects_.push_back(AsObject{});  // index 0 is the null object
+  global_ = NewObject();
+  InstallStandardLibrary();
+}
+
+u32 Vm::NewObject(u32 prototype) {
+  AsObject object;
+  object.prototype = prototype;
+  objects_.push_back(base::move(object));
+  return static_cast<u32>(objects_.size() - 1);
+}
+
+u32 Vm::NewArray() {
+  const u32 index = NewObject(array_prototype_);
+  objects_[index].is_array = true;
+  objects_[index].props[base::String("length")] = AsValue::Number(0);
+  return index;
+}
+
+u32 Vm::NewNative(NativeFn fn) {
+  const u32 index = NewObject();
+  objects_[index].is_function = true;
+  objects_[index].native = fn;
+  return index;
+}
+
+u32 Vm::AddScript(ByteSpan code) {
+  AsScript script;
+  script.actions = Disassemble(code);
+  scripts_.push_back(base::move(script));
+  return static_cast<u32>(scripts_.size() - 1);
+}
+
+bool Vm::ToBool(const AsValue& v) const {
+  switch (v.type()) {
+    case AsValue::Type::kUndefined:
+    case AsValue::Type::kNull:
+      return false;
+    case AsValue::Type::kBool:
+      return v.raw_bool();
+    case AsValue::Type::kNumber:
+      return v.raw_number() != 0 && !std::isnan(v.raw_number());
+    case AsValue::Type::kString:
+      return !v.string().empty() && v.string() != "0";
+    case AsValue::Type::kObject:
+      return v.object() != 0;
+  }
+  return false;
+}
+
+f64 Vm::ToNumber(const AsValue& v) const {
+  switch (v.type()) {
+    case AsValue::Type::kBool:
+      return v.raw_bool() ? 1 : 0;
+    case AsValue::Type::kNumber:
+      return v.raw_number();
+    case AsValue::Type::kString: {
+      f64 out = 0;
+      if (v.string().empty())
+        return 0;
+      return IsNumericString(v.string(), out) ? out : std::nan("");
+    }
+    case AsValue::Type::kUndefined:
+      return std::nan("");
+    case AsValue::Type::kNull:
+      return 0;
+    case AsValue::Type::kObject:
+      return std::nan("");
+  }
+  return 0;
+}
+
+base::String Vm::ToString(const AsValue& v) {
+  switch (v.type()) {
+    case AsValue::Type::kUndefined:
+      return base::String("undefined");
+    case AsValue::Type::kNull:
+      return base::String("null");
+    case AsValue::Type::kBool:
+      return base::String(v.raw_bool() ? "true" : "false");
+    case AsValue::Type::kNumber: {
+      const f64 n = v.raw_number();
+      if (std::isnan(n))
+        return base::String("NaN");
+      if (std::isinf(n))
+        return base::String(n < 0 ? "-Infinity" : "Infinity");
+      if (n == static_cast<f64>(static_cast<i64>(n)))
+        return base::Format("{}", static_cast<i64>(n));
+      return base::Format("{}", n);
+    }
+    case AsValue::Type::kString:
+      return v.string();
+    case AsValue::Type::kObject: {
+      if (!Valid(v.object()))
+        return base::String("null");
+      const AsObject& o = objects_[v.object()];
+      if (o.is_array) {
+        base::String out;
+        const AsValue* length = o.props.find(base::String("length"));
+        const i64 n = length ? static_cast<i64>(ToNumber(*length)) : 0;
+        for (i64 i = 0; i < n; ++i) {
+          if (i)
+            out += ',';
+          const AsValue* item = objects_[v.object()].props.find(base::Format("{}", i));
+          if (item)
+            out += ToString(*item);
+        }
+        return out;
+      }
+      return base::String(o.is_function ? "[type Function]" : "[object Object]");
+    }
+  }
+  return {};
+}
+
+AsValue Vm::GetMember(const AsValue& target, base::StringRef name) {
+  if (target.is_string()) {
+    if (name == "length")
+      return AsValue::Number(static_cast<f64>(target.string().size()));
+    // Methods come off the shared String prototype, with the string itself
+    // arriving as `this` when the call is made.
+    if (Valid(string_prototype_))
+      return GetMember(AsValue::Obj(string_prototype_), name);
+    return AsValue::Undefined();
+  }
+  if (!target.is_object() || !Valid(target.object()))
+    return AsValue::Undefined();
+  const base::String key(name);
+  u32 current = target.object();
+  for (u32 guard = 0; guard < 64 && Valid(current); ++guard) {
+    if (const AsValue* found = objects_[current].props.find(key))
+      return *found;
+    current = objects_[current].prototype;
+  }
+  return AsValue::Undefined();
+}
+
+void Vm::SetMember(const AsValue& target, base::StringRef name, const AsValue& value) {
+  if (!target.is_object() || !Valid(target.object()))
+    return;
+  AsObject& object = objects_[target.object()];
+  const base::String key(name);
+  if (!object.props.find(key))
+    object.order.push_back(key);
+  object.props[key] = value;
+  // An array tracks its own length as the language does, so `push` and indexed
+  // writes agree without the host having to intervene.
+  if (object.is_array) {
+    f64 index = 0;
+    if (IsNumericString(name, index)) {
+      const AsValue* length = object.props.find(base::String("length"));
+      const f64 have = length ? ToNumber(*length) : 0;
+      if (index + 1 > have)
+        object.props[base::String("length")] = AsValue::Number(index + 1);
+    }
+  }
+}
+
+u32 Vm::IndexOfOffset(const AsScript& script, u32 first, u32 count, u32 offset) const {
+  for (u32 i = first; i < first + count && i < script.actions.size(); ++i)
+    if (script.actions[i].offset == offset)
+      return i;
+  return first + count;
+}
+
+AsValue Vm::ResolveVariable(Frame& frame, base::StringRef name) {
+  const base::String key(name);
+  for (mem_size i = frame.with_chain.size(); i-- > 0;) {
+    const AsValue scope = AsValue::Obj(frame.with_chain[i]);
+    if (Valid(frame.with_chain[i]) && objects_[frame.with_chain[i]].props.find(key))
+      return GetMember(scope, name);
+  }
+  if (Valid(frame.locals) && objects_[frame.locals].props.find(key))
+    return objects_[frame.locals].props[key];
+  if (Valid(frame.scope)) {
+    u32 current = frame.scope;
+    for (u32 guard = 0; guard < 64 && Valid(current); ++guard) {
+      if (const AsValue* found = objects_[current].props.find(key))
+        return *found;
+      current = objects_[current].prototype;
+    }
+  }
+  if (name == "this")
+    return frame.self;
+  if (name == "_global")
+    return AsValue::Obj(global_);
+  if (name == "_root" || name == "_level0")
+    return root_;
+  if (frame.self.is_object()) {
+    const AsValue member = GetMember(frame.self, name);
+    if (!member.is_undefined())
+      return member;
+  }
+  return GetMember(AsValue::Obj(global_), name);
+}
+
+void Vm::AssignVariable(Frame& frame, base::StringRef name, const AsValue& value) {
+  const base::String key(name);
+  for (mem_size i = frame.with_chain.size(); i-- > 0;) {
+    if (Valid(frame.with_chain[i]) && objects_[frame.with_chain[i]].props.find(key)) {
+      SetMember(AsValue::Obj(frame.with_chain[i]), name, value);
+      return;
+    }
+  }
+  if (Valid(frame.locals) && objects_[frame.locals].props.find(key)) {
+    objects_[frame.locals].props[key] = value;
+    return;
+  }
+  if (frame.self.is_object() && Valid(frame.self.object()) &&
+      objects_[frame.self.object()].props.find(key)) {
+    SetMember(frame.self, name, value);
+    return;
+  }
+  SetMember(AsValue::Obj(global_), name, value);
+}
+
+void Vm::Run(u32 script, const AsValue& self) {
+  if (script >= scripts_.size())
+    return;
+  Frame frame;
+  frame.self = self;
+  frame.locals = NewObject();
+  frame.registers.resize(256);
+  Execute(script, 0, static_cast<u32>(scripts_[script].actions.size()), frame);
+}
+
+AsValue Vm::Call(const AsValue& function, const AsValue& self,
+                 const base::Vector<AsValue>& args) {
+  return CallInternal(function, self, args, 0);
+}
+
+AsValue Vm::CallInternal(const AsValue& function, const AsValue& self,
+                         const base::Vector<AsValue>& args, u32 depth) {
+  if (!function.is_object() || !Valid(function.object()) || depth > kMaxDepth)
+    return AsValue::Undefined();
+  const AsObject& fn = objects_[function.object()];
+  if (!fn.is_function)
+    return AsValue::Undefined();
+  if (fn.native)
+    return fn.native(*this, self, args);
+
+  const AsFunctionBody body = fn.body;  // copied: objects_ can reallocate
+  const u32 scope = fn.scope;
+  if (body.script >= scripts_.size())
+    return AsValue::Undefined();
+
+  Frame frame;
+  frame.self = self;
+  frame.locals = NewObject();
+  frame.scope = scope;
+  frame.registers.resize(base::Max<mem_size>(256, body.register_count + 1u));
+  frame.pool = scripts_[body.script].pool;
+
+  // DefineFunction2 preloads the implicit values into low registers and can
+  // suppress the matching locals; DefineFunction (flags 0) uses locals only.
+  u8 next_register = 1;
+  const bool is_v2 = body.register_count != 0 || body.flags != 0;
+  if (is_v2) {
+    if (body.flags & fn_flags::kPreloadThis)
+      frame.registers[next_register++] = self;
+    if (body.flags & fn_flags::kPreloadArguments) {
+      const u32 arguments = NewArray();
+      for (mem_size i = 0; i < args.size(); ++i)
+        SetMember(AsValue::Obj(arguments), base::Format("{}", i), args[i]);
+      SetMember(AsValue::Obj(arguments), "length",
+                AsValue::Number(static_cast<f64>(args.size())));
+      frame.registers[next_register++] = AsValue::Obj(arguments);
+    }
+    if (body.flags & fn_flags::kPreloadSuper) {
+      AsValue super = AsValue::Undefined();
+      if (self.is_object() && Valid(self.object())) {
+        const u32 proto = objects_[self.object()].prototype;
+        if (Valid(proto))
+          super = AsValue::Obj(objects_[proto].prototype);
+      }
+      frame.registers[next_register++] = super;
+    }
+    if (body.flags & fn_flags::kPreloadRoot)
+      frame.registers[next_register++] = root_;
+    if (body.flags & fn_flags::kPreloadParent)
+      frame.registers[next_register++] = GetMember(self, "_parent");
+    if (body.flags & fn_flags::kPreloadGlobal)
+      frame.registers[next_register++] = AsValue::Obj(global_);
+  }
+  if (!(body.flags & fn_flags::kSuppressThis))
+    SetMember(AsValue::Obj(frame.locals), "this", self);
+  if (!(body.flags & fn_flags::kSuppressArguments)) {
+    const u32 arguments = NewArray();
+    for (mem_size i = 0; i < args.size(); ++i)
+      SetMember(AsValue::Obj(arguments), base::Format("{}", i), args[i]);
+    SetMember(AsValue::Obj(arguments), "length",
+              AsValue::Number(static_cast<f64>(args.size())));
+    SetMember(AsValue::Obj(frame.locals), "arguments", AsValue::Obj(arguments));
+  }
+
+  for (mem_size i = 0; i < body.params.size(); ++i) {
+    const AsValue value = i < args.size() ? args[i] : AsValue::Undefined();
+    const u8 reg = i < body.param_registers.size() ? body.param_registers[i] : 0;
+    if (reg != 0 && reg < frame.registers.size())
+      frame.registers[reg] = value;
+    else
+      SetMember(AsValue::Obj(frame.locals), body.params[i], value);
+  }
+
+  ++depth_;
+  Execute(body.script, body.first, body.count, frame);
+  --depth_;
+  return frame.result;
+}
+
+void Vm::Execute(u32 script_index, u32 first, u32 count, Frame& frame) {
+  if (script_index >= scripts_.size())
+    return;
+  const u32 last = first + count;
+  u32 i = first;
+  while (i < last && i < scripts_[script_index].actions.size()) {
+    if (++steps_ > kMaxSteps) {
+      exhausted_ = true;
+      return;
+    }
+    if (frame.returned)
+      return;
+    // The action list can be reallocated only by AddScript, which never runs
+    // during execution, so a reference is safe for the body of one step.
+    const Action& action = scripts_[script_index].actions[i];
+    const u8 code = action.code;
+    u32 next = i + 1;
+
+    switch (code) {
+      case op::kEnd:
+        return;
+
+      case op::kConstantPool:
+        frame.pool = action.strings;
+        break;
+
+      case op::kPush:
+        for (const Value& value : action.values) {
+          switch (value.kind) {
+            case Value::Kind::kString:
+              frame.Push(AsValue::Str(value.text));
+              break;
+            case Value::Kind::kFloat:
+            case Value::Kind::kDouble:
+            case Value::Kind::kInt:
+              frame.Push(AsValue::Number(value.number));
+              break;
+            case Value::Kind::kNull:
+              frame.Push(AsValue::Null());
+              break;
+            case Value::Kind::kUndefined:
+              frame.Push(AsValue::Undefined());
+              break;
+            case Value::Kind::kBool:
+              frame.Push(AsValue::Bool(value.boolean));
+              break;
+            case Value::Kind::kRegister:
+              frame.Push(value.index < frame.registers.size() ? frame.registers[value.index]
+                                                              : AsValue::Undefined());
+              break;
+            case Value::Kind::kConstant:
+              frame.Push(value.index < frame.pool.size()
+                             ? AsValue::Str(frame.pool[value.index])
+                             : AsValue::Undefined());
+              break;
+          }
+        }
+        break;
+
+      case op::kPop:
+        frame.Pop();
+        break;
+      case op::kPushDuplicate:
+        if (!frame.stack.empty())
+          frame.Push(frame.stack[frame.stack.size() - 1]);
+        break;
+      case op::kStackSwap:
+        if (frame.stack.size() >= 2) {
+          const mem_size n = frame.stack.size();
+          AsValue tmp = base::move(frame.stack[n - 1]);
+          frame.stack[n - 1] = base::move(frame.stack[n - 2]);
+          frame.stack[n - 2] = base::move(tmp);
+        }
+        break;
+      case op::kStoreRegister:
+        if (!frame.stack.empty() && action.byte_arg < frame.registers.size())
+          frame.registers[action.byte_arg] = frame.stack[frame.stack.size() - 1];
+        break;
+
+      case op::kGetVariable: {
+        const AsValue name = frame.Pop();
+        frame.Push(ResolveVariable(frame, ToString(name)));
+        break;
+      }
+      case op::kSetVariable: {
+        const AsValue value = frame.Pop();
+        const AsValue name = frame.Pop();
+        AssignVariable(frame, ToString(name), value);
+        break;
+      }
+      case op::kDefineLocal: {
+        const AsValue value = frame.Pop();
+        const AsValue name = frame.Pop();
+        SetMember(AsValue::Obj(frame.locals), ToString(name), value);
+        break;
+      }
+      case op::kDefineLocal2: {
+        const AsValue name = frame.Pop();
+        const base::String key = ToString(name);
+        if (!objects_[frame.locals].props.find(key))
+          SetMember(AsValue::Obj(frame.locals), key, AsValue::Undefined());
+        break;
+      }
+
+      case op::kGetMember: {
+        const AsValue name = frame.Pop();
+        const AsValue target = frame.Pop();
+        frame.Push(GetMember(target, ToString(name)));
+        break;
+      }
+      case op::kSetMember: {
+        const AsValue value = frame.Pop();
+        const AsValue name = frame.Pop();
+        const AsValue target = frame.Pop();
+        SetMember(target, ToString(name), value);
+        break;
+      }
+      case op::kGetProperty: {
+        const AsValue index = frame.Pop();
+        const AsValue target = frame.Pop();
+        const u32 which = static_cast<u32>(ToNumber(index));
+        frame.Push(which < sizeof(kProperties) / sizeof(*kProperties)
+                       ? GetMember(target, kProperties[which])
+                       : AsValue::Undefined());
+        break;
+      }
+      case op::kSetProperty: {
+        const AsValue value = frame.Pop();
+        const AsValue index = frame.Pop();
+        const AsValue target = frame.Pop();
+        const u32 which = static_cast<u32>(ToNumber(index));
+        if (which < sizeof(kProperties) / sizeof(*kProperties))
+          SetMember(target, kProperties[which], value);
+        break;
+      }
+      case op::kDelete: {
+        const AsValue name = frame.Pop();
+        const AsValue target = frame.Pop();
+        if (target.is_object() && Valid(target.object()))
+          objects_[target.object()].props.erase(ToString(name));
+        frame.Push(AsValue::Bool(true));
+        break;
+      }
+      case op::kDelete2: {
+        const AsValue name = frame.Pop();
+        const base::String key = ToString(name);
+        if (Valid(frame.locals))
+          objects_[frame.locals].props.erase(key);
+        frame.Push(AsValue::Bool(true));
+        break;
+      }
+
+      case op::kInitObject: {
+        const u32 pairs = static_cast<u32>(ToNumber(frame.Pop()));
+        const u32 object = NewObject();
+        for (u32 p = 0; p < pairs; ++p) {
+          const AsValue value = frame.Pop();
+          const AsValue name = frame.Pop();
+          SetMember(AsValue::Obj(object), ToString(name), value);
+        }
+        frame.Push(AsValue::Obj(object));
+        break;
+      }
+      case op::kInitArray: {
+        const u32 n = static_cast<u32>(ToNumber(frame.Pop()));
+        const u32 array = NewArray();
+        for (u32 e = 0; e < n; ++e)
+          SetMember(AsValue::Obj(array), base::Format("{}", n - 1 - e), frame.Pop());
+        SetMember(AsValue::Obj(array), "length", AsValue::Number(n));
+        frame.Push(AsValue::Obj(array));
+        break;
+      }
+
+      case op::kCallFunction: {
+        const AsValue name = frame.Pop();
+        const u32 argc = static_cast<u32>(ToNumber(frame.Pop()));
+        base::Vector<AsValue> args;
+        for (u32 a = 0; a < argc; ++a)
+          args.push_back(frame.Pop());
+        const AsValue fn = ResolveVariable(frame, ToString(name));
+        frame.Push(CallInternal(fn, frame.self, args, depth_ + 1));
+        break;
+      }
+      case op::kCallMethod: {
+        const AsValue name = frame.Pop();
+        const AsValue target = frame.Pop();
+        const u32 argc = static_cast<u32>(ToNumber(frame.Pop()));
+        base::Vector<AsValue> args;
+        for (u32 a = 0; a < argc; ++a)
+          args.push_back(frame.Pop());
+        const base::String key = ToString(name);
+        // An empty method name calls the target itself, which is how a
+        // function value stored in a variable is invoked.
+        const AsValue fn = key.empty() ? target : GetMember(target, key);
+        frame.Push(CallInternal(fn, key.empty() ? frame.self : target, args, depth_ + 1));
+        break;
+      }
+      case op::kNewObject:
+      case op::kNewMethod: {
+        AsValue constructor;
+        if (code == op::kNewMethod) {
+          const AsValue name = frame.Pop();
+          const AsValue target = frame.Pop();
+          const base::String key = ToString(name);
+          constructor = key.empty() ? target : GetMember(target, key);
+        } else {
+          constructor = ResolveVariable(frame, ToString(frame.Pop()));
+        }
+        const u32 argc = static_cast<u32>(ToNumber(frame.Pop()));
+        base::Vector<AsValue> args;
+        for (u32 a = 0; a < argc; ++a)
+          args.push_back(frame.Pop());
+        u32 prototype = 0;
+        if (constructor.is_object()) {
+          const AsValue proto = GetMember(constructor, "prototype");
+          if (proto.is_object())
+            prototype = proto.object();
+        }
+        const AsValue instance = AsValue::Obj(NewObject(prototype));
+        SetMember(instance, "__constructor__", constructor);
+        const AsValue returned = CallInternal(constructor, instance, args, depth_ + 1);
+        frame.Push(returned.is_object() ? returned : instance);
+        break;
+      }
+
+      case op::kReturn:
+        frame.result = frame.Pop();
+        frame.returned = true;
+        return;
+
+      case op::kDefineFunction:
+      case op::kDefineFunction2: {
+        const u32 body_first = IndexOfOffset(scripts_[script_index], i + 1,
+                                             last - (i + 1), action.end);
+        u32 body_count = 0;
+        const u32 body_end = action.end + action.body_size;
+        for (u32 b = body_first; b < last && b < scripts_[script_index].actions.size(); ++b) {
+          if (scripts_[script_index].actions[b].offset >= body_end)
+            break;
+          ++body_count;
+        }
+        const u32 fn = NewObject();
+        objects_[fn].is_function = true;
+        objects_[fn].scope = frame.locals;
+        objects_[fn].body.script = script_index;
+        objects_[fn].body.first = body_first;
+        objects_[fn].body.count = body_count;
+        objects_[fn].body.flags = action.function_flags;
+        objects_[fn].body.register_count = action.register_count;
+        objects_[fn].body.params = action.strings;
+        objects_[fn].body.param_registers = action.param_registers;
+        // Every function is a potential constructor, so it carries a prototype.
+        SetMember(AsValue::Obj(fn), "prototype", AsValue::Obj(NewObject()));
+        if (action.name.empty())
+          frame.Push(AsValue::Obj(fn));
+        else
+          AssignVariable(frame, action.name, AsValue::Obj(fn));
+        next = body_first + body_count;
+        break;
+      }
+
+      case op::kWith: {
+        const AsValue target = frame.Pop();
+        const u32 body_first = IndexOfOffset(scripts_[script_index], i + 1,
+                                             last - (i + 1), action.end);
+        u32 body_count = 0;
+        const u32 body_end = action.end + action.body_size;
+        for (u32 b = body_first; b < last && b < scripts_[script_index].actions.size(); ++b) {
+          if (scripts_[script_index].actions[b].offset >= body_end)
+            break;
+          ++body_count;
+        }
+        if (target.is_object())
+          frame.with_chain.push_back(target.object());
+        Execute(script_index, body_first, body_count, frame);
+        if (target.is_object() && !frame.with_chain.empty())
+          frame.with_chain.pop_back();
+        next = body_first + body_count;
+        break;
+      }
+
+      case op::kJump:
+        next = IndexOfOffset(scripts_[script_index], first, count,
+                             static_cast<u32>(static_cast<i32>(action.end) + action.jump));
+        break;
+      case op::kIf: {
+        const AsValue condition = frame.Pop();
+        if (ToBool(condition))
+          next = IndexOfOffset(scripts_[script_index], first, count,
+                               static_cast<u32>(static_cast<i32>(action.end) + action.jump));
+        break;
+      }
+
+      case op::kAdd:
+        frame.Push(AsValue::Number(ToNumber(frame.Pop()) + ToNumber(frame.Pop())));
+        break;
+      case op::kAdd2: {
+        const AsValue b = frame.Pop();
+        const AsValue a = frame.Pop();
+        if (a.is_string() || b.is_string())
+          frame.Push(AsValue::Str(ToString(a) + ToString(b)));
+        else
+          frame.Push(AsValue::Number(ToNumber(a) + ToNumber(b)));
+        break;
+      }
+      case op::kStringAdd: {
+        const AsValue b = frame.Pop();
+        const AsValue a = frame.Pop();
+        frame.Push(AsValue::Str(ToString(a) + ToString(b)));
+        break;
+      }
+      case op::kSubtract: {
+        const f64 b = ToNumber(frame.Pop());
+        frame.Push(AsValue::Number(ToNumber(frame.Pop()) - b));
+        break;
+      }
+      case op::kMultiply:
+        frame.Push(AsValue::Number(ToNumber(frame.Pop()) * ToNumber(frame.Pop())));
+        break;
+      case op::kDivide: {
+        const f64 b = ToNumber(frame.Pop());
+        frame.Push(AsValue::Number(ToNumber(frame.Pop()) / b));
+        break;
+      }
+      case op::kModulo: {
+        const f64 b = ToNumber(frame.Pop());
+        frame.Push(AsValue::Number(std::fmod(ToNumber(frame.Pop()), b)));
+        break;
+      }
+      case op::kIncrement:
+        frame.Push(AsValue::Number(ToNumber(frame.Pop()) + 1));
+        break;
+      case op::kDecrement:
+        frame.Push(AsValue::Number(ToNumber(frame.Pop()) - 1));
+        break;
+
+      case op::kEquals: {
+        const f64 b = ToNumber(frame.Pop());
+        frame.Push(AsValue::Bool(ToNumber(frame.Pop()) == b));
+        break;
+      }
+      case op::kEquals2: {
+        const AsValue b = frame.Pop();
+        const AsValue a = frame.Pop();
+        bool equal = false;
+        const bool a_nullish = a.type() == AsValue::Type::kUndefined ||
+                               a.type() == AsValue::Type::kNull;
+        const bool b_nullish = b.type() == AsValue::Type::kUndefined ||
+                               b.type() == AsValue::Type::kNull;
+        if (a_nullish || b_nullish)
+          equal = a_nullish && b_nullish;
+        else if (a.is_object() && b.is_object())
+          equal = a.object() == b.object();
+        else if (a.is_string() && b.is_string())
+          equal = a.string() == b.string();
+        else
+          equal = ToNumber(a) == ToNumber(b);
+        frame.Push(AsValue::Bool(equal));
+        break;
+      }
+      case op::kStrictEquals: {
+        const AsValue b = frame.Pop();
+        const AsValue a = frame.Pop();
+        bool equal = a.type() == b.type();
+        if (equal) {
+          switch (a.type()) {
+            case AsValue::Type::kObject:
+              equal = a.object() == b.object();
+              break;
+            case AsValue::Type::kString:
+              equal = a.string() == b.string();
+              break;
+            case AsValue::Type::kNumber:
+              equal = a.raw_number() == b.raw_number();
+              break;
+            case AsValue::Type::kBool:
+              equal = a.raw_bool() == b.raw_bool();
+              break;
+            default:
+              break;
+          }
+        }
+        frame.Push(AsValue::Bool(equal));
+        break;
+      }
+      case op::kLess: {
+        const f64 b = ToNumber(frame.Pop());
+        frame.Push(AsValue::Bool(ToNumber(frame.Pop()) < b));
+        break;
+      }
+      case op::kLess2: {
+        const AsValue b = frame.Pop();
+        const AsValue a = frame.Pop();
+        if (a.is_string() && b.is_string())
+          frame.Push(AsValue::Bool(a.string() < b.string()));
+        else
+          frame.Push(AsValue::Bool(ToNumber(a) < ToNumber(b)));
+        break;
+      }
+      case op::kGreater: {
+        const AsValue b = frame.Pop();
+        const AsValue a = frame.Pop();
+        if (a.is_string() && b.is_string())
+          frame.Push(AsValue::Bool(b.string() < a.string()));
+        else
+          frame.Push(AsValue::Bool(ToNumber(a) > ToNumber(b)));
+        break;
+      }
+      case op::kStringEquals: {
+        const base::String b = ToString(frame.Pop());
+        frame.Push(AsValue::Bool(ToString(frame.Pop()) == b));
+        break;
+      }
+      case op::kStringLess: {
+        const base::String b = ToString(frame.Pop());
+        frame.Push(AsValue::Bool(ToString(frame.Pop()) < b));
+        break;
+      }
+      case op::kStringGreater: {
+        const base::String b = ToString(frame.Pop());
+        frame.Push(AsValue::Bool(b < ToString(frame.Pop())));
+        break;
+      }
+
+      case op::kNot:
+        frame.Push(AsValue::Bool(!ToBool(frame.Pop())));
+        break;
+      case op::kAnd: {
+        const bool b = ToBool(frame.Pop());
+        frame.Push(AsValue::Bool(ToBool(frame.Pop()) && b));
+        break;
+      }
+      case op::kOr: {
+        const bool b = ToBool(frame.Pop());
+        frame.Push(AsValue::Bool(ToBool(frame.Pop()) || b));
+        break;
+      }
+
+      case op::kBitAnd: {
+        const i32 b = static_cast<i32>(ToNumber(frame.Pop()));
+        frame.Push(AsValue::Number(static_cast<i32>(ToNumber(frame.Pop())) & b));
+        break;
+      }
+      case op::kBitOr: {
+        const i32 b = static_cast<i32>(ToNumber(frame.Pop()));
+        frame.Push(AsValue::Number(static_cast<i32>(ToNumber(frame.Pop())) | b));
+        break;
+      }
+      case op::kBitXor: {
+        const i32 b = static_cast<i32>(ToNumber(frame.Pop()));
+        frame.Push(AsValue::Number(static_cast<i32>(ToNumber(frame.Pop())) ^ b));
+        break;
+      }
+      case op::kBitLShift: {
+        const i32 b = static_cast<i32>(ToNumber(frame.Pop())) & 31;
+        frame.Push(AsValue::Number(static_cast<i32>(ToNumber(frame.Pop())) << b));
+        break;
+      }
+      case op::kBitRShift: {
+        const i32 b = static_cast<i32>(ToNumber(frame.Pop())) & 31;
+        frame.Push(AsValue::Number(static_cast<i32>(ToNumber(frame.Pop())) >> b));
+        break;
+      }
+      case op::kBitURShift: {
+        const i32 b = static_cast<i32>(ToNumber(frame.Pop())) & 31;
+        frame.Push(AsValue::Number(static_cast<u32>(ToNumber(frame.Pop())) >> b));
+        break;
+      }
+
+      case op::kToNumber:
+        frame.Push(AsValue::Number(ToNumber(frame.Pop())));
+        break;
+      case op::kToString:
+        frame.Push(AsValue::Str(ToString(frame.Pop())));
+        break;
+      case op::kToInteger:
+        frame.Push(AsValue::Number(static_cast<f64>(static_cast<i64>(ToNumber(frame.Pop())))));
+        break;
+      case op::kTypeOf: {
+        const AsValue v = frame.Pop();
+        const char* name = "undefined";
+        switch (v.type()) {
+          case AsValue::Type::kNull:
+            name = "null";
+            break;
+          case AsValue::Type::kBool:
+            name = "boolean";
+            break;
+          case AsValue::Type::kNumber:
+            name = "number";
+            break;
+          case AsValue::Type::kString:
+            name = "string";
+            break;
+          case AsValue::Type::kObject:
+            name = Valid(v.object()) && objects_[v.object()].is_function ? "function"
+                   : Valid(v.object()) && objects_[v.object()].is_movie_clip
+                       ? "movieclip"
+                       : "object";
+            break;
+          case AsValue::Type::kUndefined:
+            break;
+        }
+        frame.Push(AsValue::Str(name));
+        break;
+      }
+
+      case op::kStringLength:
+      case op::kMbStringLength:
+        frame.Push(AsValue::Number(static_cast<f64>(ToString(frame.Pop()).size())));
+        break;
+      case op::kStringExtract:
+      case op::kMbStringExtract: {
+        const i64 length = static_cast<i64>(ToNumber(frame.Pop()));
+        const i64 start = static_cast<i64>(ToNumber(frame.Pop()));
+        const base::String s = ToString(frame.Pop());
+        base::String out;
+        for (i64 k = 0; k < length; ++k) {
+          const i64 at = start - 1 + k;  // 1-based in the language
+          if (at >= 0 && at < static_cast<i64>(s.size()))
+            out.push_back(s[static_cast<mem_size>(at)]);
+        }
+        frame.Push(AsValue::Str(out));
+        break;
+      }
+      case op::kCharToAscii:
+      case op::kMbCharToAscii: {
+        const base::String s = ToString(frame.Pop());
+        frame.Push(AsValue::Number(s.empty() ? 0 : static_cast<u8>(s[0])));
+        break;
+      }
+      case op::kAsciiToChar:
+      case op::kMbAsciiToChar: {
+        base::String out;
+        out.push_back(static_cast<char>(static_cast<i32>(ToNumber(frame.Pop()))));
+        frame.Push(AsValue::Str(out));
+        break;
+      }
+
+      case op::kTrace:
+        traces_.push_back(ToString(frame.Pop()));
+        break;
+
+      case op::kExtends: {
+        const AsValue super = frame.Pop();
+        const AsValue subclass = frame.Pop();
+        const AsValue super_proto = GetMember(super, "prototype");
+        const u32 proto = NewObject(super_proto.is_object() ? super_proto.object() : 0);
+        SetMember(AsValue::Obj(proto), "__constructor__", super);
+        SetMember(subclass, "prototype", AsValue::Obj(proto));
+        break;
+      }
+      case op::kInstanceOf: {
+        const AsValue klass = frame.Pop();
+        const AsValue instance = frame.Pop();
+        bool is = false;
+        if (instance.is_object() && klass.is_object()) {
+          const AsValue proto = GetMember(klass, "prototype");
+          u32 current = Valid(instance.object()) ? objects_[instance.object()].prototype : 0;
+          for (u32 guard = 0; guard < 64 && Valid(current); ++guard) {
+            if (proto.is_object() && current == proto.object()) {
+              is = true;
+              break;
+            }
+            current = objects_[current].prototype;
+          }
+        }
+        frame.Push(AsValue::Bool(is));
+        break;
+      }
+      case op::kCastOp: {
+        const AsValue value = frame.Pop();
+        frame.Pop();  // the class; a failed cast yields null, and nothing checks
+        frame.Push(value);
+        break;
+      }
+      case op::kImplementsOp: {
+        const u32 n = static_cast<u32>(ToNumber(frame.Pop()));
+        for (u32 k = 0; k < n; ++k)
+          frame.Pop();
+        frame.Pop();
+        break;
+      }
+
+      case op::kEnumerate2: {
+        const AsValue target = frame.Pop();
+        frame.Push(AsValue::Null());  // the terminator the loop stops on
+        if (target.is_object() && Valid(target.object())) {
+          const base::Vector<base::String> keys = objects_[target.object()].order;
+          for (mem_size k = keys.size(); k-- > 0;)
+            frame.Push(AsValue::Str(keys[k]));
+        }
+        break;
+      }
+
+      case op::kRandomNumber:
+        // Deterministic: a menu uses this for idle flourishes, and a run that
+        // varies cannot be compared against another.
+        frame.Push(AsValue::Number(0));
+        break;
+      case op::kGetTime:
+        frame.Push(AsValue::Number(static_cast<f64>(steps_)));
+        break;
+      case op::kTargetPath:
+        frame.Push(AsValue::Str(""));
+        break;
+
+      // Timeline control has no meaning without a running display list; the
+      // host drives frames itself. Popping what they consume keeps the stack
+      // balanced for the code that follows.
+      case op::kGotoFrame2:
+        frame.Pop();
+        break;
+      case op::kCall:
+        frame.Pop();
+        break;
+      case op::kStop:
+      case op::kPlay:
+      case op::kNextFrame:
+      case op::kPrevFrame:
+      case op::kStopSounds:
+      case op::kToggleQuality:
+      case op::kGotoFrame:
+      case op::kGotoLabel:
+      case op::kWaitForFrame:
+      case op::kWaitForFrame2:
+      case op::kSetTarget:
+      case op::kSetTarget2:
+      case op::kEndDrag:
+        break;
+      case op::kStartDrag: {
+        frame.Pop();
+        const bool constrain = ToBool(frame.Pop());
+        frame.Pop();
+        if (constrain)
+          for (int k = 0; k < 4; ++k)
+            frame.Pop();
+        break;
+      }
+      case op::kCloneSprite:
+        frame.Pop();
+        frame.Pop();
+        frame.Pop();
+        break;
+      case op::kRemoveSprite:
+        frame.Pop();
+        break;
+      case op::kGetUrl2:
+        frame.Pop();
+        frame.Pop();
+        break;
+      case op::kThrow:
+        frame.Pop();
+        break;
+
+      default:
+        // An opcode with no effect modelled here still has to leave the stack
+        // as the compiler expects, and the ones that reach this point take no
+        // operands off it.
+        break;
+    }
+    i = next;
+  }
+}
+
+// --- standard library -------------------------------------------------------
+
+namespace {
+
+AsValue NativeTrace(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) {
+  (void)vm;
+  (void)args;
+  return AsValue::Undefined();
+}
+
+AsValue ArrayPush(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  const AsValue length = vm.GetMember(self, "length");
+  f64 n = vm.ToNumber(length);
+  if (std::isnan(n))
+    n = 0;
+  for (const AsValue& arg : args)
+    vm.SetMember(self, base::Format("{}", static_cast<i64>(n++)), arg);
+  vm.SetMember(self, "length", AsValue::Number(n));
+  return AsValue::Number(n);
+}
+
+AsValue ArrayPop(Vm& vm, const AsValue& self, const base::Vector<AsValue>&) {
+  const f64 n = vm.ToNumber(vm.GetMember(self, "length"));
+  if (n <= 0)
+    return AsValue::Undefined();
+  const base::String key = base::Format("{}", static_cast<i64>(n) - 1);
+  const AsValue out = vm.GetMember(self, key);
+  if (self.is_object() && vm.Valid(self.object()))
+    vm.Get(self.object()).props.erase(key);
+  vm.SetMember(self, "length", AsValue::Number(n - 1));
+  return out;
+}
+
+AsValue ArrayJoin(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  const base::String sep = args.empty() ? base::String(",") : vm.ToString(args[0]);
+  const i64 n = static_cast<i64>(vm.ToNumber(vm.GetMember(self, "length")));
+  base::String out;
+  for (i64 i = 0; i < n; ++i) {
+    if (i)
+      out += sep;
+    out += vm.ToString(vm.GetMember(self, base::Format("{}", i)));
+  }
+  return AsValue::Str(out);
+}
+
+AsValue MathFloor(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) {
+  return AsValue::Number(std::floor(args.empty() ? 0 : vm.ToNumber(args[0])));
+}
+AsValue MathCeil(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) {
+  return AsValue::Number(std::ceil(args.empty() ? 0 : vm.ToNumber(args[0])));
+}
+AsValue MathRound(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) {
+  return AsValue::Number(std::floor((args.empty() ? 0 : vm.ToNumber(args[0])) + 0.5));
+}
+AsValue MathAbs(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) {
+  return AsValue::Number(std::fabs(args.empty() ? 0 : vm.ToNumber(args[0])));
+}
+AsValue MathMin(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) {
+  if (args.empty())
+    return AsValue::Number(std::nan(""));
+  f64 out = vm.ToNumber(args[0]);
+  for (mem_size i = 1; i < args.size(); ++i)
+    out = base::Min(out, vm.ToNumber(args[i]));
+  return AsValue::Number(out);
+}
+AsValue MathMax(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) {
+  if (args.empty())
+    return AsValue::Number(std::nan(""));
+  f64 out = vm.ToNumber(args[0]);
+  for (mem_size i = 1; i < args.size(); ++i)
+    out = base::Max(out, vm.ToNumber(args[i]));
+  return AsValue::Number(out);
+}
+AsValue MathSqrt(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) {
+  return AsValue::Number(std::sqrt(args.empty() ? 0 : vm.ToNumber(args[0])));
+}
+AsValue MathPow(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) {
+  const f64 a = args.size() > 0 ? vm.ToNumber(args[0]) : 0;
+  const f64 b = args.size() > 1 ? vm.ToNumber(args[1]) : 0;
+  return AsValue::Number(std::pow(a, b));
+}
+AsValue MathRandom(Vm&, const AsValue&, const base::Vector<AsValue>&) {
+  return AsValue::Number(0);  // deterministic, so two runs can be compared
+}
+
+AsValue StringSubstr(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  const base::String s = vm.ToString(self);
+  i64 start = args.size() > 0 ? static_cast<i64>(vm.ToNumber(args[0])) : 0;
+  if (start < 0)
+    start = base::Max<i64>(0, static_cast<i64>(s.size()) + start);
+  i64 length = args.size() > 1 ? static_cast<i64>(vm.ToNumber(args[1]))
+                               : static_cast<i64>(s.size()) - start;
+  base::String out;
+  for (i64 i = 0; i < length; ++i) {
+    const i64 at = start + i;
+    if (at >= 0 && at < static_cast<i64>(s.size()))
+      out.push_back(s[static_cast<mem_size>(at)]);
+  }
+  return AsValue::Str(out);
+}
+
+AsValue StringIndexOf(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  const base::String s = vm.ToString(self);
+  const base::String needle = args.empty() ? base::String() : vm.ToString(args[0]);
+  const mem_size at = s.find(needle);
+  return AsValue::Number(at == base::String::npos ? -1 : static_cast<f64>(at));
+}
+
+AsValue StringToUpper(Vm& vm, const AsValue& self, const base::Vector<AsValue>&) {
+  base::String s = vm.ToString(self);
+  for (mem_size i = 0; i < s.size(); ++i)
+    if (s[i] >= 'a' && s[i] <= 'z')
+      s[i] = static_cast<char>(s[i] - 'a' + 'A');
+  return AsValue::Str(s);
+}
+
+AsValue GlobalParseInt(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) {
+  if (args.empty())
+    return AsValue::Number(std::nan(""));
+  return AsValue::Number(static_cast<f64>(static_cast<i64>(vm.ToNumber(args[0]))));
+}
+
+AsValue GlobalIsNaN(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) {
+  return AsValue::Bool(args.empty() || std::isnan(vm.ToNumber(args[0])));
+}
+
+AsValue NoOp(Vm&, const AsValue&, const base::Vector<AsValue>&) {
+  return AsValue::Undefined();
+}
+
+AsValue SetIntervalStub(Vm&, const AsValue&, const base::Vector<AsValue>&) {
+  // Timers need a clock the host owns; a menu uses them for repeat and fades,
+  // never to produce the contents a translation cares about.
+  return AsValue::Number(0);
+}
+
+}  // namespace
+
+void Vm::InstallStandardLibrary() {
+  const AsValue g = AsValue::Obj(global_);
+
+  SetMember(g, "trace", AsValue::Obj(NewNative(NativeTrace)));
+  SetMember(g, "parseInt", AsValue::Obj(NewNative(GlobalParseInt)));
+  SetMember(g, "parseFloat", AsValue::Obj(NewNative(GlobalParseInt)));
+  SetMember(g, "isNaN", AsValue::Obj(NewNative(GlobalIsNaN)));
+  SetMember(g, "ASSetPropFlags", AsValue::Obj(NewNative(NoOp)));
+  SetMember(g, "setInterval", AsValue::Obj(NewNative(SetIntervalStub)));
+  SetMember(g, "clearInterval", AsValue::Obj(NewNative(NoOp)));
+  SetMember(g, "updateAfterEvent", AsValue::Obj(NewNative(NoOp)));
+  SetMember(g, "undefined", AsValue::Undefined());
+  SetMember(g, "NaN", AsValue::Number(std::nan("")));
+  SetMember(g, "Infinity", AsValue::Number(HUGE_VAL));
+
+  // Object: its prototype is the root of every chain.
+  const u32 object_ctor = NewNative(NoOp);
+  const u32 object_proto = NewObject();
+  SetMember(AsValue::Obj(object_ctor), "prototype", AsValue::Obj(object_proto));
+  SetMember(g, "Object", AsValue::Obj(object_ctor));
+
+  // Array, with the handful of methods the menus actually call.
+  const u32 array_proto = NewObject(object_proto);
+  SetMember(AsValue::Obj(array_proto), "push", AsValue::Obj(NewNative(ArrayPush)));
+  SetMember(AsValue::Obj(array_proto), "pop", AsValue::Obj(NewNative(ArrayPop)));
+  SetMember(AsValue::Obj(array_proto), "join", AsValue::Obj(NewNative(ArrayJoin)));
+  const u32 array_ctor = NewNative(NoOp);
+  SetMember(AsValue::Obj(array_ctor), "prototype", AsValue::Obj(array_proto));
+  SetMember(g, "Array", AsValue::Obj(array_ctor));
+  array_prototype_ = array_proto;
+
+  const u32 string_proto = NewObject(object_proto);
+  SetMember(AsValue::Obj(string_proto), "substr", AsValue::Obj(NewNative(StringSubstr)));
+  SetMember(AsValue::Obj(string_proto), "substring", AsValue::Obj(NewNative(StringSubstr)));
+  SetMember(AsValue::Obj(string_proto), "indexOf", AsValue::Obj(NewNative(StringIndexOf)));
+  SetMember(AsValue::Obj(string_proto), "toUpperCase",
+            AsValue::Obj(NewNative(StringToUpper)));
+  const u32 string_ctor = NewNative(NoOp);
+  SetMember(AsValue::Obj(string_ctor), "prototype", AsValue::Obj(string_proto));
+  SetMember(g, "String", AsValue::Obj(string_ctor));
+
+  const u32 math = NewObject(object_proto);
+  SetMember(AsValue::Obj(math), "floor", AsValue::Obj(NewNative(MathFloor)));
+  SetMember(AsValue::Obj(math), "ceil", AsValue::Obj(NewNative(MathCeil)));
+  SetMember(AsValue::Obj(math), "round", AsValue::Obj(NewNative(MathRound)));
+  SetMember(AsValue::Obj(math), "abs", AsValue::Obj(NewNative(MathAbs)));
+  SetMember(AsValue::Obj(math), "min", AsValue::Obj(NewNative(MathMin)));
+  SetMember(AsValue::Obj(math), "max", AsValue::Obj(NewNative(MathMax)));
+  SetMember(AsValue::Obj(math), "sqrt", AsValue::Obj(NewNative(MathSqrt)));
+  SetMember(AsValue::Obj(math), "pow", AsValue::Obj(NewNative(MathPow)));
+  SetMember(AsValue::Obj(math), "random", AsValue::Obj(NewNative(MathRandom)));
+  SetMember(AsValue::Obj(math), "PI", AsValue::Number(3.14159265358979323846));
+  SetMember(g, "Math", AsValue::Obj(math));
+
+  const u32 number_ctor = NewNative(NoOp);
+  SetMember(AsValue::Obj(number_ctor), "prototype", AsValue::Obj(NewObject(object_proto)));
+  SetMember(AsValue::Obj(number_ctor), "MAX_VALUE", AsValue::Number(1.7976931348623157e308));
+  SetMember(AsValue::Obj(number_ctor), "MIN_VALUE", AsValue::Number(5e-324));
+  SetMember(g, "Number", AsValue::Obj(number_ctor));
+
+  const u32 boolean_ctor = NewNative(NoOp);
+  SetMember(AsValue::Obj(boolean_ctor), "prototype", AsValue::Obj(NewObject(object_proto)));
+  SetMember(g, "Boolean", AsValue::Obj(boolean_ctor));
+
+  const u32 function_ctor = NewNative(NoOp);
+  SetMember(AsValue::Obj(function_ctor), "prototype", AsValue::Obj(NewObject(object_proto)));
+  SetMember(g, "Function", AsValue::Obj(function_ctor));
+
+  object_prototype_ = object_proto;
+  string_prototype_ = string_proto;
+}
+
+}  // namespace rx::swf
