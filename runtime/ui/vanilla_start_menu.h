@@ -7,10 +7,10 @@
 #include <base/strings/xstring.h>
 
 #include "core/types.h"
+#include "runtime/ui/vanilla_list.h"
 
 namespace ugui {
 class UIContext;
-struct WidgetId;
 }  // namespace ugui
 
 namespace rx::ui {
@@ -45,13 +45,14 @@ class VanillaStartMenu {
     bool has_creations = false;
   };
 
-  // Rebuilds the option list. `strings` resolves the "$KEY" the movie stores.
-  void Build(const Availability& availability,
+  // Builds the option list against the screen's widgets. `strings` resolves the
+  // "$KEY" the movie stores. Returns false when the screen has no option list.
+  bool Build(ugui::UIContext& ui,
+             const Availability& availability,
              const base::UnorderedMap<base::String, base::String>* strings);
 
-  // Writes the options into the movie's own row widgets, spaces them the way the
-  // list component does, and parks the selection arrow. Call after the tree is
-  // built and whenever the selection moves.
+  // Writes the options into the movie's own row widgets and parks the selection
+  // arrow. Call after the tree is built and whenever the selection moves.
   void Apply(ugui::UIContext& ui);
 
   // Keyboard/pad movement over the enabled rows.
@@ -61,18 +62,11 @@ class VanillaStartMenu {
   bool HandleClick(ugui::UIContext& ui, u32 target_id);
 
   Action Selected() const;
-  bool empty() const { return options_.empty(); }
+  bool empty() const { return list_.empty(); }
 
  private:
-  struct Option {
-    Action action = Action::kNone;
-    base::String text;
-    bool disabled = false;
-    u32 row_id = 0;  // the widget this option was written into
-  };
-
-  base::Vector<Option> options_;
-  mem_size selected_ = 0;
+  VanillaList list_;
+  base::Vector<Action> actions_;  // parallel to the list's entries
 };
 
 }  // namespace rx::ui

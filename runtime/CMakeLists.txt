@@ -117,7 +117,8 @@ endif()
 # compiles ui/game_ui.cc to a stub. The draw list is rendered by gui_backend.cc
 # with engine-embedded shaders.
 if(RECREATION_HAS_UGUI)
-  target_sources(recreation PRIVATE ui/gui_backend.cc ui/shader_pack.cc ui/vanilla_ui.cc ui/vanilla_start_menu.cc)
+  target_sources(recreation PRIVATE ui/gui_backend.cc ui/shader_pack.cc ui/vanilla_ui.cc
+                                     ui/vanilla_list.cc ui/vanilla_start_menu.cc ui/vanilla_pause_menu.cc)
   target_link_libraries(recreation PRIVATE ultragui recreation::stb)
   target_compile_definitions(recreation PRIVATE RECREATION_HAS_UGUI=1)
   # The recreation-owned HUD/thumbnail shaders ship in this archive; the engine

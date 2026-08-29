@@ -9,6 +9,8 @@
 #include <ugui/svg/svg.h>
 #include <ugui/ultragui.h>
 #include <ugui/widgets/image.h>
+#include <ugui/widgets/text.h>
+#include <ugui/widgets/widget.h>
 
 #include <filesystem>
 #include <fstream>
@@ -67,6 +69,71 @@ base::UnorderedMap<base::String, base::String> LoadVanillaStrings(base::StringRe
     (on_value ? value : key).push_back(c);
   }
   return out;
+}
+
+namespace {
+
+ugui::wid FirstTextUnder(ugui::WidgetRegistry& world, ugui::wid root) {
+  const ugui::WidgetNode* node = world.Get<ugui::WidgetNode>(root);
+  if (node && node->kind == ugui::WidgetKind::kText)
+    return root;
+  const ugui::Hierarchy* h = world.Get<ugui::Hierarchy>(root);
+  if (!h)
+    return ugui::kNullWidget;
+  for (ugui::wid child : h->children) {
+    const ugui::wid found = FirstTextUnder(world, child);
+    if (found.valid())
+      return found;
+  }
+  return ugui::kNullWidget;
+}
+
+}  // namespace
+
+void SetVanillaText(ugui::UIContext& ui, base::StringRef widget, base::StringRef text) {
+  const ugui::wid root = ui.FindWidget(base::String(widget).c_str());
+  if (!root.valid())
+    return;
+  const ugui::wid label = FirstTextUnder(ui.world(), root);
+  if (label.valid())
+    ugui::SetText(label, base::String(text).c_str());
+}
+
+void SetVanillaTextColor(ugui::UIContext& ui, base::StringRef widget, u32 rgb) {
+  const ugui::wid root = ui.FindWidget(base::String(widget).c_str());
+  if (!root.valid())
+    return;
+  ugui::WidgetRegistry& world = ui.world();
+  const ugui::wid label = FirstTextUnder(world, root);
+  ugui::StyleC* sc = label.valid() ? world.Get<ugui::StyleC>(label) : nullptr;
+  if (!sc)
+    return;
+  ugui::Style style = sc->style;
+  style.text_color = ugui::Color::FromHex(rgb);
+  ugui::SetStyle(world, label, style);
+}
+
+namespace {
+
+void SetSubtreeOpacity(ugui::WidgetRegistry& world, ugui::wid root, f32 opacity) {
+  if (ugui::StyleC* sc = world.Get<ugui::StyleC>(root)) {
+    ugui::Style style = sc->style;
+    style.opacity = opacity;
+    ugui::SetStyle(world, root, style);
+  }
+  const ugui::Hierarchy* h = world.Get<ugui::Hierarchy>(root);
+  if (!h)
+    return;
+  for (ugui::wid child : h->children)
+    SetSubtreeOpacity(world, child, opacity);
+}
+
+}  // namespace
+
+void ShowVanillaSubtree(ugui::UIContext& ui, base::StringRef widget, bool show) {
+  const ugui::wid w = ui.FindWidget(base::String(widget).c_str());
+  if (w.valid())
+    SetSubtreeOpacity(ui.world(), w, show ? 1.0f : 0.0f);
 }
 
 base::Vector<base::String> VanillaScreenNames() {
@@ -314,6 +381,10 @@ u32 BindVanillaImages(ugui::UIContext& ui,
 #else  // RECREATION_HAS_UGUI
 
 namespace rx::ui {
+
+void SetVanillaText(ugui::UIContext&, base::StringRef, base::StringRef) {}
+void SetVanillaTextColor(ugui::UIContext&, base::StringRef, u32) {}
+void ShowVanillaSubtree(ugui::UIContext&, base::StringRef, bool) {}
 
 base::Vector<base::String> VanillaScreenNames() {
   return {};

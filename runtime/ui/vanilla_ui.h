@@ -42,6 +42,24 @@ struct VanillaScreen {
 // when the file is absent.
 base::UnorderedMap<base::String, base::String> LoadVanillaStrings(base::StringRef dir);
 
+// Small pokes at a translated screen, for a host driving one the way the game
+// drives the original. The movies leave placeholder labels behind and stack
+// every state's panels into the one frame a static translation can capture, so
+// the host writes the real text and puts the states it is not showing away.
+//
+// `widget` is the instance name the movie gave it. SetVanillaText writes the
+// first text anywhere below that widget, since a tab or a row wraps its label.
+void SetVanillaText(ugui::UIContext& ui, base::StringRef widget, base::StringRef text);
+void SetVanillaTextColor(ugui::UIContext& ui, base::StringRef widget, u32 rgb);
+
+// Turns a whole subtree on or off. ugui ignores `visibility` and its opacity
+// does not inherit, so both directions have to reach every leaf: a panel set to
+// zero still draws its children, and a subtree the movie faded out carries the
+// alpha on its leaves. Showing therefore overrides whatever the movie's colour
+// transform baked in, which is right for a subtree the game itself turns on
+// (a `gotoAndStop` onto a visible frame) and wrong for anything else.
+void ShowVanillaSubtree(ugui::UIContext& ui, base::StringRef widget, bool show);
+
 // Which screens to load, from RX_VANILLA_UI (comma separated, e.g.
 // "hudmenu,startmenu"). Empty when the feature is off.
 base::Vector<base::String> VanillaScreenNames();

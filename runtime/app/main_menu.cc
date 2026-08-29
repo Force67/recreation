@@ -299,6 +299,7 @@ void Engine::RefreshMenuData() {
   stats.build = RECREATION_VERSION;
   stats.player_name = (handle.empty() || handle == "player") ? stats.account : handle;
   stats.level = 0;
+  stats.game_days = clock_ ? clock_->game_days() : 0.0;
   stats.net_status = "Offline";
 
   int avail = 0;

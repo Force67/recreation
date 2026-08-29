@@ -226,6 +226,7 @@ struct MainMenuStats {
   int active_quests = 0;
   int players_online = 0;   // connected peers (host or client), 0 = offline
   base::String net_status;  // "Offline" / "Hosting :29700" / "Connected ..."
+  double game_days = 0;     // WorldClock::game_days, for menus that show the date
 
   // Real local-profile / system identity, shown on the front screen before any
   // universe is loaded (the profile is the machine account, not an RPG hero).

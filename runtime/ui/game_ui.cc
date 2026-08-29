@@ -36,6 +36,7 @@
 #include "render/rhi/vulkan_interop.h"
 #include "runtime/ui/gui_backend.h"
 #include "runtime/ui/ugui_platform.h"
+#include "runtime/ui/vanilla_pause_menu.h"
 #include "runtime/ui/vanilla_start_menu.h"
 #include "runtime/ui/vanilla_ui.h"
 
@@ -1173,8 +1174,12 @@ struct GameUi::Impl {
   // live when that screen is one of the loaded vanilla screens.
   bool start_menu_active = false;
   ui::VanillaStartMenu start_menu;
+  // The translated pause menu (the journal's System page), same deal.
+  bool pause_menu_active = false;
+  ui::VanillaPauseMenu pause_menu;
   base::UnorderedMap<base::String, base::String> vanilla_strings;
   void ActOnStartMenu();
+  void ActOnPauseMenu();
   SettingsRequest settings_request;  // raised by the settings panel, polled by the engine
   bool prev_mouse[3] = {};
   float pointer_scale_x = 1.0f;
@@ -1432,6 +1437,29 @@ void GameUi::Impl::ActOnStartMenu() {
     case Action::kLoad:
     case Action::kCreations:
     case Action::kMods:
+    case Action::kNone:
+      // No vanilla frame is wired to these yet; the row still selects, which is
+      // what the movie itself does before the game answers.
+      break;
+  }
+}
+
+void GameUi::Impl::ActOnPauseMenu() {
+  using Action = ui::VanillaPauseMenu::Action;
+  switch (pause_menu.Selected()) {
+    case Action::kQuit:
+      // The original opens a two-entry list (main menu / desktop) here; without
+      // that state wired, QUIT means what the confirm's second entry does.
+      quit_requested = true;
+      break;
+    case Action::kQuickSave:
+    case Action::kSave:
+    case Action::kLoad:
+    case Action::kInstalledContent:
+    case Action::kCreations:
+    case Action::kSettings:
+    case Action::kControls:
+    case Action::kHelp:
     case Action::kNone:
       // No vanilla frame is wired to these yet; the row still selects, which is
       // what the movie itself does before the game answers.
@@ -2396,20 +2424,33 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   impl_->ui.LoadUiString(doc.c_str(), "hud");
   BindVanillaScreens(impl_->ui, impl_->backend);
 
-  // The start menu ships as an empty frame; the game fills it on open, and so
-  // does this. See runtime/ui/vanilla_start_menu.
-  for (const ui::VanillaScreen& screen : VanillaScreens()) {
-    if (screen.name != "startmenu")
-      continue;
+  // The shipped menus are empty frames; the game fills them on open, and so
+  // does this. See runtime/ui/vanilla_start_menu and vanilla_pause_menu.
+  if (UsingVanillaUi())
     impl_->vanilla_strings = ui::LoadVanillaStrings(ui::VanillaScreenDir());
-    ui::VanillaStartMenu::Availability availability;
-    availability.has_save = false;  // no save browser wired to the vanilla frame yet
-    impl_->start_menu.Build(availability, &impl_->vanilla_strings);
-    impl_->start_menu.Apply(impl_->ui);
-    impl_->start_menu_active = true;
-    ugui::SetText(impl_->ui.FindWidget("VersionText"), "recreation");
-    RX_INFO("ui: vanilla start menu hooked up");
-    break;
+  for (const ui::VanillaScreen& screen : VanillaScreens()) {
+    if (screen.name == "startmenu") {
+      ui::VanillaStartMenu::Availability availability;
+      availability.has_save = false;  // no save browser wired to the vanilla frame yet
+      if (impl_->start_menu.Build(impl_->ui, availability, &impl_->vanilla_strings)) {
+        impl_->start_menu.Apply(impl_->ui);
+        impl_->start_menu_active = true;
+        ugui::SetText(impl_->ui.FindWidget("VersionText"), "recreation");
+        RX_INFO("ui: vanilla start menu hooked up");
+      }
+    } else if (screen.name == "quest_journal") {
+      ui::VanillaPauseMenu::Availability availability;
+      if (impl_->pause_menu.Build(impl_->ui, availability, &impl_->vanilla_strings)) {
+        impl_->pause_menu.Apply(impl_->ui);
+        impl_->pause_menu_active = true;
+        ugui::SetText(impl_->ui.FindWidget("VersionText"), "recreation");
+        // The bottom bar's readout is a placeholder until the first stats push;
+        // seed it so the menu never shows "Time, Date, Year".
+        impl_->pause_menu.SetPlayerInfo(impl_->ui, impl_->mm_stats.game_days,
+                                        impl_->mm_stats.level, 0.0f);
+        RX_INFO("ui: vanilla pause menu hooked up");
+      }
+    }
   }
   if (UsingVanillaUi()) {
     for (const char* fragment : {"topbar", "crosshair", "vitals", "readout", "quest"})
@@ -2430,6 +2471,11 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
       impl->start_menu.Apply(impl->ui);
       impl->ActOnStartMenu();
       return;  // the vanilla start menu owns this click
+    }
+    if (impl->pause_menu_active && impl->pause_menu.HandleClick(impl->ui, w.index)) {
+      impl->pause_menu.Apply(impl->ui);
+      impl->ActOnPauseMenu();
+      return;  // the vanilla pause menu owns this click
     }
     if (impl->RouteFirstRunClick(w))
       return;  // the setup wizard owns this click
@@ -2592,8 +2638,14 @@ void GameUi::SetMainMenuGlyph(const base::String& widget, u64 texture) {
 }
 
 void GameUi::SetMainMenuStats(const MainMenuStats& stats) {
-  if (impl_->initialized)
-    impl_->mm_stats = stats;
+  if (!impl_->initialized)
+    return;
+  impl_->mm_stats = stats;
+  // The journal's bottom bar is the game's RequestPlayerInfo answer; recreation
+  // has the clock, so the date is real. There is no XP source yet, so the level
+  // meter sits where the engine leaves it.
+  if (impl_->pause_menu_active)
+    impl_->pause_menu.SetPlayerInfo(impl_->ui, stats.game_days, stats.level, 0.0f);
 }
 
 void GameUi::SetMainMenuMods(const base::Vector<base::String>& mods) {
@@ -2943,21 +2995,32 @@ void GameUi::Build(Window& window,
   if (in.key_pressed(Key::kReturn))
     q.PushKey(257, 0, true, false, 0);
 
-  // The start menu is a list the game drives itself rather than a focus ring,
-  // so it takes up/down and activate directly instead of going through ugui's
-  // navigation. Its rows are all one widget deep and carry no focus index.
-  if (impl->start_menu_active) {
+  // The vanilla menus are lists the game drives itself rather than focus rings,
+  // so they take up/down and activate directly instead of going through ugui's
+  // navigation. Their rows are all one widget deep and carry no focus index.
+  if (impl->start_menu_active || impl->pause_menu_active) {
     int step = 0;
     if (in.key_pressed(Key::kArrowUp) || pad_pressed[static_cast<int>(GamepadButton::kDpadUp)])
       --step;
     if (in.key_pressed(Key::kArrowDown) || pad_pressed[static_cast<int>(GamepadButton::kDpadDown)])
       ++step;
-    if (step != 0) {
-      impl->start_menu.MoveSelection(step);
-      impl->start_menu.Apply(impl->ui);
+    const bool activate =
+        in.key_pressed(Key::kReturn) || pad_pressed[static_cast<int>(GamepadButton::kSouth)];
+    if (impl->start_menu_active) {
+      if (step != 0) {
+        impl->start_menu.MoveSelection(step);
+        impl->start_menu.Apply(impl->ui);
+      }
+      if (activate)
+        impl->ActOnStartMenu();
+    } else {
+      if (step != 0) {
+        impl->pause_menu.MoveSelection(step);
+        impl->pause_menu.Apply(impl->ui);
+      }
+      if (activate)
+        impl->ActOnPauseMenu();
     }
-    if (in.key_pressed(Key::kReturn) || pad_pressed[static_cast<int>(GamepadButton::kSouth)])
-      impl->ActOnStartMenu();
   }
 
   // --- Drive HUD values from real engine state ---
