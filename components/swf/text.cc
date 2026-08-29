@@ -141,7 +141,7 @@ bool ParseStaticText(u16 tag_code, ByteSpan body, StaticText& out) {
   return r.ok();
 }
 
-bool ParseFont(u16 tag_code, ByteSpan body, Font& out) {
+bool ParseFont(u16 tag_code, ByteSpan body, Font& out, bool with_outlines) {
   const bool font3 = tag_code == 75;
   Reader r(body);
   out.id = r.U16();
@@ -169,14 +169,31 @@ bool ParseFont(u16 tag_code, ByteSpan body, Font& out) {
   if (glyph_count == 0)
     return true;
 
-  // The offset table is relative to its own start, so the code table's offset
-  // lets us jump past the glyph outlines without decoding a single one.
+  // The offset table is relative to its own start; each entry locates one glyph
+  // and the last locates the code table, so the outlines can be read (or jumped
+  // over) without decoding anything in between.
   const mem_size table_start = r.pos();
   const mem_size offset_size = wide_offsets ? 4u : 2u;
-  r.Skip(offset_size * glyph_count);
+  base::Vector<u32> offsets;
+  for (u16 i = 0; i < glyph_count && r.ok(); ++i)
+    offsets.push_back(wide_offsets ? r.U32() : r.U16());
   const u32 code_table_offset = wide_offsets ? r.U32() : r.U16();
   if (!r.ok())
     return false;
+
+  out.em_units = font3 ? 20480u : 1024u;
+  if (with_outlines) {
+    for (u16 i = 0; i < glyph_count; ++i) {
+      Glyph glyph;
+      r.Seek(table_start + offsets[i]);
+      if (!r.ok())
+        break;
+      // A glyph that fails to decode stays empty rather than dropping the rest
+      // of the font; the reader is reseated from the offset table either way.
+      ParseGlyphOutline(r, glyph.contours);
+      out.glyphs.push_back(base::move(glyph));
+    }
+  }
 
   r.Seek(table_start + code_table_offset);
   for (u16 i = 0; i < glyph_count && r.ok(); ++i)
@@ -211,6 +228,123 @@ base::String ResolveRunText(const Font& font, const TextRun& run) {
       out.push_back('?');
   }
   return out;
+}
+
+namespace {
+
+// Returns the value of `name="..."` inside one tag's attribute run, or an empty
+// view when the attribute is absent.
+base::StringRef Attribute(base::StringRef tag, const char* name) {
+  const mem_size length = base::StringRef(name).size();
+  for (mem_size i = 0; i + length + 2 < tag.size(); ++i) {
+    if (i != 0 && tag[i - 1] != ' ')
+      continue;
+    bool match = true;
+    for (mem_size k = 0; k < length && match; ++k)
+      match = tag[i + k] == name[k];
+    if (!match || tag[i + length] != '=' || tag[i + length + 1] != '"')
+      continue;
+    const mem_size start = i + length + 2;
+    mem_size end = start;
+    while (end < tag.size() && tag[end] != '"')
+      ++end;
+    return tag.substr(start, end - start);
+  }
+  return base::StringRef();
+}
+
+f32 ParseFloat(base::StringRef text) {
+  f32 value = 0;
+  f32 fraction = 0;
+  f32 scale = 0.1f;
+  bool negative = false;
+  bool after_point = false;
+  for (mem_size i = 0; i < text.size(); ++i) {
+    const char c = text[i];
+    if (i == 0 && c == '-') {
+      negative = true;
+    } else if (c == '.') {
+      after_point = true;
+    } else if (c >= '0' && c <= '9') {
+      if (after_point) {
+        fraction += static_cast<f32>(c - '0') * scale;
+        scale *= 0.1f;
+      } else {
+        value = value * 10 + static_cast<f32>(c - '0');
+      }
+    } else {
+      break;
+    }
+  }
+  const f32 out = value + fraction;
+  return negative ? -out : out;
+}
+
+u8 HexPair(base::StringRef text, mem_size at) {
+  auto digit = [](char c) -> u8 {
+    if (c >= '0' && c <= '9')
+      return static_cast<u8>(c - '0');
+    if (c >= 'a' && c <= 'f')
+      return static_cast<u8>(c - 'a' + 10);
+    if (c >= 'A' && c <= 'F')
+      return static_cast<u8>(c - 'A' + 10);
+    return 0;
+  };
+  if (at + 1 >= text.size())
+    return 0;
+  return static_cast<u8>(digit(text[at]) * 16 + digit(text[at + 1]));
+}
+
+}  // namespace
+
+bool ParseHtmlFormat(base::StringRef html, HtmlFormat& out) {
+  bool found = false;
+  for (mem_size i = 0; i < html.size(); ++i) {
+    if (html[i] != '<')
+      continue;
+    mem_size end = i + 1;
+    while (end < html.size() && html[end] != '>')
+      ++end;
+    const base::StringRef tag = html.substr(i + 1, end - i - 1);
+    i = end;
+
+    if (tag.size() >= 2 && tag[0] == 'p' && (tag[1] == ' ' || tag[1] == '>')) {
+      const base::StringRef align = Attribute(tag, "align");
+      if (!align.empty()) {
+        out.align = align == "right"    ? TextAlign::kRight
+                    : align == "center" ? TextAlign::kCenter
+                    : align == "justify" ? TextAlign::kJustify
+                                        : TextAlign::kLeft;
+        out.has_align = true;
+        found = true;
+      }
+      continue;
+    }
+    if (tag.size() < 4 || tag[0] != 'f' || tag[1] != 'o' || tag[2] != 'n' || tag[3] != 't')
+      continue;
+
+    // The first <font> wins: a field styled per run is rare, and ugui gives a
+    // text widget one face and size.
+    const base::StringRef face = Attribute(tag, "face");
+    if (!face.empty() && out.face.empty())
+      out.face = base::String(face);
+    const base::StringRef size = Attribute(tag, "size");
+    if (!size.empty() && out.size == 0)
+      out.size = ParseFloat(size);
+    const base::StringRef spacing = Attribute(tag, "letterSpacing");
+    if (!spacing.empty() && out.letter_spacing == 0)
+      out.letter_spacing = ParseFloat(spacing);
+    const base::StringRef color = Attribute(tag, "color");
+    if (color.size() >= 7 && color[0] == '#' && !out.has_color) {
+      out.color.r = HexPair(color, 1);
+      out.color.g = HexPair(color, 3);
+      out.color.b = HexPair(color, 5);
+      out.color.a = 255;
+      out.has_color = true;
+    }
+    found = true;
+  }
+  return found;
 }
 
 base::String StripHtml(base::StringRef html) {

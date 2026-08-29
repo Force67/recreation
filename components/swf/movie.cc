@@ -260,7 +260,7 @@ base::StringRef Movie::ExportName(u16 id) const {
   return name ? base::StringRef(*name) : base::StringRef();
 }
 
-base::Optional<Movie> LoadMovie(const SwfFile& file) {
+base::Optional<Movie> LoadMovie(const SwfFile& file, bool want_font_outlines) {
   Movie movie;
   movie.frame_size = file.frame_size;
   movie.frame_rate = file.frame_rate;
@@ -327,7 +327,7 @@ base::Optional<Movie> LoadMovie(const SwfFile& file) {
       case TagCode::kDefineFont2:
       case TagCode::kDefineFont3: {
         Font font;
-        if (!ParseFont(tag.code, tag.body, font))
+        if (!ParseFont(tag.code, tag.body, font, want_font_outlines))
           break;
         movie.characters[font.id] =
             CharacterRef{CharacterKind::kFont, static_cast<u32>(movie.fonts.size())};
@@ -403,11 +403,14 @@ base::Optional<Movie> LoadMovie(const SwfFile& file) {
         }
         const u16 count = r.U16();
         for (u16 i = 0; i < count && r.ok(); ++i) {
-          r.U16();  // id assigned locally, unused by the exporter
+          const u16 id = r.U16();
+          const base::String symbol = r.Str();
           base::String entry = url;
           entry += '#';
-          entry += r.Str();
+          entry += symbol;
           movie.imports.push_back(base::move(entry));
+          if (id != 0)
+            movie.imported_symbols[id] = symbol;
         }
         break;
       }

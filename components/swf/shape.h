@@ -79,6 +79,11 @@ struct Shape {
 // a truncated or malformed record; `out` is then partially filled and unusable.
 bool ParseShape(u16 tag_code, ByteSpan body, Shape& out);
 
+// A glyph outline: the same edge records as a shape, but with no style arrays
+// in front of them, which is how a font's glyph table stores them. Reads from
+// the reader's current position and leaves it just past the end record.
+bool ParseGlyphOutline(Reader& reader, base::Vector<Contour>& out);
+
 // True when the shape is a single axis-aligned rectangle filled with one solid
 // colour and nothing else, which is what most Scaleform backing plates are.
 // Such a shape becomes a ugui panel background instead of an SVG image.
@@ -93,6 +98,12 @@ bool AsLinearGradientRect(const Shape& shape, Rgba& start, Rgba& end, f32& angle
 // True when the shape is one rectangle filled with a single bitmap, which is
 // how Flash places an imported image. Reports the bitmap character to bind.
 bool AsBitmapRect(const Shape& shape, u16& bitmap_id);
+
+// True when the shape is a click target rather than art: solid rectangles
+// outlined by a stroke Flash left at an alpha of a couple of 255ths, which is
+// the convention for a hit area that is never meant to be seen. A menu is full
+// of them, and drawing one covers the screen it exists to catch clicks for.
+bool IsHitArea(const Shape& shape);
 
 }  // namespace rx::swf
 

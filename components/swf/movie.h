@@ -120,6 +120,9 @@ struct Movie {
   base::UnorderedMap<u16, base::String> exports;  // character id -> symbol name
   base::UnorderedMap<u16, Rect> scaling_grids;    // character id -> 9-slice splits
   base::Vector<base::String> imports;             // "url#symbol" of ImportAssets2
+  // Local character id -> the symbol an ImportAssets2 bound to it. Text fields
+  // name their font by that id, and the font itself lives in another movie.
+  base::UnorderedMap<u16, base::String> imported_symbols;
   base::Vector<Script> scripts;
   // DoABC tag bodies: ActionScript 3 bytecode. Skyrim's menus carry none;
   // Fallout 4 and Starfield put all their logic here. See components/swf/abc.h.
@@ -137,9 +140,10 @@ struct Movie {
 };
 
 // Decodes every tag in `file` into the dictionary and timelines. Tags the
-// menus never use (sound, video, morph shapes, DoABC) are skipped, not failed
-// on, so an unexpected movie still yields everything else.
-base::Optional<Movie> LoadMovie(const SwfFile& file);
+// menus never use (sound, video, morph shapes) are skipped, not failed on, so
+// an unexpected movie still yields everything else. `want_font_outlines` also
+// decodes every glyph, which only the font exporter needs.
+base::Optional<Movie> LoadMovie(const SwfFile& file, bool want_font_outlines = false);
 
 }  // namespace rx::swf
 

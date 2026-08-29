@@ -5,6 +5,7 @@
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
 
+#include "components/swf/shape.h"
 #include "components/swf/types.h"
 #include "core/types.h"
 
@@ -68,6 +69,11 @@ struct StaticText {
   base::Vector<TextRun> runs;
 };
 
+// One glyph's outline, in the font's own coordinate space (see Font::em_units).
+struct Glyph {
+  base::Vector<Contour> contours;
+};
+
 struct Font {
   u16 id = 0;
   base::String name;        // as authored, e.g. "$EverywhereMediumFont"
@@ -78,9 +84,13 @@ struct Font {
   i16 ascent = 0;
   i16 descent = 0;
   i16 leading = 0;
+  // Coordinate units per em. DefineFont2 stores glyphs against an em of 1024;
+  // DefineFont3 keeps twenty times the resolution against the same em.
+  u32 em_units = 1024;
   // Parallel to the glyph table: code_table[i] is the character glyph i draws.
   base::Vector<u16> code_table;
   base::Vector<i16> advances;
+  base::Vector<Glyph> glyphs;
 };
 
 bool ParseEditText(ByteSpan body, EditText& out);
@@ -88,10 +98,9 @@ bool ParseEditText(ByteSpan body, EditText& out);
 // `tag_code` picks DefineText (11, RGB) or DefineText2 (33, RGBA).
 bool ParseStaticText(u16 tag_code, ByteSpan body, StaticText& out);
 
-// `tag_code` picks DefineFont2 (48) or DefineFont3 (75). Glyph outlines are
-// skipped: ugui shapes its own text from a real font file, so only the name,
-// metrics and the code table matter here.
-bool ParseFont(u16 tag_code, ByteSpan body, Font& out);
+// `tag_code` picks DefineFont2 (48) or DefineFont3 (75). `with_outlines` reads
+// the glyph table as well, which only the font exporter needs.
+bool ParseFont(u16 tag_code, ByteSpan body, Font& out, bool with_outlines = false);
 
 // DefineFontName (88): the human-readable family name for an already defined
 // font. Fills `full_name` on the matching font.
@@ -99,6 +108,24 @@ bool ParseFontName(ByteSpan body, u16& font_id, base::String& name);
 
 // Resolves a static text's glyph indices through `font` into UTF-8.
 base::String ResolveRunText(const Font& font, const TextRun& run);
+
+// The formatting Scaleform keeps as HTML inside an edit text's value. A menu
+// authored this way stores its real face, size, colour, spacing and alignment
+// in the markup rather than in the DefineEditText fields, so reading only the
+// tag gives the wrong typeface at the wrong size.
+struct HtmlFormat {
+  base::String face;  // font symbol, e.g. "$EverywhereMediumFont"
+  f32 size = 0;       // pixels at the authored stage; 0 when absent
+  Rgba color;
+  f32 letter_spacing = 0;
+  TextAlign align = TextAlign::kLeft;
+  bool has_color = false;
+  bool has_align = false;
+};
+
+// Reads the <p align> and <font face/size/color/letterSpacing> attributes out of
+// an edit text's HTML value. Returns false when the value carries no markup.
+bool ParseHtmlFormat(base::StringRef html, HtmlFormat& out);
 
 // Strips the HTML markup Scaleform allows in an edit text's initial value,
 // leaving the visible characters. Entities (&lt; &gt; &amp; &quot; &apos;

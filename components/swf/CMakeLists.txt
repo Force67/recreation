@@ -8,6 +8,7 @@ recreation_add_module(swf
   avm1.cc
   abc.cc
   decompile.cc
+  font_export.cc
   svg_export.cc
   ugui_export.cc
 )

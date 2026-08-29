@@ -325,6 +325,77 @@ bool ParseShape(u16 tag_code, ByteSpan body, Shape& out) {
   return true;
 }
 
+bool ParseGlyphOutline(Reader& r, base::Vector<Contour>& out) {
+  // A glyph is a SHAPE, not a SHAPEWITHSTYLE: the bit widths come first and the
+  // style-change records only ever select the font's one implicit fill.
+  u32 fill_bits = r.Bits(4);
+  u32 line_bits = r.Bits(4);
+
+  base::Vector<Segment> edges;
+  i32 x = 0;
+  i32 y = 0;
+
+  while (r.ok()) {
+    if (r.Bits(1)) {
+      const bool straight = r.Bits(1) != 0;
+      const u32 bits = r.Bits(4) + 2;
+      Segment edge;
+      edge.from_x = x;
+      edge.from_y = y;
+      if (straight) {
+        i32 dx = 0;
+        i32 dy = 0;
+        if (r.Bits(1)) {
+          dx = r.SignedBits(bits);
+          dy = r.SignedBits(bits);
+        } else if (r.Bits(1)) {
+          dy = r.SignedBits(bits);
+        } else {
+          dx = r.SignedBits(bits);
+        }
+        x += dx;
+        y += dy;
+      } else {
+        const i32 cdx = r.SignedBits(bits);
+        const i32 cdy = r.SignedBits(bits);
+        const i32 adx = r.SignedBits(bits);
+        const i32 ady = r.SignedBits(bits);
+        edge.control_x = x + cdx;
+        edge.control_y = y + cdy;
+        x = edge.control_x + adx;
+        y = edge.control_y + ady;
+        edge.curved = true;
+      }
+      edge.to_x = x;
+      edge.to_y = y;
+      edges.push_back(edge);
+      continue;
+    }
+
+    const u32 flags = r.Bits(5);
+    if (flags == 0)
+      break;
+    if (flags & 0x01) {
+      const u32 move_bits = r.Bits(5);
+      x = r.SignedBits(move_bits);
+      y = r.SignedBits(move_bits);
+    }
+    if (flags & 0x02)
+      r.Bits(fill_bits);
+    if (flags & 0x04)
+      r.Bits(fill_bits);
+    if (flags & 0x08)
+      r.Bits(line_bits);
+    if (flags & 0x10)
+      return false;  // a glyph never carries new style arrays
+  }
+  r.Align();
+  if (!r.ok())
+    return false;
+  Stitch(edges, out);
+  return true;
+}
+
 bool AsSolidRect(const Shape& shape, Rgba& color) {
   if (shape.fills.size() != 1 || shape.fill_paths.size() != 1)
     return false;
@@ -370,6 +441,37 @@ bool AsBitmapRect(const Shape& shape, u16& bitmap_id) {
       return false;
   }
   bitmap_id = shape.fills[0].bitmap_id;
+  return true;
+}
+
+bool IsHitArea(const Shape& shape) {
+  if (shape.fills.empty())
+    return false;
+  for (const FillStyle& fill : shape.fills) {
+    if (fill.kind != FillKind::kSolid)
+      return false;
+  }
+  // The marker: every stroke is drawn at an alpha the eye cannot resolve.
+  bool marked = false;
+  for (const LineStyle& stroke : shape.strokes) {
+    if (stroke.color.a > 8)
+      return false;
+    marked = true;
+  }
+  if (!marked)
+    return false;
+  for (const StyledPath& path : shape.fill_paths) {
+    for (const Contour& contour : path.contours) {
+      if (contour.segments.size() < 4 || contour.segments.size() > 5)
+        return false;
+      for (const Segment& s : contour.segments) {
+        if (s.curved)
+          return false;
+        if (s.from_x != s.to_x && s.from_y != s.to_y)
+          return false;
+      }
+    }
+  }
   return true;
 }
 
