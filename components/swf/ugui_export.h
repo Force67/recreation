@@ -1,6 +1,7 @@
 #ifndef RECREATION_SWF_UGUI_EXPORT_H_
 #define RECREATION_SWF_UGUI_EXPORT_H_
 
+#include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
 #include <base/strings/xstring.h>
 
@@ -19,9 +20,25 @@ struct UguiExportOptions {
   // Which frame of each timeline to snapshot. Menus build their opening state
   // on frame 0; later frames are alternate states of the same widgets.
   u32 frame = 0;
+  // Show what the movie is authored to look like rather than what frame 0
+  // draws. A Scaleform menu ships fully transparent and fades itself in from
+  // ActionScript, so a faithful snapshot of an unopened menu is mostly empty;
+  // with this set, an accumulated alpha of exactly zero is treated as opaque.
+  // Partial alpha is left alone, since that is a real design choice.
+  bool reveal_faded = false;
   // Sprite instances nested deeper than this are placed as empty panels. The
   // shipped menus reach about 8.
   u32 max_depth = 16;
+  // The interface's "$KEY" table (bethesda::InterfaceStrings::entries). A menu
+  // stores keys in its text fields and Scaleform substitutes at runtime, so
+  // without this every screen reads "$LEVEL" and "$Saving...". Null leaves the
+  // keys as authored.
+  const base::UnorderedMap<base::String, base::String>* strings = nullptr;
+  // Font symbol ("$EverywhereMediumFont") -> the family name the converted
+  // TrueType file carries ("Futura Condensed Medium"). A movie names its font
+  // by an imported symbol, so this is what lets a text widget ask for the
+  // typeface the game actually uses. See ExportTrueType.
+  const base::UnorderedMap<base::String, base::String>* font_families = nullptr;
   // Skip characters smaller than this in pixels: Scaleform leaves hairline
   // spacers and hit-test rectangles all over the display list.
   f32 min_size_px = 0.5f;

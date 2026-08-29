@@ -152,17 +152,20 @@ class Exporter {
   void EmitTimeline(const Timeline& timeline,
                     const Matrix& parent_matrix,
                     const ColorTransform& parent_color,
+                    bool parent_revealed,
                     const Box& parent_box,
                     u32 indent,
                     u32 depth);
   void EmitPlace(const Place& place,
                  const Matrix& absolute,
                  const ColorTransform& color,
+                 bool revealed,
                  const Box& parent_box,
                  u32 indent,
                  u32 depth);
   void EmitShape(const Shape& shape,
                  const ColorTransform& color,
+                 bool revealed,
                  const Place& place,
                  const Box& box,
                  u32 indent);
@@ -179,6 +182,10 @@ class Exporter {
   Rect SpriteBounds(const Timeline& timeline, u32 depth);
   Rect CharacterBounds(u16 character_id, u32 depth);
 
+  // Resolves a "$KEY" through the interface string table, if one was supplied.
+  base::String Localize(base::StringRef text) const;
+  // The family a text field's font resolves to, empty when it cannot be named.
+  base::String FontFamily(const EditText& text, base::StringRef html_face) const;
   base::String UniqueName(base::StringRef preferred, base::StringRef fallback);
   base::String NameFor(const Place& place, base::StringRef fallback);
   base::String ShapeAsset(const Shape& shape);
@@ -211,6 +218,35 @@ void Exporter::Line(u32 indent, base::StringRef text) {
     out_.markup += "  ";
   out_.markup += text;
   out_.markup += '\n';
+}
+
+base::String Exporter::Localize(base::StringRef text) const {
+  if (!options_.strings || text.empty() || text[0] != '$')
+    return base::String(text);
+  if (const base::String* hit = options_.strings->find(base::String(text)))
+    return *hit;
+  return base::String(text);
+}
+
+base::String Exporter::FontFamily(const EditText& text, base::StringRef html_face) const {
+  if (!options_.font_families)
+    return base::String();
+  // The HTML face wins: a field styled that way is what Scaleform actually
+  // renders, whatever the DefineEditText tag says.
+  base::StringRef symbol = html_face;
+  if (symbol.empty())
+    symbol = text.font_class;
+  if (symbol.empty()) {
+    if (const base::String* imported = movie_.imported_symbols.find(text.font_id))
+      symbol = base::StringRef(*imported);
+    else if (const Font* font = movie_.FindFont(text.font_id))
+      symbol = base::StringRef(font->name);
+  }
+  if (symbol.empty())
+    return base::String();
+  if (const base::String* family = options_.font_families->find(base::String(symbol)))
+    return *family;
+  return base::String();
 }
 
 base::String Exporter::UniqueName(base::StringRef preferred, base::StringRef fallback) {
@@ -381,14 +417,36 @@ base::String Exporter::ContainerPlacement(const Box& box) const {
 
 void Exporter::EmitShape(const Shape& shape,
                          const ColorTransform& color,
+                         bool revealed,
                          const Place& place,
                          const Box& box,
                          u32 indent) {
   const ColorTransform& cx = color;
   const bool tinted = !cx.IsIdentity();
 
+  // Flash marks a shape that is never meant to be seen - a button hit area, a
+  // component's state swatch, a bounds box - by outlining it with a stroke at
+  // an alpha of a couple of 255ths. The movie hides them at runtime through
+  // their own clip's alpha; drawing them here puts a coloured slab over the
+  // screen they belong to.
+  if (IsHitArea(shape)) {
+    ++out_.skipped_count;
+    return;
+  }
+  // Nothing to draw at all.
+  if (shape.fill_paths.empty() && shape.stroke_paths.empty()) {
+    ++out_.skipped_count;
+    return;
+  }
+
   Rgba solid;
   if (AsSolidRect(shape, solid)) {
+    // A plain rectangle only becomes visible because the reveal forced its
+    // clip's alpha up; it is backing, not art.
+    if (revealed) {
+      ++out_.skipped_count;
+      return;
+    }
     if (tinted)
       solid = Apply(cx, solid);
     const base::String name = NameFor(place, base::Format("shape{}", shape.id));
@@ -448,7 +506,11 @@ void Exporter::EmitEditText(const EditText& text,
                             const Box& box,
                             u32 indent) {
   const base::String name = NameFor(place, base::Format("text{}", text.id));
-  base::String content = text.html ? StripHtml(text.initial_text) : text.initial_text;
+  HtmlFormat format;
+  const bool styled = text.html && ParseHtmlFormat(text.initial_text, format);
+  const base::String authored =
+      text.html ? StripHtml(text.initial_text) : text.initial_text;
+  base::String content = Localize(authored);
   // Newlines would break the single-line markup value.
   base::String flat;
   for (mem_size i = 0; i < content.size(); ++i) {
@@ -461,15 +523,26 @@ void Exporter::EmitEditText(const EditText& text,
       flat += c;
   }
 
-  const Rgba color = Apply(color_transform, text.color);
+  const Rgba color =
+      Apply(color_transform, (styled && format.has_color) ? format.color : text.color);
 
   base::String style = Placement(box, nullptr);
   style += base::Format(" text: \"{}\";", flat);
-  const f32 size = ToPixels(text.font_height) * options_.scale;
+  const f32 size = (styled && format.size > 0 ? format.size
+                                              : ToPixels(text.font_height)) *
+                   options_.scale;
   if (size > 0)
     style += base::Format(" font-size: {};", Number(size));
+  const base::String family =
+      FontFamily(text, styled ? base::StringRef(format.face) : base::StringRef());
+  if (!family.empty())
+    style += base::Format(" font: {};", family);
   style += base::Format(" color: {};", Color(color));
-  switch (text.align) {
+  if (styled && format.letter_spacing != 0)
+    style += base::Format(" letter-spacing: {};",
+                          Number(format.letter_spacing * options_.scale));
+  const TextAlign align = (styled && format.has_align) ? format.align : text.align;
+  switch (align) {
     case TextAlign::kRight:
       style += " text-align: right;";
       break;
@@ -483,8 +556,8 @@ void Exporter::EmitEditText(const EditText& text,
   base::String note;
   if (!text.variable.empty())
     note = base::Format("  // bound to {}", text.variable);
-  else if (const Font* font = movie_.FindFont(text.font_id))
-    note = base::Format("  // font {}", font->name);
+  else if (family.empty() && !text.font_class.empty())
+    note = base::Format("  // font {}", text.font_class);
 
   Line(indent, base::Format("text {} {{ {} }}{}", name, style, note));
   ++out_.widget_count;
@@ -509,6 +582,7 @@ void Exporter::EmitStaticText(const StaticText& text,
     ++out_.skipped_count;
     return;
   }
+  content = Localize(content);
   base::String flat;
   for (mem_size i = 0; i < content.size(); ++i)
     flat += content[i] == '"' ? '\'' : content[i];
@@ -527,6 +601,7 @@ void Exporter::EmitStaticText(const StaticText& text,
 void Exporter::EmitPlace(const Place& place,
                          const Matrix& absolute,
                          const ColorTransform& color,
+                         bool revealed,
                          const Box& parent_box,
                          u32 indent,
                          u32 depth) {
@@ -549,7 +624,7 @@ void Exporter::EmitPlace(const Place& place,
   }
 
   if (const Shape* shape = movie_.FindShape(place.character_id)) {
-    EmitShape(*shape, color, place, box, indent);
+    EmitShape(*shape, color, revealed, place, box, indent);
     return;
   }
   if (const EditText* text = movie_.FindEditText(place.character_id)) {
@@ -592,8 +667,8 @@ void Exporter::EmitPlace(const Place& place,
       synthetic.has_matrix = true;
       synthetic.color_transform = record.color_transform;
       EmitPlace(synthetic, Concat(absolute, record.matrix),
-                Concat(color, record.color_transform), absolute_box, indent + 1,
-                depth + 1);
+                Concat(color, record.color_transform), revealed, absolute_box,
+                indent + 1, depth + 1);
     }
     Line(indent, "}");
     ++out_.widget_count;
@@ -635,7 +710,8 @@ void Exporter::EmitPlace(const Place& place,
       Line(indent, base::Format("panel {} {{ {}", name, style));
     else
       Line(indent, base::Format("panel {} {{ {}  // handlers: {}", name, style, note));
-    EmitTimeline(*sprite, absolute, color, absolute_box, indent + 1, depth + 1);
+    EmitTimeline(*sprite, absolute, color, revealed, absolute_box, indent + 1,
+                 depth + 1);
     Line(indent, "}");
     ++out_.widget_count;
     return;
@@ -647,6 +723,7 @@ void Exporter::EmitPlace(const Place& place,
 void Exporter::EmitTimeline(const Timeline& timeline,
                             const Matrix& parent_matrix,
                             const ColorTransform& parent_color,
+                            bool parent_revealed,
                             const Box& parent_box,
                             u32 indent,
                             u32 depth) {
@@ -656,9 +733,14 @@ void Exporter::EmitTimeline(const Timeline& timeline,
     const Place& place = list[i];
     const Matrix absolute =
         place.has_matrix ? Concat(parent_matrix, place.matrix) : parent_matrix;
-    const ColorTransform color = place.has_color_transform
-                                     ? Concat(parent_color, place.color_transform)
-                                     : parent_color;
+    ColorTransform color = place.has_color_transform
+                               ? Concat(parent_color, place.color_transform)
+                               : parent_color;
+    bool revealed = parent_revealed;
+    if (options_.reveal_faded && color.mul_a <= 1.0f / 255.0f) {
+      color.mul_a = 1.0f;
+      revealed = true;
+    }
 
     // A clip-depth object is a Flash mask: it is never drawn, it clips every
     // depth up to clip_depth to its own shape. That is how every meter in the
@@ -689,18 +771,22 @@ void Exporter::EmitTimeline(const Timeline& timeline,
       while (i < list.size() && list[i].depth <= place.clip_depth) {
         const Matrix child = list[i].has_matrix ? Concat(parent_matrix, list[i].matrix)
                                                 : parent_matrix;
-        const ColorTransform child_color =
-            list[i].has_color_transform
-                ? Concat(parent_color, list[i].color_transform)
-                : parent_color;
-        EmitPlace(list[i], child, child_color, mask, indent + 1, depth);
+        ColorTransform child_color = list[i].has_color_transform
+                                         ? Concat(parent_color, list[i].color_transform)
+                                         : parent_color;
+        bool child_revealed = parent_revealed;
+        if (options_.reveal_faded && child_color.mul_a <= 1.0f / 255.0f) {
+          child_color.mul_a = 1.0f;
+          child_revealed = true;
+        }
+        EmitPlace(list[i], child, child_color, child_revealed, mask, indent + 1, depth);
         ++i;
       }
       Line(indent, "}");
       continue;
     }
 
-    EmitPlace(place, absolute, color, parent_box, indent, depth);
+    EmitPlace(place, absolute, color, revealed, parent_box, indent, depth);
     ++i;
   }
 }
@@ -739,7 +825,7 @@ UguiScreen Exporter::Run() {
   Box stage;
   stage.width = ToPixels(movie_.frame_size.width());
   stage.height = ToPixels(movie_.frame_size.height());
-  EmitTimeline(movie_.root, identity, ColorTransform{}, stage, 1, 0);
+  EmitTimeline(movie_.root, identity, ColorTransform{}, false, stage, 1, 0);
   Line(0, "}");
 
   out_.script = ExportScript(movie_);
