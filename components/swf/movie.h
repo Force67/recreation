@@ -120,8 +120,9 @@ struct Movie {
   base::UnorderedMap<u16, base::String> exports;  // character id -> symbol name
   base::UnorderedMap<u16, Rect> scaling_grids;    // character id -> 9-slice splits
   base::Vector<base::String> imports;             // "url#symbol" of ImportAssets2
-  // Local character id -> the symbol an ImportAssets2 bound to it. Text fields
-  // name their font by that id, and the font itself lives in another movie.
+  // Local character id -> the "url#symbol" an ImportAssets2 bound to it. A menu
+  // leaves placeholders for the movies the game splices in, and names its font
+  // the same way; both resolve through here.
   base::UnorderedMap<u16, base::String> imported_symbols;
   base::Vector<Script> scripts;
   // DoABC tag bodies: ActionScript 3 bytecode. Skyrim's menus carry none;

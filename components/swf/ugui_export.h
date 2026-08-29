@@ -9,6 +9,16 @@
 
 namespace rx::swf {
 
+// A movie the one being translated imports symbols from. Scaleform loads these
+// at runtime and splices them into the placeholders the parent leaves; with the
+// set supplied here the translation does the same, which is the difference
+// between an inventory screen that is an empty shell and one that has its
+// lists, item card and button bar in it.
+struct ImportedMovie {
+  base::String path;  // as the ImportAssets2 tag spells it, lower case
+  const Movie* movie = nullptr;
+};
+
 struct UguiExportOptions {
   // Base name of the screen; becomes the root widget's name and the asset
   // directory. Sanitised to identifier characters.
@@ -39,6 +49,8 @@ struct UguiExportOptions {
   // by an imported symbol, so this is what lets a text widget ask for the
   // typeface the game actually uses. See ExportTrueType.
   const base::UnorderedMap<base::String, base::String>* font_families = nullptr;
+  // Movies this one imports from; see ImportedMovie.
+  const base::Vector<ImportedMovie>* imports = nullptr;
   // Skip characters smaller than this in pixels: Scaleform leaves hairline
   // spacers and hit-test rectangles all over the display list.
   f32 min_size_px = 0.5f;

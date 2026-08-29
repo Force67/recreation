@@ -408,9 +408,9 @@ base::Optional<Movie> LoadMovie(const SwfFile& file, bool want_font_outlines) {
           base::String entry = url;
           entry += '#';
           entry += symbol;
-          movie.imports.push_back(base::move(entry));
           if (id != 0)
-            movie.imported_symbols[id] = symbol;
+            movie.imported_symbols[id] = entry;
+          movie.imports.push_back(base::move(entry));
         }
         break;
       }

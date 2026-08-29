@@ -38,6 +38,60 @@ base::String Sanitize(base::StringRef text, base::StringRef fallback) {
   return trimmed;
 }
 
+// An import entry is "url#symbol"; these split it without allocating.
+base::StringRef UrlOf(base::StringRef entry) {
+  for (mem_size i = 0; i < entry.size(); ++i)
+    if (entry[i] == '#')
+      return entry.substr(0, i);
+  return entry;
+}
+
+base::StringRef SymbolOf(base::StringRef entry) {
+  for (mem_size i = 0; i < entry.size(); ++i)
+    if (entry[i] == '#')
+      return entry.substr(i + 1);
+  return entry;
+}
+
+// Path comparison for import urls: case and separator insensitive, and a match
+// on the trailing file name is enough because a menu names its components
+// relative to the interface directory.
+bool SamePath(base::StringRef a, base::StringRef b) {
+  auto normalize = [](base::StringRef path) {
+    base::String out;
+    for (mem_size i = 0; i < path.size(); ++i) {
+      char c = path[i];
+      if (c == '\\')
+        c = '/';
+      if (c >= 'A' && c <= 'Z')
+        c = static_cast<char>(c - 'A' + 'a');
+      out.push_back(c);
+    }
+    return out;
+  };
+  const base::String left = normalize(a);
+  const base::String right = normalize(b);
+  if (left.size() < right.size())
+    return right.size() - left.size() <= right.size() &&
+           right.find(left) != base::String::npos;
+  return left.find(right) != base::String::npos;
+}
+
+// Bethesda leaves a developer overlay inside several menus and hides it from
+// ActionScript; the instance always says so in its own name.
+bool IsDebugInstance(base::StringRef name) {
+  for (mem_size i = 0; i + 5 <= name.size(); ++i) {
+    const bool match = (name[i] == 'D' || name[i] == 'd') &&
+                       (name[i + 1] == 'e' || name[i + 1] == 'E') &&
+                       (name[i + 2] == 'b' || name[i + 2] == 'B') &&
+                       (name[i + 3] == 'u' || name[i + 3] == 'U') &&
+                       (name[i + 4] == 'g' || name[i + 4] == 'G');
+    if (match)
+      return true;
+  }
+  return false;
+}
+
 base::String Color(Rgba c) {
   if (c.a == 255)
     return base::Format("#{:02x}{:02x}{:02x}", static_cast<u32>(c.r),
@@ -144,7 +198,7 @@ base::Vector<Place> DisplayList(const Timeline& timeline, u32 frame) {
 class Exporter {
  public:
   Exporter(const Movie& movie, const UguiExportOptions& options)
-      : movie_(movie), options_(options) {}
+      : movie_(movie), current_(&movie), options_(options) {}
 
   UguiScreen Run();
 
@@ -181,6 +235,9 @@ class Exporter {
 
   Rect SpriteBounds(const Timeline& timeline, u32 depth);
   Rect CharacterBounds(u16 character_id, u32 depth);
+  // An imported placeholder: finds the movie and character that own the symbol
+  // this id stands in for. Returns null when the import was not supplied.
+  const Movie* ResolveImport(u16 character_id, u32& index, u16& resolved) const;
 
   // Resolves a "$KEY" through the interface string table, if one was supplied.
   base::String Localize(base::StringRef text) const;
@@ -204,13 +261,17 @@ class Exporter {
   base::String ContainerPlacement(const Box& box) const;
 
   const Movie& movie_;
+  // The movie whose dictionary the walk is reading. Normally `movie_`; an
+  // imported placeholder switches it to the movie that owns the symbol.
+  const Movie* current_ = nullptr;
+  u32 current_index_ = 0;  // salts asset keys, which are only unique per movie
   const UguiExportOptions& options_;
   UguiScreen out_;
   base::UnorderedMap<base::String, u32> used_names_;
-  base::UnorderedMap<u16, base::String> shape_files_;
-  base::UnorderedMap<u16, base::String> bitmap_files_;
-  base::UnorderedMap<u16, Rect> sprite_bounds_;
-  base::UnorderedSet<u16> bounds_in_progress_;
+  base::UnorderedMap<u32, base::String> shape_files_;
+  base::UnorderedMap<u32, base::String> bitmap_files_;
+  base::UnorderedMap<u32, Rect> sprite_bounds_;
+  base::UnorderedSet<u32> bounds_in_progress_;
 };
 
 void Exporter::Line(u32 indent, base::StringRef text) {
@@ -237,9 +298,9 @@ base::String Exporter::FontFamily(const EditText& text, base::StringRef html_fac
   if (symbol.empty())
     symbol = text.font_class;
   if (symbol.empty()) {
-    if (const base::String* imported = movie_.imported_symbols.find(text.font_id))
-      symbol = base::StringRef(*imported);
-    else if (const Font* font = movie_.FindFont(text.font_id))
+    if (const base::String* imported = current_->imported_symbols.find(text.font_id))
+      symbol = SymbolOf(*imported);
+    else if (const Font* font = current_->FindFont(text.font_id))
       symbol = base::StringRef(font->name);
   }
   if (symbol.empty())
@@ -271,7 +332,7 @@ base::String Exporter::UniqueName(base::StringRef preferred, base::StringRef fal
 base::String Exporter::NameFor(const Place& place, base::StringRef fallback) {
   if (!place.name.empty())
     return UniqueName(place.name, fallback);
-  const base::StringRef exported = movie_.ExportName(place.character_id);
+  const base::StringRef exported = current_->ExportName(place.character_id);
   if (!exported.empty())
     return UniqueName(exported, fallback);
   return UniqueName(fallback, fallback);
@@ -285,31 +346,39 @@ void Exporter::Bind(base::StringRef widget, base::StringRef file) {
 }
 
 base::String Exporter::ShapeAsset(const Shape& shape) {
-  const base::String* existing = shape_files_.find(shape.id);
+  const u32 key = current_index_ << 16 | shape.id;
+  const base::String* existing = shape_files_.find(key);
   if (existing)
     return *existing;
-  base::String file = base::Format("{}/shape_{}.svg", options_.name, shape.id);
+  base::String file = current_index_ == 0
+                          ? base::Format("{}/shape_{}.svg", options_.name, shape.id)
+                          : base::Format("{}/i{}_shape_{}.svg", options_.name,
+                                         current_index_, shape.id);
   base::String svg = ShapeToSvg(shape);
   ExportedAsset asset;
   asset.file = file;
   for (mem_size i = 0; i < svg.size(); ++i)
     asset.bytes.push_back(static_cast<u8>(svg[i]));
   out_.assets.push_back(base::move(asset));
-  shape_files_[shape.id] = file;
+  shape_files_[key] = file;
   return file;
 }
 
 base::String Exporter::BitmapAsset(const Bitmap& bitmap) {
-  const base::String* existing = bitmap_files_.find(bitmap.id);
+  const u32 key = current_index_ << 16 | bitmap.id;
+  const base::String* existing = bitmap_files_.find(key);
   if (existing)
     return *existing;
+  base::String prefix = current_index_ == 0
+                            ? base::Format("{}/image", options_.name)
+                            : base::Format("{}/i{}_image", options_.name, current_index_);
   base::String file;
   ExportedAsset asset;
   if (bitmap.is_jpeg()) {
-    file = base::Format("{}/image_{}.jpg", options_.name, bitmap.id);
+    file = base::Format("{}_{}.jpg", prefix, bitmap.id);
     asset.bytes = bitmap.jpeg;
   } else {
-    file = base::Format("{}/image_{}.png", options_.name, bitmap.id);
+    file = base::Format("{}_{}.png", prefix, bitmap.id);
     asset.bytes = EncodePng(bitmap.width, bitmap.height,
                             ByteSpan{bitmap.rgba.data(), bitmap.rgba.size()});
   }
@@ -317,24 +386,47 @@ base::String Exporter::BitmapAsset(const Bitmap& bitmap) {
     return base::String();
   asset.file = file;
   out_.assets.push_back(base::move(asset));
-  bitmap_files_[bitmap.id] = file;
+  bitmap_files_[key] = file;
   return file;
 }
 
+const Movie* Exporter::ResolveImport(u16 character_id, u32& index, u16& resolved) const {
+  if (!options_.imports)
+    return nullptr;
+  const base::String* entry = current_->imported_symbols.find(character_id);
+  if (!entry)
+    return nullptr;
+  const base::StringRef url = UrlOf(*entry);
+  const base::StringRef symbol = SymbolOf(*entry);
+  for (mem_size i = 0; i < options_.imports->size(); ++i) {
+    const ImportedMovie& candidate = (*options_.imports)[i];
+    if (!candidate.movie || !SamePath(candidate.path, url))
+      continue;
+    for (const auto& exported : candidate.movie->exports) {
+      if (exported.value != symbol)
+        continue;
+      index = static_cast<u32>(i + 1);
+      resolved = exported.key;
+      return candidate.movie;
+    }
+  }
+  return nullptr;
+}
+
 Rect Exporter::CharacterBounds(u16 character_id, u32 depth) {
-  if (const Shape* shape = movie_.FindShape(character_id))
+  if (const Shape* shape = current_->FindShape(character_id))
     return shape->bounds;
-  if (const EditText* text = movie_.FindEditText(character_id))
+  if (const EditText* text = current_->FindEditText(character_id))
     return text->bounds;
-  if (const StaticText* text = movie_.FindStaticText(character_id))
+  if (const StaticText* text = current_->FindStaticText(character_id))
     return text->bounds;
-  if (const Bitmap* bitmap = movie_.FindBitmap(character_id)) {
+  if (const Bitmap* bitmap = current_->FindBitmap(character_id)) {
     Rect r;
     r.x_max = static_cast<i32>(bitmap->width * kTwipsPerPixel);
     r.y_max = static_cast<i32>(bitmap->height * kTwipsPerPixel);
     return r;
   }
-  if (const Button* button = movie_.FindButton(character_id)) {
+  if (const Button* button = current_->FindButton(character_id)) {
     Rect out;
     bool first = true;
     for (const ButtonRecord& record : button->records) {
@@ -354,20 +446,34 @@ Rect Exporter::CharacterBounds(u16 character_id, u32 depth) {
     }
     return out;
   }
-  if (const Timeline* sprite = movie_.FindSprite(character_id))
+  if (const Timeline* sprite = current_->FindSprite(character_id))
     return SpriteBounds(*sprite, depth);
+
+  u32 index = 0;
+  u16 resolved = 0;
+  if (const Movie* owner = ResolveImport(character_id, index, resolved)) {
+    const Movie* previous = current_;
+    const u32 previous_index = current_index_;
+    current_ = owner;
+    current_index_ = index;
+    const Rect bounds = CharacterBounds(resolved, depth + 1);
+    current_ = previous;
+    current_index_ = previous_index;
+    return bounds;
+  }
   return Rect{};
 }
 
 // A sprite has no bounds of its own: it is the union of what its display list
 // places, which is what a ugui panel has to be sized to.
 Rect Exporter::SpriteBounds(const Timeline& timeline, u32 depth) {
-  const Rect* cached = sprite_bounds_.find(timeline.id);
+  const u32 key = current_index_ << 16 | timeline.id;
+  const Rect* cached = sprite_bounds_.find(key);
   if (cached)
     return *cached;
-  if (depth > options_.max_depth || bounds_in_progress_.contains(timeline.id))
+  if (depth > options_.max_depth || bounds_in_progress_.contains(key))
     return Rect{};
-  bounds_in_progress_.insert(timeline.id);
+  bounds_in_progress_.insert(key);
 
   Rect out;
   bool first = true;
@@ -388,8 +494,8 @@ Rect Exporter::SpriteBounds(const Timeline& timeline, u32 depth) {
       out.y_max = out.y_max > child.y_max ? out.y_max : child.y_max;
     }
   }
-  bounds_in_progress_.erase(timeline.id);
-  sprite_bounds_[timeline.id] = out;
+  bounds_in_progress_.erase(key);
+  sprite_bounds_[key] = out;
   return out;
 }
 
@@ -476,7 +582,7 @@ void Exporter::EmitShape(const Shape& shape,
 
   u16 bitmap_id = 0;
   if (AsBitmapRect(shape, bitmap_id)) {
-    if (const Bitmap* bitmap = movie_.FindBitmap(bitmap_id)) {
+    if (const Bitmap* bitmap = current_->FindBitmap(bitmap_id)) {
       const base::String file = BitmapAsset(*bitmap);
       if (!file.empty()) {
         const base::String name = NameFor(place, base::Format("image{}", bitmap_id));
@@ -571,7 +677,7 @@ void Exporter::EmitStaticText(const StaticText& text,
   u16 height = 0;
   Rgba color{0, 0, 0, 255};
   for (const TextRun& run : text.runs) {
-    if (const Font* font = movie_.FindFont(run.font_id))
+    if (const Font* font = current_->FindFont(run.font_id))
       content += ResolveRunText(*font, run);
     if (height == 0 && run.height != 0) {
       height = run.height;
@@ -609,6 +715,13 @@ void Exporter::EmitPlace(const Place& place,
     ++out_.skipped_count;
     return;
   }
+  if (IsDebugInstance(place.name)) {
+    Line(indent, base::Format("// {}: the movie's own debug overlay, hidden in the "
+                              "shipped game",
+                              place.name));
+    ++out_.skipped_count;
+    return;
+  }
   const Rect local = CharacterBounds(place.character_id, depth);
   // `absolute_box` is where the object lands on the stage; `box` is the same
   // rectangle expressed relative to the enclosing panel, which is what ugui's
@@ -623,19 +736,19 @@ void Exporter::EmitPlace(const Place& place,
     return;
   }
 
-  if (const Shape* shape = movie_.FindShape(place.character_id)) {
+  if (const Shape* shape = current_->FindShape(place.character_id)) {
     EmitShape(*shape, color, revealed, place, box, indent);
     return;
   }
-  if (const EditText* text = movie_.FindEditText(place.character_id)) {
+  if (const EditText* text = current_->FindEditText(place.character_id)) {
     EmitEditText(*text, color, place, box, indent);
     return;
   }
-  if (const StaticText* text = movie_.FindStaticText(place.character_id)) {
+  if (const StaticText* text = current_->FindStaticText(place.character_id)) {
     EmitStaticText(*text, color, box, indent);
     return;
   }
-  if (const Bitmap* bitmap = movie_.FindBitmap(place.character_id)) {
+  if (const Bitmap* bitmap = current_->FindBitmap(place.character_id)) {
     const base::String file = BitmapAsset(*bitmap);
     if (file.empty()) {
       ++out_.skipped_count;
@@ -648,7 +761,7 @@ void Exporter::EmitPlace(const Place& place,
     return;
   }
 
-  if (const Button* button = movie_.FindButton(place.character_id)) {
+  if (const Button* button = current_->FindButton(place.character_id)) {
     const base::String name = NameFor(place, base::Format("button{}", button->id));
     base::String style = ContainerPlacement(box);
     style += " cursor: pointer;";
@@ -675,12 +788,12 @@ void Exporter::EmitPlace(const Place& place,
     return;
   }
 
-  if (const Timeline* sprite = movie_.FindSprite(place.character_id)) {
+  if (const Timeline* sprite = current_->FindSprite(place.character_id)) {
     const base::String name = NameFor(place, base::Format("sprite{}", sprite->id));
     // ugui scales a subtree uniformly; a nine-slice holds the corners while the
     // middle stretches. Note the split rather than dropping it, since a frame
     // resized the wrong way is visibly wrong.
-    if (const Rect* grid = movie_.scaling_grids.find(place.character_id)) {
+    if (const Rect* grid = current_->scaling_grids.find(place.character_id)) {
       Line(indent, base::Format(
                        "// nine-slice in the original: left {} top {} right {} bottom {}",
                        Number(ToPixels(grid->x_min)), Number(ToPixels(grid->y_min)),
@@ -714,6 +827,21 @@ void Exporter::EmitPlace(const Place& place,
                  depth + 1);
     Line(indent, "}");
     ++out_.widget_count;
+    return;
+  }
+
+  u32 index = 0;
+  u16 resolved = 0;
+  if (const Movie* owner = ResolveImport(place.character_id, index, resolved)) {
+    Place spliced = place;
+    spliced.character_id = resolved;
+    const Movie* previous = current_;
+    const u32 previous_index = current_index_;
+    current_ = owner;
+    current_index_ = index;
+    EmitPlace(spliced, absolute, color, revealed, parent_box, indent, depth + 1);
+    current_ = previous;
+    current_index_ = previous_index;
     return;
   }
 
@@ -792,24 +920,24 @@ void Exporter::EmitTimeline(const Timeline& timeline,
 }
 
 UguiScreen Exporter::Run() {
-  const f32 width = ToPixels(movie_.frame_size.width()) * options_.scale;
-  const f32 height = ToPixels(movie_.frame_size.height()) * options_.scale;
+  const f32 width = ToPixels(current_->frame_size.width()) * options_.scale;
+  const f32 height = ToPixels(current_->frame_size.height()) * options_.scale;
 
   out_.markup += base::Format(
       "// Translated from the vanilla Scaleform movie by tools/swfdump.\n"
       "// Stage {}x{} at {:.1f} fps, {} characters, {} exported symbols.\n"
       "// Widget names are the ActionScript instance names, so the original\n"
       "// bindings still address the same objects.\n\n",
-      Number(ToPixels(movie_.frame_size.width())),
-      Number(ToPixels(movie_.frame_size.height())), movie_.frame_rate,
-      movie_.characters.size(), movie_.exports.size());
+      Number(ToPixels(current_->frame_size.width())),
+      Number(ToPixels(current_->frame_size.height())), current_->frame_rate,
+      current_->characters.size(), current_->exports.size());
 
-  if (!movie_.imports.empty()) {
+  if (!current_->imports.empty()) {
     out_.markup += base::Format(
         "// Imports {} symbol(s) from other movies; those subtrees are placed as\n"
         "// empty panels here because the art lives in the file named after the #:\n",
-        movie_.imports.size());
-    for (const base::String& entry : movie_.imports)
+        current_->imports.size());
+    for (const base::String& entry : current_->imports)
       out_.markup += base::Format("//   {}\n", entry);
     out_.markup += '\n';
   }
@@ -820,12 +948,12 @@ UguiScreen Exporter::Run() {
               root, Number(width), Number(height)));
 
   Matrix identity;
-  identity.translate_x = -movie_.frame_size.x_min;
-  identity.translate_y = -movie_.frame_size.y_min;
+  identity.translate_x = -current_->frame_size.x_min;
+  identity.translate_y = -current_->frame_size.y_min;
   Box stage;
-  stage.width = ToPixels(movie_.frame_size.width());
-  stage.height = ToPixels(movie_.frame_size.height());
-  EmitTimeline(movie_.root, identity, ColorTransform{}, false, stage, 1, 0);
+  stage.width = ToPixels(current_->frame_size.width());
+  stage.height = ToPixels(current_->frame_size.height());
+  EmitTimeline(current_->root, identity, ColorTransform{}, false, stage, 1, 0);
   Line(0, "}");
 
   out_.script = ExportScript(movie_);
