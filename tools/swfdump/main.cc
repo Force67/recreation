@@ -1,6 +1,7 @@
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
 #include <base/memory/move.h>
+#include <base/memory/unique_pointer.h>
 #include <base/strings/format.h>
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
@@ -253,28 +254,43 @@ int TranslateAll(const char* data_dir, const char* out_dir, f32 scale,
     movies.push_back(base::String(path));
   });
 
+  // Every movie stays loaded: a menu is spliced together from several of them
+  // at runtime (an inventory screen pulls in its lists, item card and button
+  // bar), and the translation follows the same imports.
+  struct Loaded {
+    base::String path;
+    swf::SwfFile file;
+    swf::Movie movie;
+  };
+  base::Vector<base::UniquePointer<Loaded>> loaded;
+  base::Vector<swf::ImportedMovie> imports;
+  for (const base::String& path : movies) {
+    auto bytes = vfs.Read(path);
+    if (!bytes.has_value())
+      continue;
+    const base::Vector<u8>& data = bytes.value();
+    auto file = swf::OpenSwf(ByteSpan{data.data(), data.size()});
+    if (!file.has_value())
+      continue;
+    auto movie = swf::LoadMovie(file.value());
+    if (!movie.has_value())
+      continue;
+    auto entry = base::MakeUnique<Loaded>();
+    entry->path = path;
+    entry->file = base::move(file.value());
+    entry->movie = base::move(movie.value());
+    imports.push_back(swf::ImportedMovie{path, &entry->movie});
+    loaded.push_back(base::move(entry));
+  }
+
   u32 translated = 0;
   u32 skipped = 0;
   // A .gfx twin sits beside its .swf under exported/, so the file stem alone
   // collides; keep both rather than letting the second overwrite the first.
   base::Vector<base::String> used;
-  for (const base::String& path : movies) {
-    auto bytes = vfs.Read(path);
-    if (!bytes.has_value()) {
-      ++skipped;
-      continue;
-    }
-    const base::Vector<u8>& data = bytes.value();
-    auto file = swf::OpenSwf(ByteSpan{data.data(), data.size()});
-    if (!file.has_value()) {
-      ++skipped;
-      continue;
-    }
-    auto movie = swf::LoadMovie(file.value());
-    if (!movie.has_value()) {
-      ++skipped;
-      continue;
-    }
+  for (mem_size m = 0; m < loaded.size(); ++m) {
+    const base::String& path = loaded[m]->path;
+    const swf::Movie& movie = loaded[m]->movie;
 
     swf::UguiExportOptions options;
     options.name = std::filesystem::path(path.c_str()).stem().string().c_str();
@@ -295,7 +311,9 @@ int TranslateAll(const char* data_dir, const char* out_dir, f32 scale,
       options.strings = &strings.entries();
     if (font_families.size() != 0)
       options.font_families = &font_families;
-    swf::UguiScreen screen = swf::ExportUgui(movie.value(), options);
+    options.imports = &imports;
+
+    swf::UguiScreen screen = swf::ExportUgui(movie, options);
     if (screen.widget_count <= 1) {
       // A movie that is only a script stub has nothing to lay out.
       ++skipped;
