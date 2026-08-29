@@ -991,8 +991,8 @@ base::Vector<ui::VanillaScreen>& VanillaScreens() {
 enum class VanillaRole : u8 { kHud, kFrontMenu, kPauseMenu };
 
 VanillaRole VanillaRoleOf(base::StringRef name) {
-  if (name == "startmenu")
-    return VanillaRole::kFrontMenu;  // Skyrim's boot menu
+  if (name == "startmenu" || name == "mainmenu")
+    return VanillaRole::kFrontMenu;  // Skyrim's boot menu, Fallout 4's
   if (name == "quest_journal")
     return VanillaRole::kPauseMenu;  // its System page is what Esc opens
   return VanillaRole::kHud;
@@ -1462,6 +1462,31 @@ struct GameUi::Impl {
   // Fills the translated menus the way the game fills them on open. Runs at
   // startup and again after a hot reload, which rebuilds the tree from markup
   // and so throws away everything written into it here.
+  // Fallout 4's main menu is one class with every state's panel stacked into the
+  // single frame a static translation can capture, the same shape as Skyrim's
+  // journal. This puts it in its main state. It cannot fill the option list:
+  // that list ships EMPTY (its only child is a border), because AS3 builds the
+  // rows at runtime out of the exported MainMenuListEntry symbol rather than
+  // placing them on the timeline the way Skyrim's AS2 lists do.
+  void BuildFalloutMainMenu(base::StringRef screen) {
+    static const char* const kStatePanels[] = {
+        "ColorReference_mc",     "BackgroundAndBrackets_mc",
+        "DLCPanel_mc",           "DLCImageSizer_mc",
+        "ConfirmPanel_mc",       "SettingsPanel_mc",
+        "BackgroundAndBracketsInstalledContentTopic_mc",
+        "InstalledContentPanel_mc",
+        "BackgroundAndBracketsHelpTopic_mc",
+        "HelpPanel_mc",          "ControlsPanel_mc",
+        "RemapPrompt_mc",        "OptionsPanel_mc",
+        "SaveLoadHolder_mc",     "CharacterSelectList_mc",
+        "Upsell_mc",             "Spinner_mc",
+    };
+    for (const char* panel : kStatePanels)
+      ui::ShowVanillaSubtree(ui, panel, false);
+    ui::SetVanillaTextIn(ui, VanillaRootName(screen), "VersionText_tf", "recreation");
+    RX_INFO("ui: vanilla fallout main menu put in its main state");
+  }
+
   void BuildVanillaMenus() {
     start_menu_active = false;
     pause_menu_active = false;
@@ -1475,6 +1500,8 @@ struct GameUi::Impl {
           ui::SetVanillaTextIn(ui, VanillaRootName(screen.name), "VersionText", "recreation");
           RX_INFO("ui: vanilla start menu hooked up");
         }
+      } else if (screen.name == "mainmenu") {
+        BuildFalloutMainMenu(screen.name);
       } else if (screen.name == "quest_journal") {
         ui::VanillaPauseMenu::Availability availability;
         if (pause_menu.Build(ui, availability, &vanilla_strings)) {
