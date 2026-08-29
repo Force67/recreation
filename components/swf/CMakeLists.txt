@@ -8,6 +8,8 @@ recreation_add_module(swf
   avm1.cc
   abc.cc
   decompile.cc
+  svg_export.cc
+  ugui_export.cc
 )
 
 # rx::core supplies the scalar types; recreation::bethesda supplies the DEFLATE
@@ -19,4 +21,5 @@ target_link_libraries(recreation_swf PRIVATE recreation::bethesda)
 
 # Format-reader regression tests: each builds its input in memory and asserts
 # what comes back out, so none of them needs an installed game.
+recreation_add_test(swftest recreation::swf)
 recreation_add_test(avm1test recreation::swf)
