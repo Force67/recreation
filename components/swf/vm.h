@@ -127,6 +127,22 @@ class Vm {
   AsValue GetMember(const AsValue& target, base::StringRef name);
   void SetMember(const AsValue& target, base::StringRef name, const AsValue& value);
 
+  // The game bridge. A menu reaches its host through
+  // gfx.io.GameDelegate.call(), which the movies implement on top of
+  // flash.external.ExternalInterface.call - so a host that answers this answers
+  // the whole surface, without the Vm having to know what GameDelegate is.
+  // `user` is handed back to the handler untouched.
+  using ExternalHandler = AsValue (*)(void* user, Vm& vm, base::StringRef name,
+                                      const base::Vector<AsValue>& args);
+  void set_external_handler(ExternalHandler handler, void* user) {
+    external_handler_ = handler;
+    external_user_ = user;
+  }
+  AsValue DispatchExternal(base::StringRef name, const base::Vector<AsValue>& args);
+  // Every external call the scripts made, in order, whether or not a handler
+  // answered. This is the list of native functions a menu actually needs.
+  const base::Vector<base::String>& external_calls() const { return external_calls_; }
+
   // Object.registerClass binds an export symbol to a class, which is how a
   // placed clip gets the behaviour its movie wrote for it.
   void RegisterClass(base::StringRef symbol, const AsValue& klass);
@@ -172,6 +188,10 @@ class Vm {
   u32 array_prototype_ = 0;
   u32 string_prototype_ = 0;
   u32 movie_clip_prototype_ = 0;
+  u32 function_prototype_ = 0;
+  ExternalHandler external_handler_ = nullptr;
+  void* external_user_ = nullptr;
+  base::Vector<base::String> external_calls_;
   base::UnorderedMap<base::String, AsValue> registered_classes_;
   AsValue root_;
   u64 steps_ = 0;

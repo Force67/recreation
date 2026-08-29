@@ -114,7 +114,7 @@ u32 Vm::NewArray() {
 }
 
 u32 Vm::NewNative(NativeFn fn) {
-  const u32 index = NewObject();
+  const u32 index = NewObject(function_prototype_);
   objects_[index].is_function = true;
   objects_[index].native = fn;
   return index;
@@ -693,7 +693,7 @@ void Vm::Execute(u32 script_index, u32 first, u32 count, Frame& frame) {
             break;
           ++body_count;
         }
-        const u32 fn = NewObject();
+        const u32 fn = NewObject(function_prototype_);
         objects_[fn].is_function = true;
         objects_[fn].scope = frame.locals;
         objects_[fn].body.script = script_index;
@@ -1248,6 +1248,48 @@ AsValue NoOp(Vm&, const AsValue&, const base::Vector<AsValue>&) {
   return AsValue::Undefined();
 }
 
+AsValue FunctionApply(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  const AsValue this_arg = args.size() > 0 ? args[0] : AsValue::Undefined();
+  base::Vector<AsValue> call_args;
+  if (args.size() > 1 && args[1].is_object()) {
+    const i64 n = static_cast<i64>(vm.ToNumber(vm.GetMember(args[1], "length")));
+    for (i64 i = 0; i < n; ++i)
+      call_args.push_back(vm.GetMember(args[1], base::Format("{}", i)));
+  }
+  return vm.Call(self, this_arg, call_args);
+}
+
+AsValue FunctionCall(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  const AsValue this_arg = args.size() > 0 ? args[0] : AsValue::Undefined();
+  base::Vector<AsValue> call_args;
+  for (mem_size i = 1; i < args.size(); ++i)
+    call_args.push_back(args[i]);
+  return vm.Call(self, this_arg, call_args);
+}
+
+AsValue ArrayUnshift(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  const i64 n = static_cast<i64>(vm.ToNumber(vm.GetMember(self, "length")));
+  const i64 shift = static_cast<i64>(args.size());
+  for (i64 i = n - 1; i >= 0; --i)
+    vm.SetMember(self, base::Format("{}", i + shift),
+                 vm.GetMember(self, base::Format("{}", i)));
+  for (mem_size i = 0; i < args.size(); ++i)
+    vm.SetMember(self, base::Format("{}", i), args[i]);
+  vm.SetMember(self, "length", AsValue::Number(static_cast<f64>(n + shift)));
+  return AsValue::Number(static_cast<f64>(n + shift));
+}
+
+// flash.external.ExternalInterface.call(name, ...): the one door a Scaleform
+// menu has to its host. gfx.io.GameDelegate is written on top of it.
+AsValue ExternalCall(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) {
+  if (args.empty())
+    return AsValue::Undefined();
+  base::Vector<AsValue> rest;
+  for (mem_size i = 1; i < args.size(); ++i)
+    rest.push_back(args[i]);
+  return vm.DispatchExternal(vm.ToString(args[0]), rest);
+}
+
 AsValue ObjectRegisterClass(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) {
   if (args.size() < 2)
     return AsValue::Bool(false);
@@ -1329,9 +1371,29 @@ void Vm::InstallStandardLibrary() {
   SetMember(AsValue::Obj(boolean_ctor), "prototype", AsValue::Obj(NewObject(object_proto)));
   SetMember(g, "Boolean", AsValue::Obj(boolean_ctor));
 
+  // Functions share a prototype, so `apply` and `call` resolve on any of them.
+  // GameDelegate reaches its host through `ExternalInterface.call.apply(...)`.
+  function_prototype_ = NewObject(object_proto);
+  SetMember(AsValue::Obj(function_prototype_), "apply",
+            AsValue::Obj(NewNative(FunctionApply)));
+  SetMember(AsValue::Obj(function_prototype_), "call",
+            AsValue::Obj(NewNative(FunctionCall)));
   const u32 function_ctor = NewNative(NoOp);
-  SetMember(AsValue::Obj(function_ctor), "prototype", AsValue::Obj(NewObject(object_proto)));
+  SetMember(AsValue::Obj(function_ctor), "prototype", AsValue::Obj(function_prototype_));
   SetMember(g, "Function", AsValue::Obj(function_ctor));
+
+  SetMember(AsValue::Obj(array_proto), "unshift", AsValue::Obj(NewNative(ArrayUnshift)));
+
+  // flash.external.ExternalInterface, the host bridge.
+  const u32 external = NewObject(object_proto);
+  SetMember(AsValue::Obj(external), "call", AsValue::Obj(NewNative(ExternalCall)));
+  SetMember(AsValue::Obj(external), "addCallback", AsValue::Obj(NewNative(NoOp)));
+  SetMember(AsValue::Obj(external), "available", AsValue::Bool(true));
+  const u32 external_ns = NewObject(object_proto);
+  SetMember(AsValue::Obj(external_ns), "ExternalInterface", AsValue::Obj(external));
+  const u32 flash_ns = NewObject(object_proto);
+  SetMember(AsValue::Obj(flash_ns), "external", AsValue::Obj(external_ns));
+  SetMember(g, "flash", AsValue::Obj(flash_ns));
 
   // Every clip inherits from this; the host hangs the clip API on it.
   movie_clip_prototype_ = NewObject(object_proto);
@@ -1341,6 +1403,13 @@ void Vm::InstallStandardLibrary() {
 
   object_prototype_ = object_proto;
   string_prototype_ = string_proto;
+}
+
+AsValue Vm::DispatchExternal(base::StringRef name, const base::Vector<AsValue>& args) {
+  external_calls_.push_back(base::String(name));
+  if (!external_handler_)
+    return AsValue::Undefined();
+  return external_handler_(external_user_, *this, name, args);
 }
 
 void Vm::RegisterClass(base::StringRef symbol, const AsValue& klass) {

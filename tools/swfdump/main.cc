@@ -232,6 +232,23 @@ void RunScripts(const swf::Movie& movie) {
     break;
   }
 
+  if (!vm.external_calls().empty()) {
+    std::printf("%zu call(s) to the host bridge:\n",
+                static_cast<size_t>(vm.external_calls().size()));
+    base::Vector<base::String> seen;
+    for (const base::String& name : vm.external_calls()) {
+      bool known = false;
+      for (const base::String& s : seen)
+        known = known || s == name;
+      if (known)
+        continue;
+      seen.push_back(name);
+      if (seen.size() <= 20)
+        std::printf("  %s\n", name.c_str());
+    }
+    std::printf("%zu distinct\n", static_cast<size_t>(seen.size()));
+  }
+
   if (!vm.traces().empty()) {
     std::printf("%zu trace(s), first few:\n",
                 static_cast<size_t>(vm.traces().size()));
