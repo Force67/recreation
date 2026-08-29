@@ -460,6 +460,75 @@ int main() {
           "an own member shadows the prototype's");
   }
 
+
+  {
+    // GetVariable takes a PATH, not a bare name: the compiler emits
+    // `Push "Shared.CenteredScrollingList"; GetVariable`. Resolving that as one
+    // literal property name is why every class registration came back undefined.
+    swf::Vm vm;
+    const rx::u32 shared = vm.NewObject();
+    vm.SetMember(swf::AsValue::Obj(vm.global()), "Shared", swf::AsValue::Obj(shared));
+    vm.SetMember(swf::AsValue::Obj(shared), "List", swf::AsValue::Str("found"));
+
+    base::Vector<rx::u8> code;
+    code.push_back(0x96);  // Push "Shared.List"
+    const char* path = "Shared.List";
+    const rx::u16 len = static_cast<rx::u16>(std::strlen(path) + 2);
+    code.push_back(static_cast<rx::u8>(len & 0xff));
+    code.push_back(static_cast<rx::u8>(len >> 8));
+    code.push_back(0);
+    for (const char* c = path; *c; ++c)
+      code.push_back(static_cast<rx::u8>(*c));
+    code.push_back(0);
+    code.push_back(0x1c);  // GetVariable
+    code.push_back(0x26);  // Trace
+    code.push_back(0x00);
+
+    const rx::u32 script = vm.AddScript(ByteSpan{code.data(), code.size()});
+    vm.Run(script, swf::AsValue::Undefined());
+    Check(vm.traces().size() == 1 && vm.traces()[0] == "found",
+          "GetVariable resolves a dotted path");
+  }
+  {
+    // CallMethod with an undefined method name calls the target itself. That is
+    // how `super()` and a function held in a variable are invoked; treating the
+    // name as the string "undefined" silently skipped every base constructor.
+    swf::Vm vm;
+    const rx::u32 fn = vm.NewNative(
+        [](swf::Vm&, const swf::AsValue&, const base::Vector<swf::AsValue>&) {
+          return swf::AsValue::Str("ran");
+        });
+    vm.SetMember(swf::AsValue::Obj(vm.global()), "fn", swf::AsValue::Obj(fn));
+
+    base::Vector<rx::u8> code;
+    code.push_back(0x96);  // Push 0 (argument count) as an int
+    code.push_back(5);
+    code.push_back(0);
+    code.push_back(7);
+    for (int i = 0; i < 4; ++i)
+      code.push_back(0);
+    code.push_back(0x96);  // Push "fn"
+    code.push_back(4);
+    code.push_back(0);
+    code.push_back(0);
+    code.push_back('f');
+    code.push_back('n');
+    code.push_back(0);
+    code.push_back(0x1c);  // GetVariable -> the function is the target
+    code.push_back(0x96);  // Push undefined (the method name)
+    code.push_back(1);
+    code.push_back(0);
+    code.push_back(3);
+    code.push_back(0x52);  // CallMethod
+    code.push_back(0x26);  // Trace
+    code.push_back(0x00);
+
+    const rx::u32 script = vm.AddScript(ByteSpan{code.data(), code.size()});
+    vm.Run(script, swf::AsValue::Undefined());
+    Check(vm.traces().size() == 1 && vm.traces()[0] == "ran",
+          "CallMethod with no method name calls the target itself");
+  }
+
   std::printf("swftest: %d failure(s)\n", failures);
   return failures == 0 ? 0 : 1;
 }

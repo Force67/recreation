@@ -260,6 +260,22 @@ u32 Vm::IndexOfOffset(const AsScript& script, u32 first, u32 count, u32 offset) 
 }
 
 AsValue Vm::ResolveVariable(Frame& frame, base::StringRef name) {
+  // GetVariable takes a path, not a bare name: the compiler emits
+  // `Push "Shared.CenteredScrollingList"; GetVariable` rather than a chain of
+  // GetMembers. Resolve the head the normal way and walk the rest.
+  for (mem_size i = 0; i < name.size(); ++i) {
+    if (name[i] != '.')
+      continue;
+    AsValue current = ResolveVariable(frame, name.subslice(0, i));
+    mem_size start = i + 1;
+    for (mem_size j = start; j <= name.size(); ++j) {
+      if (j != name.size() && name[j] != '.')
+        continue;
+      current = GetMember(current, name.subslice(start, j - start));
+      start = j + 1;
+    }
+    return current;
+  }
   const base::String key(name);
   for (mem_size i = frame.with_chain.size(); i-- > 0;) {
     const AsValue scope = AsValue::Obj(frame.with_chain[i]);
@@ -291,6 +307,15 @@ AsValue Vm::ResolveVariable(Frame& frame, base::StringRef name) {
 }
 
 void Vm::AssignVariable(Frame& frame, base::StringRef name, const AsValue& value) {
+  // SetVariable takes a path too; everything but the last segment names the
+  // object the assignment lands on.
+  for (mem_size i = name.size(); i-- > 0;) {
+    if (name[i] != '.')
+      continue;
+    const AsValue target = ResolveVariable(frame, name.subslice(0, i));
+    SetMember(target, name.subslice(i + 1, name.size() - i - 1), value);
+    return;
+  }
   const base::String key(name);
   for (mem_size i = frame.with_chain.size(); i-- > 0;) {
     if (Valid(frame.with_chain[i]) && objects_[frame.with_chain[i]].props.find(key)) {
@@ -345,7 +370,7 @@ AsValue Vm::CallInternal(const AsValue& function, const AsValue& self,
   frame.locals = NewObject();
   frame.scope = scope;
   frame.registers.resize(base::Max<mem_size>(256, body.register_count + 1u));
-  frame.pool = scripts_[body.script].pool;
+  frame.pool = body.pool;
 
   // DefineFunction2 preloads the implicit values into low registers and can
   // suppress the matching locals; DefineFunction (flags 0) uses locals only.
@@ -362,15 +387,8 @@ AsValue Vm::CallInternal(const AsValue& function, const AsValue& self,
                 AsValue::Number(static_cast<f64>(args.size())));
       frame.registers[next_register++] = AsValue::Obj(arguments);
     }
-    if (body.flags & fn_flags::kPreloadSuper) {
-      AsValue super = AsValue::Undefined();
-      if (self.is_object() && Valid(self.object())) {
-        const u32 proto = objects_[self.object()].prototype;
-        if (Valid(proto))
-          super = AsValue::Obj(objects_[proto].prototype);
-      }
-      frame.registers[next_register++] = super;
-    }
+    if (body.flags & fn_flags::kPreloadSuper)
+      frame.registers[next_register++] = MakeSuper(self);
     if (body.flags & fn_flags::kPreloadRoot)
       frame.registers[next_register++] = root_;
     if (body.flags & fn_flags::kPreloadParent)
@@ -402,6 +420,29 @@ AsValue Vm::CallInternal(const AsValue& function, const AsValue& self,
   Execute(body.script, body.first, body.count, frame);
   --depth_;
   return frame.result;
+}
+
+// `super` has to answer to both uses the language makes of it: `super()` calls
+// the base constructor, and `super.method()` reaches a base method. So it is an
+// object whose prototype is the base prototype (giving the methods) carrying a
+// copy of the base constructor's body (making it callable).
+AsValue Vm::MakeSuper(const AsValue& self) {
+  if (!self.is_object() || !Valid(self.object()))
+    return AsValue::Undefined();
+  const u32 own_proto = objects_[self.object()].prototype;
+  if (!Valid(own_proto))
+    return AsValue::Undefined();
+  const AsValue base_ctor = GetMember(AsValue::Obj(own_proto), "__constructor__");
+  const u32 base_proto = objects_[own_proto].prototype;
+  const u32 super = NewObject(base_proto);
+  if (base_ctor.is_object() && Valid(base_ctor.object())) {
+    const AsObject& ctor = objects_[base_ctor.object()];
+    objects_[super].is_function = ctor.is_function;
+    objects_[super].native = ctor.native;
+    objects_[super].body = ctor.body;
+    objects_[super].scope = ctor.scope;
+  }
+  return AsValue::Obj(super);
 }
 
 void Vm::Execute(u32 script_index, u32 first, u32 count, Frame& frame) {
@@ -594,11 +635,16 @@ void Vm::Execute(u32 script_index, u32 first, u32 count, Frame& frame) {
         base::Vector<AsValue> args;
         for (u32 a = 0; a < argc; ++a)
           args.push_back(frame.Pop());
-        const base::String key = ToString(name);
-        // An empty method name calls the target itself, which is how a
-        // function value stored in a variable is invoked.
-        const AsValue fn = key.empty() ? target : GetMember(target, key);
-        frame.Push(CallInternal(fn, key.empty() ? frame.self : target, args, depth_ + 1));
+        // A method name that is empty, undefined or null means "call the
+        // target itself" - which is how `super()` and a function held in a
+        // variable are invoked.
+        const bool call_target = name.is_undefined() ||
+                                 name.type() == AsValue::Type::kNull ||
+                                 ToString(name).empty();
+        const AsValue fn = call_target ? target : GetMember(target, ToString(name));
+        // `super()` runs the base constructor against the same object, so the
+        // caller's `this` carries through rather than the super object.
+        frame.Push(CallInternal(fn, call_target ? frame.self : target, args, depth_ + 1));
         break;
       }
       case op::kNewObject:
@@ -607,8 +653,10 @@ void Vm::Execute(u32 script_index, u32 first, u32 count, Frame& frame) {
         if (code == op::kNewMethod) {
           const AsValue name = frame.Pop();
           const AsValue target = frame.Pop();
-          const base::String key = ToString(name);
-          constructor = key.empty() ? target : GetMember(target, key);
+          const bool call_target = name.is_undefined() ||
+                                   name.type() == AsValue::Type::kNull ||
+                                   ToString(name).empty();
+          constructor = call_target ? target : GetMember(target, ToString(name));
         } else {
           constructor = ResolveVariable(frame, ToString(frame.Pop()));
         }
@@ -655,6 +703,7 @@ void Vm::Execute(u32 script_index, u32 first, u32 count, Frame& frame) {
         objects_[fn].body.register_count = action.register_count;
         objects_[fn].body.params = action.strings;
         objects_[fn].body.param_registers = action.param_registers;
+        objects_[fn].body.pool = frame.pool;
         // Every function is a potential constructor, so it carries a prototype.
         SetMember(AsValue::Obj(fn), "prototype", AsValue::Obj(NewObject()));
         if (action.name.empty())
@@ -1199,6 +1248,13 @@ AsValue NoOp(Vm&, const AsValue&, const base::Vector<AsValue>&) {
   return AsValue::Undefined();
 }
 
+AsValue ObjectRegisterClass(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) {
+  if (args.size() < 2)
+    return AsValue::Bool(false);
+  vm.RegisterClass(vm.ToString(args[0]), args[1]);
+  return AsValue::Bool(true);
+}
+
 AsValue SetIntervalStub(Vm&, const AsValue&, const base::Vector<AsValue>&) {
   // Timers need a clock the host owns; a menu uses them for repeat and fades,
   // never to produce the contents a translation cares about.
@@ -1226,6 +1282,8 @@ void Vm::InstallStandardLibrary() {
   const u32 object_ctor = NewNative(NoOp);
   const u32 object_proto = NewObject();
   SetMember(AsValue::Obj(object_ctor), "prototype", AsValue::Obj(object_proto));
+  SetMember(AsValue::Obj(object_ctor), "registerClass",
+            AsValue::Obj(NewNative(ObjectRegisterClass)));
   SetMember(g, "Object", AsValue::Obj(object_ctor));
 
   // Array, with the handful of methods the menus actually call.
@@ -1275,8 +1333,23 @@ void Vm::InstallStandardLibrary() {
   SetMember(AsValue::Obj(function_ctor), "prototype", AsValue::Obj(NewObject(object_proto)));
   SetMember(g, "Function", AsValue::Obj(function_ctor));
 
+  // Every clip inherits from this; the host hangs the clip API on it.
+  movie_clip_prototype_ = NewObject(object_proto);
+  const u32 movie_clip_ctor = NewNative(NoOp);
+  SetMember(AsValue::Obj(movie_clip_ctor), "prototype", AsValue::Obj(movie_clip_prototype_));
+  SetMember(g, "MovieClip", AsValue::Obj(movie_clip_ctor));
+
   object_prototype_ = object_proto;
   string_prototype_ = string_proto;
+}
+
+void Vm::RegisterClass(base::StringRef symbol, const AsValue& klass) {
+  registered_classes_[base::String(symbol)] = klass;
+}
+
+AsValue Vm::RegisteredClass(base::StringRef symbol) const {
+  const AsValue* found = registered_classes_.find(base::String(symbol));
+  return found ? *found : AsValue::Undefined();
 }
 
 }  // namespace rx::swf

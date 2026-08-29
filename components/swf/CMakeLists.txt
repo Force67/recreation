@@ -2,6 +2,7 @@ recreation_add_module(swf
   types.cc
   swf.cc
   vm.cc
+  stage.cc
   shape.cc
   bitmap.cc
   text.cc

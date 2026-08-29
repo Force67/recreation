@@ -15,6 +15,7 @@
 #include "components/bethesda/archive.h"
 #include "components/bethesda/strings.h"
 #include "components/swf/abc.h"
+#include "components/swf/stage.h"
 #include "components/swf/vm.h"
 #include "components/swf/decompile.h"
 #include "components/swf/font_export.h"
@@ -171,19 +172,18 @@ void MountData(asset::Vfs& vfs, const char* data_dir) {
 // test of the interpreter: a shipped menu's init blocks define its classes on
 // _global, so the names that turn up there are the ones the game would have.
 void RunScripts(const swf::Movie& movie) {
-  swf::Vm vm;
-  const swf::AsValue root = swf::AsValue::Obj(vm.NewObject());
-  vm.set_root(root);
+  u32 inits = 0, frames = 0;
+  for (const swf::Script& sc : movie.scripts)
+    (sc.kind == swf::Script::Kind::kInit ? inits : frames)++;
+  std::printf("scripts: %u init, %u frame\n", inits, frames);
 
-  u32 ran = 0;
-  for (const swf::Script& script : movie.scripts) {
-    if (script.code.empty())
-      continue;
-    const u32 index = vm.AddScript(script.code);
-    vm.Run(index, root);
-    ++ran;
-  }
-  std::printf("ran %u script(s), %llu instruction(s)%s\n", ran,
+  swf::Vm vm;
+  swf::Stage stage(vm, movie);
+  stage.Run();
+  std::printf("%zu unclassed exported clip(s)\n",
+              static_cast<size_t>(stage.unclassed().size()));
+  std::printf("%u clip(s), %u with a registered class, %llu instruction(s)%s\n",
+              stage.clip_count(), stage.classed_count(),
               static_cast<unsigned long long>(vm.steps()),
               vm.exhausted() ? "  [step budget exhausted]" : "");
 
@@ -200,6 +200,38 @@ void RunScripts(const swf::Movie& movie) {
       std::printf("  _global.%s\n", name.c_str());
   }
   std::printf("%u function(s)/class(es) defined on _global\n", classes);
+  // The end-to-end check: a menu's contents are produced by its own code, so
+  // find the clip that carries the setup the game calls on open, call it the
+  // same way, and print what came out.
+  for (u32 i = 1; i < 200000; ++i) {
+    if (!vm.Valid(i) || !vm.Get(i).is_movie_clip)
+      continue;
+    const swf::AsValue clip = swf::AsValue::Obj(i);
+    const swf::AsValue setup = vm.GetMember(clip, "setupMainMenu");
+    if (!setup.is_object() || !vm.Valid(setup.object()) || !vm.Get(setup.object()).is_function)
+      continue;
+    // StartMenu::setupMainMenu(platform, hasSave, ... ) - the booleans the game
+    // passes for what the build offers. No save, so no CONTINUE.
+    base::Vector<swf::AsValue> args;
+    args.push_back(swf::AsValue::Number(0));   // platform: PC
+    args.push_back(swf::AsValue::Bool(false)); // has a save
+    for (int a = 0; a < 12; ++a)
+      args.push_back(swf::AsValue::Bool(a == 6 || a == 10));  // creations, quit
+    vm.Call(setup, clip, args);
+
+    const swf::AsValue list = vm.GetMember(clip, "MainList");
+    const swf::AsValue getter = vm.GetMember(list, "__get__entryList");
+    const swf::AsValue entries =
+        vm.Call(getter, list, base::Vector<swf::AsValue>());
+    const int n = static_cast<int>(vm.ToNumber(vm.GetMember(entries, "length")));
+    std::printf("setupMainMenu built %d entr%s:\n", n, n == 1 ? "y" : "ies");
+    for (int e = 0; e < n; ++e) {
+      const swf::AsValue entry = vm.GetMember(entries, base::Format("{}", e));
+      std::printf("  %s\n", vm.ToString(vm.GetMember(entry, "text")).c_str());
+    }
+    break;
+  }
+
   if (!vm.traces().empty()) {
     std::printf("%zu trace(s), first few:\n",
                 static_cast<size_t>(vm.traces().size()));

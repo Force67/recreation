@@ -72,6 +72,10 @@ struct AsFunctionBody {
   u8 register_count = 0;
   base::Vector<base::String> params;
   base::Vector<u8> param_registers;  // 0 = argument goes to a local, else a register
+  // The constant pool in force where the function was defined. A pooled string
+  // push resolves against this, and a function that runs later than its
+  // defining block cannot rely on the pool the caller happens to hold.
+  base::Vector<base::String> pool;
 };
 
 struct AsObject {
@@ -123,6 +127,14 @@ class Vm {
   AsValue GetMember(const AsValue& target, base::StringRef name);
   void SetMember(const AsValue& target, base::StringRef name, const AsValue& value);
 
+  // Object.registerClass binds an export symbol to a class, which is how a
+  // placed clip gets the behaviour its movie wrote for it.
+  void RegisterClass(base::StringRef symbol, const AsValue& klass);
+  AsValue RegisteredClass(base::StringRef symbol) const;
+  // The prototype every movie clip inherits from, so a host can hang the clip
+  // API on it once and have every clip answer to it.
+  u32 movie_clip_prototype() const { return movie_clip_prototype_; }
+
   u32 global() const { return global_; }
   // The object every movie clip's script sees as `_root` / `_level0`.
   void set_root(const AsValue& root) { root_ = root; }
@@ -150,6 +162,7 @@ class Vm {
   AsValue ResolveVariable(Frame& frame, base::StringRef name);
   void AssignVariable(Frame& frame, base::StringRef name, const AsValue& value);
   void InstallStandardLibrary();
+  AsValue MakeSuper(const AsValue& self);
 
   base::Vector<AsObject> objects_;
   base::Vector<AsScript> scripts_;
@@ -158,6 +171,8 @@ class Vm {
   u32 object_prototype_ = 0;
   u32 array_prototype_ = 0;
   u32 string_prototype_ = 0;
+  u32 movie_clip_prototype_ = 0;
+  base::UnorderedMap<base::String, AsValue> registered_classes_;
   AsValue root_;
   u64 steps_ = 0;
   bool exhausted_ = false;
