@@ -674,8 +674,14 @@ void DemoScenes::CreateImposterDemoScene() {
     world_.Add(t, world::Transform{.position = {std::cos(ang) * dist, 0.0f, std::sin(ang) * dist}});
     world_.Add(t, world::Renderable{tree.id});
   }
-  if (!config_.headless)
-    renderer_.BakeImposter(tree, instances);
+  if (!config_.headless) {
+    // rx bakes the species once and names the instances by the index it hands
+    // back; the whole far field is then one SetImposterInstances call.
+    const u32 species = renderer_.BakeImposter(tree);
+    for (render::ImposterPass::Instance& inst : instances)
+      inst.mesh = species;
+    renderer_.SetImposterInstances({instances.data(), instances.size()});
+  }
 
   ctx_.scene_owns_sun = true;
   renderer_.settings().sun_direction = {-0.6f, -0.5f, -0.62f};
