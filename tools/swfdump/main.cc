@@ -242,8 +242,9 @@ void RunAbc(const swf::Movie& movie) {
       if (!instance.is_object())
         continue;
       base::Vector<swf::As3Value> flags;
+      const char* mask = getenv("RX_INITLIST");
       for (int k = 0; k < 10; ++k)
-        flags.push_back(swf::As3Value::Bool(k == 6));  // a build with add-ons
+        flags.push_back(swf::As3Value::Bool(mask ? mask[k] == '1' : k == 6));
       vm.Invoke(instance, "SetPlatform", flags);
       vm.Invoke(instance, "InitList", flags);
     }

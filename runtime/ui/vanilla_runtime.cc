@@ -13,6 +13,8 @@
 #include <filesystem>
 #include <fstream>
 
+#include "components/swf/abc.h"
+#include "components/swf/avm2.h"
 #include "components/swf/bridge.h"
 #include "components/swf/movie.h"
 #include "components/swf/stage.h"
@@ -163,6 +165,55 @@ struct VanillaRuntime::Impl {
   swf::Vm vm;
   base::UniquePointer<swf::GameBridge> bridge;
   base::UniquePointer<swf::Stage> stage;
+  // The ActionScript 3 half. A movie carries one or the other, never both, so
+  // whichever the movie has is the machine that runs it.
+  base::Vector<swf::AbcFile> abc;
+  base::UniquePointer<swf::Avm2> avm2;
+  base::Vector<base::String> entries;
+
+  // Runs an AS3 movie's classes the way the player does, and keeps whatever
+  // ended up in the longest list.
+  void RunAbc() {
+    avm2 = base::MakeUnique<swf::Avm2>();
+    for (const swf::AbcFile& file : abc)
+      avm2->AddAbc(file);
+    // Every class, then the message the game opens a screen with. An AS3 menu
+    // takes that as a plain method rather than through a delegate.
+    //
+    // InitList's arguments are what the build offers, positionally. Of the ten,
+    // three change what Fallout 4's main menu shows and the rest change
+    // nothing: argument 0 adds QUIT, argument 1 adds ADD-ONS, argument 7 adds
+    // the PlayStation save transfer. So: a PC build that can be quit and has no
+    // add-ons wired.
+    base::Vector<swf::As3Value> flags;
+    for (int i = 0; i < 10; ++i)
+      flags.push_back(swf::As3Value::Bool(i == 0));
+    for (const swf::AbcFile& file : abc) {
+      for (const swf::AbcClass& klass : file.classes) {
+        if (klass.name.empty() || klass.is_interface)
+          continue;
+        const swf::As3Value instance = avm2->Construct(klass.name);
+        if (!instance.is_object())
+          continue;
+        avm2->Invoke(instance, "SetPlatform", flags);
+        avm2->Invoke(instance, "InitList", flags);
+      }
+    }
+    for (u32 i = 1; i < avm2->object_count(); ++i) {
+      const swf::As3Value list = avm2->GetProperty(swf::As3Value::Obj(i), "entryList");
+      if (!list.is_object())
+        continue;
+      const i32 n = static_cast<i32>(avm2->ToNumber(avm2->GetProperty(list, "length")));
+      if (n <= static_cast<i32>(entries.size()))
+        continue;
+      base::Vector<base::String> found;
+      for (i32 e = 0; e < n; ++e) {
+        const swf::As3Value entry = avm2->GetProperty(list, base::Format("{}", e));
+        found.push_back(avm2->ToString(avm2->GetProperty(entry, "text")));
+      }
+      entries = base::move(found);
+    }
+  }
 
   struct Bound {
     u32 clip = 0;      // interpreter object
@@ -406,6 +457,15 @@ bool VanillaRuntime::Enabled() {
   return bool(VanillaVm);
 }
 
+base::Vector<base::String> VanillaRuntime::ListEntries() const {
+  base::Vector<base::String> out;
+  if (!impl_)
+    return out;
+  for (const base::String& entry : impl_->entries)
+    out.push_back(entry);
+  return out;
+}
+
 void VanillaRuntime::SetStrings(
     const base::UnorderedMap<base::String, base::String>* strings) {
   strings_ = strings;
@@ -449,6 +509,19 @@ bool VanillaRuntime::Load(ugui::UIContext& ui, base::StringRef dir, base::String
   }
   impl_->movie = base::move(movie.value());
 
+  if (!impl_->movie.abc_blocks.empty()) {
+    for (const ByteSpan& block : impl_->movie.abc_blocks) {
+      swf::AbcFile file;
+      if (swf::ParseAbc(block, file))
+        impl_->abc.push_back(base::move(file));
+    }
+    impl_->RunAbc();
+    impl_->ready = true;
+    RX_INFO("vanilla vm: {} is actionscript 3, {} entr{} from its own code", screen,
+            impl_->entries.size(), impl_->entries.size() == 1 ? "y" : "ies");
+    return true;
+  }
+
   impl_->bridge = base::MakeUnique<swf::GameBridge>(impl_->vm);
   impl_->bridge->set_answerer(answerer_, answer_user_);
   impl_->stage = base::MakeUnique<swf::Stage>(impl_->vm, impl_->movie);
@@ -484,7 +557,7 @@ void VanillaRuntime::SetAnswerer(swf::GameBridge::Answerer answerer, void* user)
 
 bool VanillaRuntime::CallRoot(ugui::UIContext& ui, base::StringRef name,
                               const base::Vector<swf::AsValue>& args) {
-  if (!impl_ || !impl_->ready)
+  if (!impl_ || !impl_->ready || !impl_->stage)
     return false;
   if (!impl_->stage->Dispatch(impl_->stage->root(), name, args))
     return false;
@@ -494,7 +567,7 @@ bool VanillaRuntime::CallRoot(ugui::UIContext& ui, base::StringRef name,
 }
 
 bool VanillaRuntime::Navigate(ugui::UIContext& ui, base::StringRef navigation) {
-  if (!impl_ || !impl_->ready)
+  if (!impl_ || !impl_->ready || !impl_->stage)
     return false;
   swf::Vm& vm = impl_->vm;
   const swf::AsValue details = swf::AsValue::Obj(vm.NewObject());
@@ -533,7 +606,7 @@ bool VanillaRuntime::Navigate(ugui::UIContext& ui, base::StringRef navigation) {
 
 bool VanillaRuntime::Send(ugui::UIContext& ui, base::StringRef name,
                           const base::Vector<swf::AsValue>& args) {
-  if (!impl_ || !impl_->ready)
+  if (!impl_ || !impl_->ready || !impl_->bridge)
     return false;
   if (!impl_->bridge->Invoke(name, args))
     return false;
@@ -544,7 +617,7 @@ bool VanillaRuntime::Send(ugui::UIContext& ui, base::StringRef name,
 
 base::Vector<swf::GameBridge::Call> VanillaRuntime::TakePending() {
   base::Vector<swf::GameBridge::Call> out;
-  if (!impl_ || !impl_->ready)
+  if (!impl_ || !impl_->ready || !impl_->bridge)
     return out;
   for (const swf::GameBridge::Call& call : impl_->bridge->pending()) {
     swf::GameBridge::Call copy;
@@ -560,7 +633,7 @@ base::Vector<swf::GameBridge::Call> VanillaRuntime::TakePending() {
 
 bool VanillaRuntime::Respond(ugui::UIContext& ui, u32 id,
                              const base::Vector<swf::AsValue>& args) {
-  if (!impl_ || !impl_->ready || !impl_->bridge->Respond(id, args))
+  if (!impl_ || !impl_->ready || !impl_->bridge || !impl_->bridge->Respond(id, args))
     return false;
   impl_->Rebind(ui);
   impl_->Sync(ui);
@@ -568,11 +641,13 @@ bool VanillaRuntime::Respond(ugui::UIContext& ui, u32 id,
 }
 
 swf::Vm* VanillaRuntime::vm() {
-  return impl_ && impl_->ready ? &impl_->vm : nullptr;
+  return impl_ && impl_->ready && impl_->stage ? &impl_->vm : nullptr;
 }
 
 void VanillaRuntime::Tick(ugui::UIContext& ui, f32 delta_seconds) {
-  if (!impl_ || !impl_->ready)
+  // An ActionScript 3 screen has no stage to step: its list is built once, by
+  // the class code that ran at load.
+  if (!impl_ || !impl_->ready || !impl_->stage)
     return;
   impl_->stage->Tick(static_cast<f64>(delta_seconds) * 1000.0);
   if (impl_->stage->clip_count() != impl_->bound_clips)
@@ -581,7 +656,7 @@ void VanillaRuntime::Tick(ugui::UIContext& ui, f32 delta_seconds) {
 }
 
 bool VanillaRuntime::Click(ugui::UIContext& ui, u32 widget) {
-  if (!impl_ || !impl_->ready)
+  if (!impl_ || !impl_->ready || !impl_->stage)
     return false;
   for (const Impl::Bound& entry : impl_->bound) {
     if (entry.widget.index != widget)
@@ -613,6 +688,15 @@ VanillaRuntime& VanillaRuntime::operator=(VanillaRuntime&&) noexcept = default;
 bool VanillaRuntime::Enabled() {
   return false;
 }
+base::Vector<base::String> VanillaRuntime::ListEntries() const {
+  base::Vector<base::String> out;
+  if (!impl_)
+    return out;
+  for (const base::String& entry : impl_->entries)
+    out.push_back(entry);
+  return out;
+}
+
 void VanillaRuntime::SetStrings(
     const base::UnorderedMap<base::String, base::String>* strings) {
   strings_ = strings;

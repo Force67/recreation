@@ -1483,21 +1483,27 @@ struct GameUi::Impl {
       ui::ShowVanillaSubtree(ui, panel, false);
     ui::SetVanillaTextIn(ui, VanillaRootName(screen), "VersionText_tf", "recreation");
 
-    // The order MainMenu.InitList pushes, minus the entries that need a save or
-    // a console. That is nine, which is what the bytecode asks the list to show.
-    if (fallout_list_.Bind(ui, "MainPanel_mc")) {
+    // The entries are the screen's own: MainMenu.InitList pushes them, and the
+    // interpreter runs it. The rows themselves are still the ones the
+    // translation stamped, because the AS3 list component is not executed.
+    base::Vector<base::String> options;
+    for (ui::VanillaRuntime& runtime : vanilla_vms)
+      if (options.empty())
+        options = runtime.ListEntries();
+    if (!options.empty() && fallout_list_.Bind(ui, "MainPanel_mc")) {
       base::Vector<ui::VanillaList::Entry> entries;
-      for (const char* key : {"$NEW", "$LOAD", "$ADD-ONS", "$CREATION CLUB",
-                              "$INSTALLED CONTENT", "$HELP", "$SETTINGS", "$CREW",
-                              "$QUIT"}) {
-        const base::String* hit = vanilla_strings.find(base::String(key));
-        entries.push_back(
-            ui::VanillaList::Entry{hit ? *hit : base::String(key + 1), false});
+      for (const base::String& option : options) {
+        const base::String* hit = vanilla_strings.find(option);
+        entries.push_back(ui::VanillaList::Entry{
+            hit ? *hit
+                : (option.size() > 1 && option[0] == '$' ? option.substr(1) : option),
+            false});
       }
       fallout_list_.SetEntries(base::move(entries));
       fallout_list_.Apply(ui);
     }
-    RX_INFO("ui: vanilla fallout main menu put in its main state");
+    RX_INFO("ui: vanilla fallout main menu built {} entr{} from its own code",
+            options.size(), options.size() == 1 ? "y" : "ies");
   }
 
   // The screens the interpreter cannot drive. Skyrim's menus run their own
@@ -1644,8 +1650,8 @@ struct GameUi::Impl {
     // is visible again (its markup has no `visibility`, and ugui ignores that
     // property anyway). Both have to be re-applied, and the notice has to go
     // back to whatever state it was actually in.
-    BuildVanillaMenus();
     StartVanillaVms();
+    BuildVanillaMenus();
     SetVisible("legal", legal_open);
     const bool hud = !editor.active && !UsingVanillaUi();
     SetVisible("topbar", hud);
@@ -2650,8 +2656,10 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   // does this. See runtime/ui/vanilla_runtime, which runs the movie's own code.
   if (UsingVanillaUi())
     impl_->vanilla_strings = ui::LoadVanillaStrings(ui::VanillaScreenDir());
-  impl_->BuildVanillaMenus();
+  // The screens run first: what a Fallout 4 menu shows is built by its own code
+  // at load, and the driver below only has entries once that has happened.
   impl_->StartVanillaVms();
+  impl_->BuildVanillaMenus();
   if (UsingVanillaUi()) {
     for (const char* fragment : {"topbar", "crosshair", "vitals", "readout", "quest"})
       impl_->SetVisible(fragment, false);

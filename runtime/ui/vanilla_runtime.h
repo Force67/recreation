@@ -44,6 +44,13 @@ class VanillaRuntime {
   // Whether the host asked for this at all.
   static bool Enabled();
 
+  // The entries a screen's own code put in its longest list, in order. This is
+  // the ActionScript 3 path: Fallout 4's and Starfield's menus are AVM2, whose
+  // list component is not executed here, so the rows stay the ones the
+  // translation stamped and only what goes in them comes from the movie. Empty
+  // for an AS2 screen, whose list fills its own widgets directly.
+  base::Vector<base::String> ListEntries() const;
+
   // The interface's "$KEY" table (see LoadVanillaStrings). A menu writes the
   // keys, not the words: Scaleform resolved them on the way to the screen and
   // so does this. Must outlive the runtime; nothing is resolved without it.

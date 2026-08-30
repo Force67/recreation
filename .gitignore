@@ -40,6 +40,7 @@ editor_layout.reclayout
 /run-skyrim.sh
 /run-morrowind.sh
 /run-fallout.sh
+/run-fo4.sh
 /run-starfield.sh
 /run-trailer.sh
 /run-all.sh
@@ -52,3 +53,4 @@ missing_natives.txt
 # Screens translated from an installed game's own Scaleform movies
 # (tools/swfdump --ugui). Derived from game data, so generated locally.
 runtime/ui/vanilla/
+runtime/ui/vanilla_fo4/
