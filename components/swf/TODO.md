@@ -17,64 +17,61 @@ menu talks to its host through. All 49 shipped Skyrim movies run without
 crashing, hanging or exhausting the step budget. `swfdump <movie> --run` opens a
 movie the way the game does, ticks it, and reports what the player would see.
 
-With `RX_VANILLA_VM=1` both menus are drawn entirely by their own bytecode, in
+The Skyrim menus are drawn entirely by their own bytecode (`RX_VANILLA_VM=0`
+turns the interpreter off and leaves the screens as the translation drew them),
+in
 the layout the designer authored: a centred list with the selection large and
 bright and the rows falling away from it. The pause menu builds QUICKSAVE / SAVE
 / LOAD / INSTALLED CONTENT / SETTINGS / CONTROLS / HELP / QUIT and a bottom bar
 reading `LEVEL 0` and `12:00am, 17th of Last Seed, 4E 201` from the world clock;
 the start menu builds NEW / LOAD / CREATIONS / CREDITS / QUIT. Navigation goes
 in through the components' own `handleInput`, so one host path drives every
-screen's selection.
+screen's selection, activating a row opens the sub-panel the movie opens, and
+what a row means reaches the host as the call the movie makes for it. The
+hand-written Skyrim drivers are gone.
 
-## 1. The last of the binder
+## 1. What is still missing on a Skyrim screen
 
-The interpreter and the translation now agree: a menu runs its own state
-machine, and the widgets exist for every state it can reach. `swfdump --run`
-reports exactly what a player is shown. What is left is the binder not reaching
-a few of those widgets.
-
-- **The tab strip still reads "BUTTON TEXT".** The clips have their labels
-  ($QUESTS / $GENERAL STATS / $SYSTEM, from the authored `labelID`), and each
-  tab's widget carries a group per state, but only two of a tab's three copies
-  of `textField` are written. `Bind` walks a clip's OWN members, so a component
-  that keeps its field somewhere other than an own slot is invisible to it.
+- **The tab strip reads "BUTTON TEXT" some runs and QUESTS / GENERAL STATS in
+  others.** The labels come from the authored `labelID`, and when they land they
+  render, so this is an ordering race between a tab's construct handler and its
+  class setter rather than a missing path. SystemTab is worse: its clip holds
+  the placeholder even in `swfdump --run`, because the frame it is selected on
+  rebuilds its text field after the label was applied.
 - **The journal's QUIT row does not draw.** Its clip has the text and its widget
   is written, but the row ends at zero opacity while the seven above it are
   fine.
 - **State groups under a clip nothing drives** keep whatever state they are
   showing, so a couple of tab chevrons overlap.
+- **Runtime-attached rows.** A list that builds its rows with `attachMovie` has
+  no widget to bind them to. Skyrim's lists place theirs on the timeline, so
+  this has not bitten yet.
 
-## 2. Retire the hand-written drivers
+## 2. Everything behind a row
 
-`vanilla_start_menu`, `vanilla_pause_menu` and `GameUi::BuildFalloutMainMenu`
-still own the live menus; the interpreter path runs instead of them under
-`RX_VANILLA_VM`, not beside them. Left before they can go:
+The machinery is there: navigating, activating, opening a sub-panel and asking
+the host for what a row means all work through the movies' own code. What is
+missing is the host having anything to answer with.
 
-- **Answering more of the conversation.** `GameUi::AnswerVanillaCall` answers
-  the player info, the version text and two feature flags. `PlaySound`,
-  `myLog`, `RememberCurrentTabIndex` and `SetSaveDisabled` are deliberately
-  unanswered; whatever else a screen waits on collects in
-  `GameBridge::pending()`, which `swfdump --run` prints.
-- **A screen-by-screen check** before each driver is deleted. Only the journal
-  and the start menu have been looked at on screen.
-- **State groups under a clip nothing drives.** A widget reached without a clip
-  keeps whatever state it is showing, so a couple of tab chevrons draw over
-  each other. Harmless, and it goes when §1 does.
-
-## 3. The menus themselves
-
-- Pause menu: the option list is live and navigable, but SAVE, LOAD, CONTROLS,
-  HELP and INSTALLED CONTENT select without opening anything, and the QUEST and
-  STATS tabs do not switch. The widgets for those states are translated and the
-  movie switches to them; what is left is the binder reaching them (§1).
-- Start menu: LOAD, CREATIONS and CREDITS likewise.
+- SAVE and LOAD ask for a save browser (`SAVE`, `UseCurrentCharacterFilter`,
+  `onSaveLoadBatchComplete` and friends). recreation reads real .ess files
+  already; nothing is wired to these.
+- CONTROLS asks for the input map (`RequestInputMappings`, `SetButtonMapping`).
+- The settings lists come up with their categories but no values behind them.
 - "Main Menu" from the quit list reopens the front screen with the world still
   loaded behind it, rather than tearing it down.
 - No Skyrim wordmark. It is a 3D object in the main-menu scene
   (`meshes/interface/logo/logo01ae.nif`) and its texture is a UV atlas for that
   mesh, so it needs the NIF path, not the UI path.
-- Fallout 4: the option list renders, but nothing stands behind the entries, and
-  the sub-panels, the message-of-the-day body and the background art are unfilled.
+
+`GameBridge::pending()` is the work list, and `swfdump --run` prints it.
+
+## 3. Fallout 4
+
+`GameUi::BuildFalloutMainMenu` is the last hand-written driver, and it stays
+until §4: Fallout 4's menus are ActionScript 3, which the interpreter does not
+execute. Its option list renders, but nothing stands behind the entries, and the
+sub-panels, the message-of-the-day body and the background art are unfilled.
 
 ## 4. ActionScript 3
 
@@ -118,6 +115,13 @@ but it caps how long a session can be play-tested.
   display-list walk (`DisplayListAt`) serves both the translation and the
   interpreter; the two had drifted, and the interpreter's copy was dropping the
   colour transform off a move, which left every fade on its first frame.
+- Retiring `vanilla_start_menu` and `vanilla_pause_menu`, 600 lines of C++ that
+  reimplemented what the movies already say.
+- Navigation, activation and the actions behind a row: a screen does not report
+  which entry was picked, it asks the host for the thing that entry means
+  (`StartNewGame`, `QuitToMainMenu`, `CloseMenu`), so acting on those is the
+  whole of "the menu works". Each is guarded on the screen that asks for it
+  being up, because a menu says these while it starts as well.
 - Clip-event handlers off a PlaceObject (306 across the corpus, almost all
   `construct`), and a frame's own actions on arrival. On by default now that the
   translation carries the states they move a clip into; `RX_VANILLA_AUTHORED=0`
