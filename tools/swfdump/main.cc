@@ -225,6 +225,12 @@ void RunScripts(const swf::Movie& movie) {
     std::printf("%u of %u clip(s) hidden\n", hidden, stage.clip_count());
   }
 
+  // A few frames of it running, the way a host ticks it: a list defers its
+  // first layout to an enter-frame, so a snapshot taken before one shows every
+  // row still holding its placeholder.
+  for (int frame = 0; frame < 4; ++frame)
+    stage.Tick(16.0);
+
   // A navigation key through the movie's own components, which is how a host
   // drives every screen's selection without knowing any of them: build the
   // `details` the game builds and hand it to whatever is listening.
@@ -296,7 +302,9 @@ void RunScripts(const swf::Movie& movie) {
         const swf::AsValue row = vm.GetMember(clip, base::Format("Entry{}", r));
         if (!row.is_object())
           break;
-        std::printf("    row %d: visible=%d item=%s text='%s'\n", r,
+        std::printf("    row %d: y=%s h=%s visible=%d item=%s text='%s'\n", r,
+                    vm.ToString(vm.GetMember(row, "_y")).c_str(),
+                    vm.ToString(vm.GetMember(row, "_height")).c_str(),
                     vm.ToBool(vm.GetMember(row, "_visible")) ? 1 : 0,
                     vm.ToString(vm.GetMember(row, "itemIndex")).c_str(),
                     vm.ToString(vm.GetMember(vm.GetMember(row, "textField"), "text")).c_str());
