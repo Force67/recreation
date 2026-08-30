@@ -110,9 +110,18 @@ What it does not do yet:
 
 - **205 Starfield classes do not construct.** They are the ones whose class
   object or constructor body does not resolve; nothing has looked at why.
-- **No standard library beyond `Array.push`.** A menu that calls `String.split`
-  or `Math.floor` gets undefined, which is silent. The opcode side is covered;
-  the runtime side is not.
+- **Nothing enumerates what a call returned.** `swfdump --run` reports the calls
+  that resolved to nothing, which is the list to work down, but a call that
+  resolves and returns the wrong thing is still silent.
+- **The runtime is the player's display API, and it is partial.** Measuring what
+  the corpus calls showed it is not a standard library that is missing but
+  Flash's own: `addFrameScript`, `gotoAndStop`, `addEventListener`,
+  `dispatchEvent`, `addChild` and the graphics calls. Those are in, along with
+  a class's static methods and a typed stand-in carrying its declared class's
+  methods, which took Fallout 4 from 2169 unresolved calls to 1532. What is
+  left is reported per movie by `swfdump --run` rather than passed over:
+  `RespondToRequest`, `SetButtonHintData`, and the graphics calls made on
+  objects that are not traits-declared.
 - **Types are not checked.** `coerce`, `astype` and `istype` pass values
   through, and `instanceof` answers false. Nothing in the menus turned out to
   branch on one, but a screen that does will take the wrong path quietly.
