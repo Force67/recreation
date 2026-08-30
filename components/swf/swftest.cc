@@ -829,6 +829,47 @@ int main() {
   }
 
   {
+    // `super()` walks UP the chain. `Extends` writes the SUPERCLASS onto the
+    // subclass's prototype, so the constructor to call is the one recorded at
+    // the level whose body is running - and the next level is where that
+    // class's own `super` starts. Taking it from the instance instead gives
+    // every class in a chain the same answer, and a base constructor calling
+    // `super()` calls itself until the depth limit stops it. That silently cut
+    // 387 calls out of one menu's start-up.
+    swf::Vm vm;
+    const swf::AsValue object_proto = swf::AsValue::Obj(vm.NewObject());
+
+    // Three classes, A <- B <- C, each marking the instance as it runs.
+    struct Mark {
+      static swf::AsValue A(swf::Vm& v, const swf::AsValue& self,
+                            const base::Vector<swf::AsValue>&) {
+        v.SetMember(self, "ranA", swf::AsValue::Bool(true));
+        return swf::AsValue::Undefined();
+      }
+    };
+    const swf::AsValue a = swf::AsValue::Obj(vm.NewNative(&Mark::A));
+    const swf::AsValue a_proto = swf::AsValue::Obj(vm.NewObject(object_proto.object()));
+    vm.SetMember(a, "prototype", a_proto);
+
+    // B.prototype records A as its superclass, the way Extends does.
+    const swf::AsValue b_proto = swf::AsValue::Obj(vm.NewObject(a_proto.object()));
+    vm.SetMember(b_proto, "__constructor__", a);
+    const swf::AsValue c_proto = swf::AsValue::Obj(vm.NewObject(b_proto.object()));
+
+    const swf::AsValue instance = swf::AsValue::Obj(vm.NewObject(c_proto.object()));
+    // C's `super` is what C.prototype records; B's is one step further up.
+    const swf::AsValue from_c = vm.SuperFor(instance, c_proto.object());
+    Check(from_c.is_object(), "a class with no recorded super still yields an object");
+    const swf::AsValue from_b = vm.SuperFor(instance, b_proto.object());
+    Check(from_b.is_object(), "and a class with one yields it");
+    vm.Call(from_b, instance, base::Vector<swf::AsValue>());
+    Check(vm.ToBool(vm.GetMember(instance, "ranA")),
+          "super() from B reaches A, against the same instance");
+    Check(vm.Get(from_b.object()).super_proto == a_proto.object(),
+          "and carries the level A's own super would start from");
+  }
+
+  {
     // Try/Catch/Finally. The three blocks sit inline after the action, so a
     // machine that falls through runs all three: the catch block stores an
     // exception nobody threw and the stack is out of step for everything after

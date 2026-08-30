@@ -101,6 +101,10 @@ struct AsObject {
   // Host binding: which translated widget this clip or field stands for. The
   // Vm itself never interprets this; the host installs natives that do.
   u64 host = 0;
+  // For the object `super` resolves to: the prototype level it stands for, so
+  // that a base constructor's own `super` starts one step further up instead of
+  // coming back round to the same class. Zero for everything else.
+  u32 super_proto = 0;
 };
 
 // A script the Vm can run: one action block, already disassembled.
@@ -173,6 +177,10 @@ class Vm {
   // inherits from here picks those up for free.
   u32 text_field_prototype() const { return text_field_prototype_; }
 
+  // `super` as the class at `level` sees it. Public for the tests; the
+  // interpreter reaches it through a function's DefineFunction2 preload.
+  AsValue SuperFor(const AsValue& self, u32 level) { return MakeSuper(self, level); }
+
   u32 global() const { return global_; }
   // The object every movie clip's script sees as `_root` / `_level0`.
   void set_root(const AsValue& root) { root_ = root; }
@@ -210,7 +218,11 @@ class Vm {
   AsValue ResolveVariable(Frame& frame, base::StringRef name);
   void AssignVariable(Frame& frame, base::StringRef name, const AsValue& value);
   void InstallStandardLibrary();
-  AsValue MakeSuper(const AsValue& self);
+  // `super` as seen from `level`, the prototype of the class whose body is
+  // running. Taking it from the instance instead would give every class in a
+  // chain the same answer, and a base constructor calling `super()` would call
+  // itself until the depth limit stopped it.
+  AsValue MakeSuper(const AsValue& self, u32 level);
 
   base::Vector<AsObject> objects_;
   base::Vector<AsScript> scripts_;

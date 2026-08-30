@@ -442,9 +442,10 @@ bool VanillaRuntime::Load(ugui::UIContext& ui, base::StringRef dir, base::String
   impl_->bridge = base::MakeUnique<swf::GameBridge>(impl_->vm);
   impl_->bridge->set_answerer(answerer_, answer_user_);
   impl_->stage = base::MakeUnique<swf::Stage>(impl_->vm, impl_->movie);
-  // Not the authored state yet: the translation carries a group per state now,
-  // but a CLIK component still does not finish wiring itself up, and the
-  // journal's tab strip comes back empty and takes the page with it. See
+  // Not the authored state yet. The interpreter gets it right (swfdump --run
+  // reports the real tab labels and a centred, filled list), but the binder
+  // does not follow the movie there: only the row the list centres on ends up
+  // written, and the rest of the widgets keep their placeholders. See
   // components/swf/TODO.md.
   impl_->stage->Run();
   // What the game does once a menu's code object is up. Most of a menu's

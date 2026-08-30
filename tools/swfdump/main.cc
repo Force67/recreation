@@ -184,6 +184,10 @@ void RunScripts(const swf::Movie& movie) {
 
   swf::Vm vm;
   swf::GameBridge bridge(vm);
+  // The same answers the host gives, registered before anything runs, so this
+  // reports the state a player would be shown rather than a quieter one.
+  bridge.SetAnswer("ShouldShowMod", swf::AsValue::Bool(false));
+  bridge.SetAnswer("ShouldShowKinectTunerOption", swf::AsValue::Bool(false));
   swf::Stage stage(vm, movie);
   stage.set_authored_state(true);
   stage.Run();
@@ -228,9 +232,21 @@ void RunScripts(const swf::Movie& movie) {
   // A few frames of it running, the way a host ticks it: a list defers its
   // first layout to an enter-frame, so a snapshot taken before one shows every
   // row still holding its placeholder.
-  for (int frame = 0; frame < 4; ++frame)
+  for (int frame = 0; frame < 8; ++frame)
     stage.Tick(16.0);
 
+  for (u32 i = 1; i < vm.object_count(); ++i) {
+    if (!vm.Valid(i) || !vm.Get(i).is_movie_clip) continue;
+    const swf::AsValue c = swf::AsValue::Obj(i);
+    if (!vm.GetMember(c, "CategoryList").is_object()) continue;
+    const swf::AsValue l = vm.GetMember(c, "CategoryList");
+    std::printf("DBG page=%s CategoryList=%s entries=%s onLoad=%d state=%s\n",
+                vm.ToString(vm.GetMember(c, "_name")).c_str(),
+                vm.ToString(vm.GetMember(l, "_name")).c_str(),
+                vm.ToString(vm.GetMember(vm.GetMember(l, "entryList"), "length")).c_str(),
+                (int)vm.GetMember(c, "onLoad").type(),
+                vm.ToString(vm.GetMember(c, "currentState")).c_str());
+  }
   // A navigation key through the movie's own components, which is how a host
   // drives every screen's selection without knowing any of them: build the
   // `details` the game builds and hand it to whatever is listening.

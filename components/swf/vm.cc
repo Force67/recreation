@@ -14,7 +14,15 @@ namespace {
 // caller. Menus settle in well under this; the start menu's whole init is a few
 // hundred thousand instructions.
 constexpr u64 kMaxSteps = 40'000'000;
-constexpr u32 kMaxDepth = 64;
+// How deep a call chain may nest. This is a guard against runaway recursion
+// eating the C++ stack, not a statement about how deep real code goes: the
+// shipped component library nests further than one might expect (a clip's class
+// constructor calls its super, which configures the component, which builds its
+// sub-components and constructs each of those), and 64 cut 387 calls out of one
+// menu's start-up - among them the constructor that gives a button group the
+// array it counts. Frames are cheap now that registers are allocated to fit, so
+// this can be generous.
+constexpr u32 kMaxDepth = 256;
 
 // The AVM1 indexed property table, in opcode order. GetProperty/SetProperty
 // address a clip's properties by number; they become ordinary member names so a
@@ -245,8 +253,9 @@ AsValue Vm::GetMember(const AsValue& target, base::StringRef name) {
 }
 
 void Vm::SetMember(const AsValue& target, base::StringRef name, const AsValue& value) {
-  if (!target.is_object() || !Valid(target.object()))
+  if (!target.is_object() || !Valid(target.object())) {
     return;
+  }
   const base::String key(name);
   for (u32 current = target.object(), guard = 0; guard < 64 && Valid(current); ++guard) {
     if (objects_[current].props.find(key))
@@ -378,7 +387,7 @@ void Vm::Run(u32 script, const AsValue& self) {
   frame.self = self;
   frame.timeline = true;
   frame.locals = NewObject();
-  frame.registers.resize(256);
+  frame.registers.resize(8);
   Execute(script, 0, static_cast<u32>(scripts_[script].actions.size()), frame);
 }
 
@@ -399,6 +408,7 @@ AsValue Vm::CallInternal(const AsValue& function, const AsValue& self,
 
   const AsFunctionBody body = fn.body;  // copied: objects_ can reallocate
   const u32 scope = fn.scope;
+  const u32 fn_super_proto = fn.super_proto;
   if (body.script >= scripts_.size())
     return AsValue::Undefined();
 
@@ -406,7 +416,11 @@ AsValue Vm::CallInternal(const AsValue& function, const AsValue& self,
   frame.self = self;
   frame.locals = NewObject();
   frame.scope = scope;
-  frame.registers.resize(base::Max<mem_size>(256, body.register_count + 1u));
+  // Sized to what the function declared rather than the format's maximum: a
+  // frame that always carried 256 slots cost about 12KB, which is what made a
+  // deep call chain expensive enough to need a tight depth limit. StoreRegister
+  // grows it for the code that uses a register it never declared.
+  frame.registers.resize(base::Max<mem_size>(8, body.register_count + 1u));
   frame.pool = body.pool;
 
   // DefineFunction2 preloads the implicit values into low registers and can
@@ -424,8 +438,16 @@ AsValue Vm::CallInternal(const AsValue& function, const AsValue& self,
                 AsValue::Number(static_cast<f64>(args.size())));
       frame.registers[next_register++] = AsValue::Obj(arguments);
     }
-    if (body.flags & fn_flags::kPreloadSuper)
-      frame.registers[next_register++] = MakeSuper(self);
+    if (body.flags & fn_flags::kPreloadSuper) {
+      // A base constructor reached through `super` carries the level it stands
+      // for, so its own `super` steps further up the chain.
+      const u32 level = fn_super_proto != 0
+                            ? fn_super_proto
+                            : (self.is_object() && Valid(self.object())
+                                   ? objects_[self.object()].prototype
+                                   : 0);
+      frame.registers[next_register++] = MakeSuper(self, level);
+    }
     if (body.flags & fn_flags::kPreloadRoot)
       frame.registers[next_register++] = root_;
     if (body.flags & fn_flags::kPreloadParent)
@@ -482,15 +504,18 @@ AsValue Vm::CallInternal(const AsValue& function, const AsValue& self,
 // the base constructor, and `super.method()` reaches a base method. So it is an
 // object whose prototype is the base prototype (giving the methods) carrying a
 // copy of the base constructor's body (making it callable).
-AsValue Vm::MakeSuper(const AsValue& self) {
-  if (!self.is_object() || !Valid(self.object()))
+AsValue Vm::MakeSuper(const AsValue& self, u32 level) {
+  if (!self.is_object() || !Valid(self.object()) || !Valid(level))
     return AsValue::Undefined();
-  const u32 own_proto = objects_[self.object()].prototype;
-  if (!Valid(own_proto))
+  const u32 base_proto = objects_[level].prototype;
+  if (!Valid(base_proto))
     return AsValue::Undefined();
-  const AsValue base_ctor = GetMember(AsValue::Obj(own_proto), "__constructor__");
-  const u32 base_proto = objects_[own_proto].prototype;
+  // `Extends` writes the SUPERCLASS onto the subclass's prototype, so the
+  // constructor to call is the one recorded at this level, and the next level
+  // up is where that class's own `super` starts.
+  const AsValue base_ctor = GetMember(AsValue::Obj(level), "__constructor__");
   const u32 super = NewObject(base_proto);
+  objects_[super].super_proto = base_proto;
   if (base_ctor.is_object() && Valid(base_ctor.object())) {
     const AsObject& ctor = objects_[base_ctor.object()];
     objects_[super].is_function = ctor.is_function;
@@ -576,8 +601,11 @@ void Vm::Execute(u32 script_index, u32 first, u32 count, Frame& frame) {
         }
         break;
       case op::kStoreRegister:
-        if (!frame.stack.empty() && action.byte_arg < frame.registers.size())
+        if (!frame.stack.empty()) {
+          if (action.byte_arg >= frame.registers.size())
+            frame.registers.resize(static_cast<mem_size>(action.byte_arg) + 1);
           frame.registers[action.byte_arg] = frame.stack[frame.stack.size() - 1];
+        }
         break;
 
       case op::kGetVariable: {
