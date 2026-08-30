@@ -1111,7 +1111,11 @@ base::String ExportScript(const Movie& movie) {
 
   // Instance handlers ride on PlaceObject rather than on their own tag, so walk
   // the timelines for them after the frame and init scripts.
-  for (const Timeline* timeline : {&movie.root}) {
+  base::Vector<const Timeline*> timelines;
+  timelines.push_back(&movie.root);
+  for (const Timeline& sprite : movie.sprites)
+    timelines.push_back(&sprite);
+  for (const Timeline* timeline : timelines) {
     for (const Frame& frame : timeline->frames) {
       for (const Place& place : frame.places) {
         for (mem_size i = 0; i < place.clip_event_code.size(); ++i) {

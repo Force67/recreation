@@ -63,8 +63,49 @@ Stage::Placement Stage::PlacedAt(const AsValue& clip) const {
   return placement ? *placement : Placement{};
 }
 
+// The clip-event bits a PlaceObject can carry, of which the menus use three.
+namespace clip_event {
+constexpr u32 kLoad = 0x00000001u;
+constexpr u32 kInitialize = 0x00000200u;
+constexpr u32 kConstruct = 0x00040000u;
+}  // namespace clip_event
+
+base::Vector<u32> Stage::EventScripts(const Place& place, u32 mask) {
+  base::Vector<u32> out;
+  for (mem_size i = 0; i < place.clip_event_code.size(); ++i) {
+    if (i >= place.clip_event_flags.size() || (place.clip_event_flags[i] & mask) == 0)
+      continue;
+    const ByteSpan code = place.clip_event_code[i];
+    if (code.empty())
+      continue;
+    const u64 key = reinterpret_cast<u64>(code.data());
+    u32* known = event_scripts_.find(key);
+    if (known) {
+      out.push_back(*known);
+      continue;
+    }
+    const u32 script = vm_.AddScript(code);
+    event_scripts_[key] = script;
+    out.push_back(script);
+  }
+  return out;
+}
+
+void Stage::RunScripts(const AsValue& self, const base::Vector<u32>& scripts) {
+  for (u32 script : scripts)
+    vm_.Run(script, self);
+}
+
+void Stage::RunFrameScripts(u16 timeline_id, u32 frame, const AsValue& self) {
+  if (!authored_state_)
+    return;
+  const u64 key = (static_cast<u64>(timeline_id) << 32) | frame;
+  if (const base::Vector<u32>* scripts = frame_scripts_.find(key))
+    RunScripts(self, *scripts);
+}
+
 u32 Stage::BuildClip(const Timeline& timeline, u32 parent, base::StringRef name,
-                     u16 character, u32 depth) {
+                     u16 character, u32 depth, const Place* place) {
   // The class the movie bound to this symbol, if it bound one. Its prototype
   // becomes the clip's, so the clip answers to the methods its movie wrote.
   AsValue klass = AsValue::Undefined();
@@ -88,6 +129,12 @@ u32 Stage::BuildClip(const Timeline& timeline, u32 parent, base::StringRef name,
   vm_.SetMember(self, "_y", AsValue::Number(0));
   if (parent != 0)
     vm_.SetMember(self, "_parent", AsValue::Obj(parent));
+
+  // The authored component parameters, before anything reads them: a tab's
+  // label and a list's row count are assigned by a `construct` handler on the
+  // placement, not by the class.
+  if (place != nullptr && authored_state_)
+    RunScripts(self, EventScripts(*place, clip_event::kConstruct));
 
   // Registered before its children, so a child's goto can find this clip.
   ClipState state;
@@ -116,10 +163,18 @@ u32 Stage::BuildClip(const Timeline& timeline, u32 parent, base::StringRef name,
   // instead: the player runs a frame's actions before it dispatches that
   // frame's load events, and the root's actions are what install the helpers a
   // menu's onLoad calls (TextField.prototype.SetText among them).
-  if (running_)
+  base::Vector<u32> loaders;
+  if (place != nullptr && authored_state_)
+    loaders = EventScripts(*place, clip_event::kInitialize | clip_event::kLoad);
+  if (running_) {
+    RunScripts(self, loaders);
     Dispatch(self, "onLoad");
-  else
-    pending_load_.push_back(clip);
+  } else {
+    PendingLoad pending;
+    pending.clip = clip;
+    pending.scripts = base::move(loaders);
+    pending_load_.push_back(base::move(pending));
+  }
   return clip;
 }
 
@@ -177,7 +232,8 @@ void Stage::ApplyFrame(u32 state_index, u32 frame, u32 depth) {
     if (const Timeline* sprite = movie_.FindSprite(place.character_id)) {
       if (depth >= kMaxDepth)
         continue;
-      const u32 child = BuildClip(*sprite, object, name, place.character_id, depth + 1);
+      const u32 child =
+          BuildClip(*sprite, object, name, place.character_id, depth + 1, &place);
       PlaceGeometry(AsValue::Obj(child), place);
       vm_.SetMember(self, name, AsValue::Obj(child));
       continue;
@@ -243,6 +299,7 @@ bool Stage::Goto(const AsValue& clip, u32 frame) {
     frame = static_cast<u32>(timeline->frames.size() - 1);
   ++goto_count_;
   ApplyFrame(state, frame, 0);
+  RunFrameScripts(timeline->id, frame, clip);
   return true;
 }
 
@@ -519,6 +576,10 @@ void Stage::Run() {
     if (script.code.empty())
       continue;
     const u32 index = vm_.AddScript(script.code);
+    if (script.kind == Script::Kind::kFrame) {
+      const u64 key = (static_cast<u64>(script.timeline_id) << 32) | script.frame;
+      frame_scripts_[key].push_back(index);
+    }
     if (script.kind == Script::Kind::kFrame && script.timeline_id == 0)
       root_scripts.push_back(index);
     else
@@ -535,9 +596,12 @@ void Stage::Run() {
   // Children first: a page's onLoad fills the list inside it, which only works
   // once that list's own onLoad has sized it.
   running_ = true;
-  const base::Vector<u32> loading = base::move(pending_load_);
-  for (mem_size i = loading.size(); i > 0; --i)
-    Dispatch(AsValue::Obj(loading[i - 1]), "onLoad");
+  const base::Vector<PendingLoad> loading = base::move(pending_load_);
+  for (mem_size i = loading.size(); i > 0; --i) {
+    const AsValue self = AsValue::Obj(loading[i - 1].clip);
+    RunScripts(self, loading[i - 1].scripts);
+    Dispatch(self, "onLoad");
+  }
 }
 
 bool Stage::Dispatch(const AsValue& clip, base::StringRef handler,

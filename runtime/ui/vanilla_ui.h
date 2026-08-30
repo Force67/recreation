@@ -37,6 +37,10 @@ struct VanillaScreen {
   base::Vector<base::String> fonts;
 };
 
+// The Tamrielic date the journal's bottom bar shows, from the world clock's
+// day count: "1:23pm, 17th of Last Seed, 4E 201".
+base::String TamrielDate(f64 game_days);
+
 // The interface's "$KEY" table written beside the screens (strings.txt), so a
 // host driving a menu the way the game does resolves the same strings. Empty
 // when the file is absent.

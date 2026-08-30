@@ -7,6 +7,7 @@
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
 
+#include "components/swf/bridge.h"
 #include "components/swf/vm.h"
 #include "core/types.h"
 
@@ -67,8 +68,23 @@ class VanillaRuntime {
   bool Send(ugui::UIContext& ui, base::StringRef name,
             const base::Vector<swf::AsValue>& args);
 
-  // What the movie asked the host for and nothing answered. Drains the queue.
-  base::Vector<base::String> TakePending();
+  // Installs what answers the screen's questions. It is called from inside the
+  // movie's own call, which is the only time an answer can land: see
+  // GameBridge::set_answerer. `user` is handed back untouched.
+  void SetAnswerer(swf::GameBridge::Answerer answerer, void* user);
+
+  // What the movie asked the host for and nothing answered, with the arguments
+  // it passed. Drains the queue; answer any of them with Respond before the
+  // next tick, since the movie drops its response slot as soon as the call it
+  // is waiting on returns.
+  base::Vector<swf::GameBridge::Call> TakePending();
+
+  // Answers a call from TakePending. `id` is the call's own.
+  bool Respond(ugui::UIContext& ui, u32 id, const base::Vector<swf::AsValue>& args);
+
+  // The interpreter behind the screen, for a host that has to reach a value the
+  // bridge cannot carry (a call that hands over one of its own text fields).
+  swf::Vm* vm();
 
   bool loaded() const;
   // How many clips found a widget, for the log line that says whether the two
@@ -80,6 +96,8 @@ class VanillaRuntime {
   struct Impl;
   base::UniquePointer<Impl> impl_;
   const base::UnorderedMap<base::String, base::String>* strings_ = nullptr;
+  swf::GameBridge::Answerer answerer_ = nullptr;
+  void* answer_user_ = nullptr;
 };
 
 }  // namespace rx::ui

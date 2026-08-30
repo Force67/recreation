@@ -30,6 +30,21 @@ class Stage {
  public:
   Stage(Vm& vm, const Movie& movie);
 
+  // Whether to run what a frame authored: the `construct` handlers carrying a
+  // component's parameters (a tab's label, a list's centring) and the actions
+  // on a frame a clip arrives at (a fade ends in `stop()`).
+  //
+  // Off by default, and that is a translation limit rather than a doubt about
+  // the interpreter. `tools/swfdump --ugui` exports ONE frame of each timeline,
+  // so the widgets only stand for that frame. These move clips into states the
+  // widgets cannot represent - a list centring its selection onto rows the
+  // export did not lay out, a fader parked on a frame whose transform hides a
+  // page that has no other frame to show - and the screen comes out blank.
+  // Turn it on once the export carries every frame; `swfdump --run` runs with
+  // it on, because there it is the movie's own state being reported, not a
+  // translation of it.
+  void set_authored_state(bool on) { authored_state_ = on; }
+
   // Runs the movie's library code (which defines and registers its classes),
   // builds the clip tree, then runs the root's frame scripts.
   void Run();
@@ -132,7 +147,16 @@ class Stage {
   };
 
   u32 BuildClip(const Timeline& timeline, u32 parent, base::StringRef name,
-                u16 character, u32 depth);
+                u16 character, u32 depth, const Place* place = nullptr);
+  // The handlers a PlaceObject hung on this instance for the events in `mask`,
+  // disassembled. Component parameters are authored as a `construct` handler,
+  // which is where a tab gets its label and a meter its colour.
+  base::Vector<u32> EventScripts(const Place& place, u32 mask);
+  void RunScripts(const AsValue& self, const base::Vector<u32>& scripts);
+  // The actions a timeline authored on a frame, run when a clip arrives there.
+  // A fade is a run of frames ending in `stop()`, so a clip that never runs
+  // them plays past the end and wraps back to where it started.
+  void RunFrameScripts(u16 timeline_id, u32 frame, const AsValue& self);
   // Applies a frame's display list to a clip that already exists.
   void ApplyFrame(u32 state_index, u32 frame, u32 depth);
   // Writes _x/_y/_width/_height from where the frame put the character, and
@@ -147,13 +171,25 @@ class Stage {
   base::Vector<ClipState> clips_;
   base::Vector<base::String> unclassed_;
   base::UnorderedMap<u32, Placement> placements_;
+  // Clip-event code -> the script it was disassembled into, so a row rebuilt on
+  // every frame change does not add another copy each time.
+  base::UnorderedMap<u64, u32> event_scripts_;
+  // (timeline id << 32 | frame) -> the scripts authored there.
+  base::UnorderedMap<u64, base::Vector<u32>> frame_scripts_;
+  // A clip built but not yet told it loaded, with the handlers its placement
+  // wants run first. See BuildClip for why the events wait. The handlers are
+  // kept as script indices rather than as a Place: the display list they came
+  // from is a local that is gone by the time these run.
+  struct PendingLoad {
+    u32 clip = 0;
+    base::Vector<u32> scripts;
+  };
+  base::Vector<PendingLoad> pending_load_;
   u32 clip_count_ = 0;
   u32 classed_count_ = 0;
   u32 goto_count_ = 0;
-  // Clips built but not yet told they loaded, and whether the first build is
-  // over. See BuildClip for why the events wait.
-  base::Vector<u32> pending_load_;
   bool running_ = false;
+  bool authored_state_ = false;
 };
 
 }  // namespace rx::swf

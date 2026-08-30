@@ -47,6 +47,9 @@ AsValue GameBridge::Handle(base::StringRef name, const base::Vector<AsValue>& ar
   for (mem_size i = 1; i < args.size(); ++i)
     call.args.push_back(args[i]);
 
+  if (answerer_ != nullptr && answerer_(answer_user_, *this, call))
+    return AsValue::Undefined();
+
   const AsValue* answer = answers_.find(call.name);
   if (answer == nullptr) {
     pending_.push_back(base::move(call));

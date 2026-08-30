@@ -185,6 +185,7 @@ void RunScripts(const swf::Movie& movie) {
   swf::Vm vm;
   swf::GameBridge bridge(vm);
   swf::Stage stage(vm, movie);
+  stage.set_authored_state(true);
   stage.Run();
   // What the game does once the menu is up: run the extensions that register
   // the rest of its callbacks, then send the message it opens this screen with.
@@ -252,7 +253,12 @@ void RunScripts(const swf::Movie& movie) {
       // What the list actually put on screen: its rows are timeline clips it
       // fills and shows, so an entry list with no visible row is a list the
       // player would see as empty.
-      for (int r = 0; r < 10; ++r) {
+      std::printf("    (top-half %s, text option %s, shown %s of %s)\n",
+                  vm.ToString(vm.GetMember(clip, "iNumTopHalfEntries")).c_str(),
+                  vm.ToString(vm.GetMember(clip, "textOption")).c_str(),
+                  vm.ToString(vm.GetMember(clip, "iListItemsShown")).c_str(),
+                  vm.ToString(vm.GetMember(clip, "iMaxItemsShown")).c_str());
+      for (int r = 0; r < 16; ++r) {
         const swf::AsValue row = vm.GetMember(clip, base::Format("Entry{}", r));
         if (!row.is_object())
           break;
@@ -354,6 +360,19 @@ void RunScripts(const swf::Movie& movie) {
       std::printf("  _global.%s\n", name.c_str());
   }
   std::printf("%u function(s)/class(es) defined on _global\n", classes);
+  // The tab strip, the clearest read on whether the authored component
+  // parameters landed: each tab's label is set by a construct handler.
+  for (u32 i = 1; i < vm.object_count(); ++i) {
+    if (!vm.Valid(i) || !vm.Get(i).is_movie_clip)
+      continue;
+    const swf::AsValue clip = swf::AsValue::Obj(i);
+    const base::String name = vm.ToString(vm.GetMember(clip, "_name"));
+    if (name.find("Tab") == base::String::npos)
+      continue;
+    std::printf("  %s label '%s' text '%s'\n", name.c_str(),
+                vm.ToString(vm.GetMember(clip, "label")).c_str(),
+                vm.ToString(vm.GetMember(vm.GetMember(clip, "textField"), "text")).c_str());
+  }
   const base::Vector<base::String> callbacks = bridge.Callbacks();
   if (!callbacks.empty()) {
     std::printf("%zu callback(s) the movie is listening for:\n",
@@ -382,6 +401,31 @@ void RunScripts(const swf::Movie& movie) {
       std::printf("  %s\n", vm.ToString(vm.GetMember(entry, "text")).c_str());
     }
     break;
+  }
+
+  // What the screen asked its host for and nobody answered. This is the work
+  // list for wiring a menu up: everything here is a blank the player can see.
+  if (!bridge.pending().empty()) {
+    std::printf("%zu unanswered call(s) to the host:\n",
+                static_cast<size_t>(bridge.pending().size()));
+    base::Vector<base::String> seen;
+    for (const swf::GameBridge::Call& call : bridge.pending()) {
+      bool known = false;
+      for (const base::String& had : seen)
+        known = known || had == call.name;
+      if (known)
+        continue;
+      seen.push_back(call.name);
+      if (seen.size() > 16)
+        continue;
+      base::String args;
+      for (const swf::AsValue& arg : call.args) {
+        if (!args.empty())
+          args += ", ";
+        args += vm.ToString(arg);
+      }
+      std::printf("  %s(%s)\n", call.name.c_str(), args.c_str());
+    }
   }
 
   if (!vm.external_calls().empty()) {

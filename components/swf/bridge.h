@@ -40,6 +40,16 @@ class GameBridge {
   // Installs itself as the vm's external handler. The vm outlives this.
   explicit GameBridge(Vm& vm);
 
+  // Answers a call while the movie is still making it. This is the only moment
+  // that works: GameDelegate drops the response slot the instant its call
+  // returns, so a host that replies a frame later replies to nothing. Return
+  // true to say the call was handled.
+  using Answerer = bool (*)(void* user, GameBridge& bridge, const Call& call);
+  void set_answerer(Answerer answerer, void* user) {
+    answerer_ = answerer;
+    answer_user_ = user;
+  }
+
   // A fixed answer for a query, sent back the moment the movie asks. Enough for
   // the many calls that only read a setting or a platform flag; anything the
   // host has to compute comes off `pending()` and goes back through `Respond`.
@@ -68,6 +78,10 @@ class GameBridge {
   // GameDelegate's own table, so it is what the movie actually registered.
   base::Vector<base::String> Callbacks();
 
+  // The interpreter behind the screen, for an answer the bridge cannot carry
+  // (a call that hands over one of the movie's own text fields).
+  Vm& vm() { return vm_; }
+
   // Convenience for building the arguments the game sends.
   AsValue Array(const base::Vector<AsValue>& items);
 
@@ -78,6 +92,8 @@ class GameBridge {
   AsValue Delegate();
 
   Vm& vm_;
+  Answerer answerer_ = nullptr;
+  void* answer_user_ = nullptr;
   base::UnorderedMap<base::String, AsValue> answers_;
   base::Vector<Call> pending_;
 };

@@ -83,6 +83,10 @@ struct Vm::Frame {
   u32 scope = 0;   // the scope a closure captured
   AsValue result;
   bool returned = false;
+  // Set for a script that runs AS a timeline rather than as a function body: a
+  // frame script or a clip-event handler. A bare assignment there names a
+  // property of that timeline, not a global.
+  bool timeline = false;
 
   AsValue Pop() {
     if (stack.empty())
@@ -356,6 +360,14 @@ void Vm::AssignVariable(Frame& frame, base::StringRef name, const AsValue& value
     SetMember(frame.self, name, value);
     return;
   }
+  // A bare name assigned on a timeline is that timeline's, which is how a
+  // component's authored parameters (a tab's labelID, a list's row count) reach
+  // the clip they were placed on. Everywhere else it is a global.
+  if (frame.timeline && frame.self.is_object() && Valid(frame.self.object()) &&
+      objects_[frame.self.object()].is_movie_clip) {
+    SetMember(frame.self, name, value);
+    return;
+  }
   SetMember(AsValue::Obj(global_), name, value);
 }
 
@@ -364,6 +376,7 @@ void Vm::Run(u32 script, const AsValue& self) {
     return;
   Frame frame;
   frame.self = self;
+  frame.timeline = true;
   frame.locals = NewObject();
   frame.registers.resize(256);
   Execute(script, 0, static_cast<u32>(scripts_[script].actions.size()), frame);

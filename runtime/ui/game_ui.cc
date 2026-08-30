@@ -1571,6 +1571,42 @@ struct GameUi::Impl {
     runtime.Send(ui, "sendMenuProperties", args);
   }
 
+  // What the game answers when a screen asks it something. A menu leaves the
+  // blank on screen until the answer arrives, so an unanswered call is a
+  // visible gap: without RequestPlayerInfo the journal's bottom bar keeps
+  // reading "Time, Date, Year".
+  //
+  // This runs from inside the movie's own call, which is the only time an
+  // answer can land (see GameBridge::set_answerer). Fire-and-forget calls
+  // (sounds, logging, remembering a tab) are left unhandled on purpose; they
+  // collect in GameBridge::pending(), which is the list of what a screen is
+  // still waiting on.
+  static bool AnswerVanillaCall(void* user, swf::GameBridge& bridge,
+                                const swf::GameBridge::Call& call) {
+    Impl* self = static_cast<Impl*>(user);
+    base::Vector<swf::AsValue> answer;
+    if (call.name == "RequestPlayerInfo") {
+      answer.push_back(swf::AsValue::Str(ui::TamrielDate(self->mm_stats.game_days)));
+      answer.push_back(swf::AsValue::Str(base::ToString(self->mm_stats.level)));
+      answer.push_back(swf::AsValue::Number(0));
+    } else if (call.name == "ShouldShowMod") {
+      // No Creation Club and no mod manager here, and answering yes puts a
+      // second CREATIONS row in the list beside the one the page authored.
+      answer.push_back(swf::AsValue::Bool(false));
+    } else if (call.name == "ShouldShowKinectTunerOption") {
+      answer.push_back(swf::AsValue::Bool(false));
+    } else if (call.name == "SetVersionText") {
+      // The odd one out: the movie hands over its own field rather than asking
+      // for a string, so the answer is written straight into it.
+      if (!call.args.empty() && call.args[0].is_object())
+        bridge.vm().SetMember(call.args[0], "text", swf::AsValue::Str("recreation"));
+      return true;
+    } else {
+      return false;
+    }
+    return bridge.Respond(call.id, answer);
+  }
+
   void StartVanillaVms() {
     vanilla_vms.clear();
     if (!ui::VanillaRuntime::Enabled())
@@ -1579,6 +1615,7 @@ struct GameUi::Impl {
     for (const ui::VanillaScreen& screen : VanillaScreens()) {
       ui::VanillaRuntime runtime;
       runtime.SetStrings(&vanilla_strings);
+      runtime.SetAnswerer(&Impl::AnswerVanillaCall, this);
       if (!runtime.Load(ui, dir, screen.name, VanillaRootName(screen.name)))
         continue;
       OpenVanillaScreen(runtime, screen.name);
@@ -3142,8 +3179,9 @@ void GameUi::Build(Window& window,
   // line up with the widgets.
   const InputState& in = window.input();
   impl->ui_time += frame_delta;
-  for (ui::VanillaRuntime& runtime : impl->vanilla_vms)
+  for (ui::VanillaRuntime& runtime : impl->vanilla_vms) {
     runtime.Tick(impl->ui, frame_delta);
+  }
   if (const float at = PauseAt.get(); at > 0.0f) {
     const auto crossed = [&](float t) {
       return impl->ui_time >= t && impl->ui_time - frame_delta < t;

@@ -43,56 +43,6 @@ const char* const kBottomBarButtons[] = {
     "Button1", "Button2", "Button3", "MouseButton1", "MouseButton2", "MouseButton3",
 };
 
-// The journal's bottom bar reads "1:23pm, 17th of Last Seed, 4E 201". The
-// Tamrielic calendar keeps our month lengths and renames the months, and
-// Skyrim starts on the 17th of Last Seed, 4E 201, so the clock's day count
-// counts forward from there.
-base::String TamrielDate(f64 game_days) {
-  static const char* const kMonths[12] = {
-      "Morning Star", "Sun's Dawn",  "First Seed", "Rain's Hand",
-      "Second Seed",  "Mid Year",    "Sun's Height", "Last Seed",
-      "Hearthfire",   "Frostfall",   "Sun's Dusk", "Evening Star"};
-  static const int kMonthDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-  constexpr int kStartMonth = 7;  // Last Seed
-  constexpr int kStartDay = 17;
-  constexpr int kStartYear = 201;
-
-  const f64 whole = std::floor(game_days);
-  const f64 fraction = game_days - whole;
-  int hour = static_cast<int>(fraction * 24.0);
-  int minute = static_cast<int>((fraction * 24.0 - hour) * 60.0);
-  if (minute > 59)
-    minute = 59;
-  const char* meridiem = hour < 12 ? "am" : "pm";
-  int display_hour = hour % 12;
-  if (display_hour == 0)
-    display_hour = 12;
-
-  int month = kStartMonth;
-  int year = kStartYear;
-  i64 day = kStartDay + static_cast<i64>(whole);
-  while (day > kMonthDays[month]) {
-    day -= kMonthDays[month];
-    if (++month == 12) {
-      month = 0;
-      ++year;
-    }
-  }
-
-  // 1st, 2nd, 3rd, then th, with the usual exception in the teens.
-  const i64 tens = day % 100;
-  const char* suffix = "th";
-  if (tens < 11 || tens > 13) {
-    if (day % 10 == 1)
-      suffix = "st";
-    else if (day % 10 == 2)
-      suffix = "nd";
-    else if (day % 10 == 3)
-      suffix = "rd";
-  }
-  return base::Format("{}:{:02}{}, {}{} of {}, 4E {}", display_hour, minute, meridiem, day,
-                      suffix, kMonths[month], year);
-}
 
 base::String Translate(const base::UnorderedMap<base::String, base::String>* strings,
                        const char* key) {

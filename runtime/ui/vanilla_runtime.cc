@@ -1,5 +1,6 @@
 #include "runtime/ui/vanilla_runtime.h"
 
+#include <base/containers/pair.h>
 #include <base/memory/move.h>
 #include <base/option.h>
 
@@ -107,6 +108,11 @@ struct VanillaRuntime::Impl {
     base::Vector<u32> children;  // indices into `bound`, in tree order
   };
   base::Vector<Bound> bound;
+  // Where the translation put each widget, remembered the first time it is
+  // bound. Re-reading it on a later bind would read a position this class had
+  // already moved, and the offset would accumulate every frame until the
+  // widget walked off the screen.
+  base::UnorderedMap<u32, base::Pair<f32, f32>> origins;
   const base::UnorderedMap<base::String, base::String>* strings = nullptr;
   ugui::wid root;
   bool ready = false;
@@ -136,9 +142,13 @@ struct VanillaRuntime::Impl {
       entry.widget = widget;
       const ugui::WidgetNode* node = world.Get<ugui::WidgetNode>(widget);
       entry.is_text = node && node->kind == ugui::WidgetKind::kText;
-      if (const ugui::StyleC* sc = world.Get<ugui::StyleC>(widget)) {
+      if (const base::Pair<f32, f32>* known = origins.find(widget.index)) {
+        entry.left = known->first;
+        entry.top = known->second;
+      } else if (const ugui::StyleC* sc = world.Get<ugui::StyleC>(widget)) {
         entry.left = sc->style.left_offset.value;
         entry.top = sc->style.top.value;
+        origins[widget.index] = base::Pair<f32, f32>{entry.left, entry.top};
       }
       bound.push_back(base::move(entry));
     }
@@ -353,6 +363,7 @@ bool VanillaRuntime::Load(ugui::UIContext& ui, base::StringRef dir, base::String
   impl_->movie = base::move(movie.value());
 
   impl_->bridge = base::MakeUnique<swf::GameBridge>(impl_->vm);
+  impl_->bridge->set_answerer(answerer_, answer_user_);
   impl_->stage = base::MakeUnique<swf::Stage>(impl_->vm, impl_->movie);
   impl_->stage->Run();
   // What the game does once a menu's code object is up. Most of a menu's
@@ -376,6 +387,13 @@ bool VanillaRuntime::Load(ugui::UIContext& ui, base::StringRef dir, base::String
   return true;
 }
 
+void VanillaRuntime::SetAnswerer(swf::GameBridge::Answerer answerer, void* user) {
+  answerer_ = answerer;
+  answer_user_ = user;
+  if (impl_ && impl_->bridge)
+    impl_->bridge->set_answerer(answerer, user);
+}
+
 bool VanillaRuntime::Send(ugui::UIContext& ui, base::StringRef name,
                           const base::Vector<swf::AsValue>& args) {
   if (!impl_ || !impl_->ready)
@@ -387,14 +405,33 @@ bool VanillaRuntime::Send(ugui::UIContext& ui, base::StringRef name,
   return true;
 }
 
-base::Vector<base::String> VanillaRuntime::TakePending() {
-  base::Vector<base::String> out;
+base::Vector<swf::GameBridge::Call> VanillaRuntime::TakePending() {
+  base::Vector<swf::GameBridge::Call> out;
   if (!impl_ || !impl_->ready)
     return out;
-  for (const swf::GameBridge::Call& call : impl_->bridge->pending())
-    out.push_back(call.name);
+  for (const swf::GameBridge::Call& call : impl_->bridge->pending()) {
+    swf::GameBridge::Call copy;
+    copy.name = call.name;
+    copy.id = call.id;
+    for (const swf::AsValue& arg : call.args)
+      copy.args.push_back(arg);
+    out.push_back(base::move(copy));
+  }
   impl_->bridge->ClearPending();
   return out;
+}
+
+bool VanillaRuntime::Respond(ugui::UIContext& ui, u32 id,
+                             const base::Vector<swf::AsValue>& args) {
+  if (!impl_ || !impl_->ready || !impl_->bridge->Respond(id, args))
+    return false;
+  impl_->Rebind(ui);
+  impl_->Sync(ui);
+  return true;
+}
+
+swf::Vm* VanillaRuntime::vm() {
+  return impl_ && impl_->ready ? &impl_->vm : nullptr;
 }
 
 void VanillaRuntime::Tick(ugui::UIContext& ui, f32 delta_seconds) {
@@ -464,9 +501,16 @@ bool VanillaRuntime::Send(ugui::UIContext&, base::StringRef,
                           const base::Vector<swf::AsValue>&) {
   return false;
 }
-base::Vector<base::String> VanillaRuntime::TakePending() {
-  return base::Vector<base::String>();
+base::Vector<swf::GameBridge::Call> VanillaRuntime::TakePending() {
+  return base::Vector<swf::GameBridge::Call>();
 }
+bool VanillaRuntime::Respond(ugui::UIContext&, u32, const base::Vector<swf::AsValue>&) {
+  return false;
+}
+swf::Vm* VanillaRuntime::vm() {
+  return nullptr;
+}
+void VanillaRuntime::SetAnswerer(swf::GameBridge::Answerer, void*) {}
 
 }  // namespace rx::ui
 

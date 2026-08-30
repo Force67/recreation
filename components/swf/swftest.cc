@@ -828,6 +828,92 @@ int main() {
           "onLoad reaches every clip, after the root's own actions ran");
   }
 
+  {
+    // A bare assignment on a timeline names that timeline's own property, not a
+    // global. That is how a component's authored parameters reach the clip they
+    // were placed on: a tab's label is a `construct` handler doing `labelID =
+    // "$QUESTS"`, and sending it to _global left every tab reading "BUTTON
+    // TEXT". Also the shape of the whole clip-event path, so it is checked by
+    // running one against a clip.
+    base::Vector<rx::u8> code;
+    code.push_back(0x96);  // Push "labelID"
+    code.push_back(static_cast<rx::u8>(std::strlen("labelID") + 2));
+    code.push_back(0);
+    code.push_back(0);
+    for (const char* c = "labelID"; *c; ++c)
+      code.push_back(static_cast<rx::u8>(*c));
+    code.push_back(0);
+    code.push_back(0x96);  // Push "$QUESTS"
+    code.push_back(static_cast<rx::u8>(std::strlen("$QUESTS") + 2));
+    code.push_back(0);
+    code.push_back(0);
+    for (const char* c = "$QUESTS"; *c; ++c)
+      code.push_back(static_cast<rx::u8>(*c));
+    code.push_back(0);
+    code.push_back(0x1d);  // SetVariable
+    code.push_back(0x00);
+
+    swf::Movie movie;
+    movie.sprites.push_back(swf::Timeline{});
+    movie.sprites[0].id = 1;
+    movie.sprites[0].frames.push_back(swf::Frame{});
+    movie.characters[1] = swf::CharacterRef{swf::CharacterKind::kSprite, 0};
+    swf::Frame frame;
+    swf::Place place;
+    place.depth = 1;
+    place.character_id = 1;
+    place.has_character = true;
+    place.name = "QuestsTab";
+    place.clip_event_flags.push_back(0x00040000u);  // construct
+    place.clip_event_code.push_back(ByteSpan{code.data(), code.size()});
+    frame.places.push_back(base::move(place));
+    movie.root.frames.push_back(base::move(frame));
+
+    swf::Vm vm;
+    swf::Stage stage(vm, movie);
+    stage.set_authored_state(true);
+    stage.Run();
+    const swf::AsValue tab = vm.GetMember(stage.root(), "QuestsTab");
+    Check(vm.ToString(vm.GetMember(tab, "labelID")) == "$QUESTS",
+          "a placement's construct handler sets the clip's own property");
+    Check(vm.GetMember(swf::AsValue::Obj(vm.global()), "labelID").is_undefined(),
+          "and not a global");
+
+    // Off by default: the translation carries one frame, and these move clips
+    // into states it has no widgets for.
+    swf::Vm plain_vm;
+    swf::Stage plain(plain_vm, movie);
+    plain.Run();
+    Check(plain_vm.GetMember(plain_vm.GetMember(plain.root(), "QuestsTab"), "labelID")
+              .is_undefined(),
+          "authored state is opt-in");
+  }
+
+  {
+    // The host bridge answered while the movie is still asking. GameDelegate
+    // drops its response slot the moment the call returns, so an answer a frame
+    // later answers nothing; the answerer runs inside the call instead.
+    swf::Vm vm;
+    swf::GameBridge bridge(vm);
+    static int asked = 0;
+    asked = 0;
+    bridge.set_answerer(
+        [](void*, swf::GameBridge&, const swf::GameBridge::Call& call) {
+          if (call.name != "RequestPlayerInfo")
+            return false;
+          ++asked;
+          return true;
+        },
+        nullptr);
+    base::Vector<swf::AsValue> args;
+    args.push_back(swf::AsValue::Number(3));
+    vm.DispatchExternal("RequestPlayerInfo", args);
+    vm.DispatchExternal("PlaySound", args);
+    Check(asked == 1, "the answerer sees the call as the movie makes it");
+    Check(bridge.pending().size() == 1 && bridge.pending()[0].name == "PlaySound",
+          "what it declines still queues for the host to look at");
+  }
+
 
   {
     // addProperty backs a name with functions instead of a slot. The shipped
