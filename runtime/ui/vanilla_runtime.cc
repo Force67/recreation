@@ -334,7 +334,12 @@ struct VanillaRuntime::Impl {
       style.text_color.a = 1.0f;
       ugui::SetStyle(world, widget, style);
     }
-    ugui::SetText(widget, text.c_str());
+    // Written through the registry this screen lives in. ugui::SetText resolves
+    // the widget against whichever registry is Active(), which is not
+    // necessarily this one, and a write that lands in the wrong registry is
+    // silent: the label stays as the translation left it.
+    world.GetOrAdd<ugui::TextContent>(widget).text = text.c_str();
+    ugui::MarkDirty(world, widget);
   }
 
   // ugui does not inherit opacity, so a clip's has to be written onto every

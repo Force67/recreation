@@ -247,6 +247,16 @@ void RunScripts(const swf::Movie& movie) {
                 (int)vm.GetMember(c, "onLoad").type(),
                 vm.ToString(vm.GetMember(c, "currentState")).c_str());
   }
+  for (u32 i = 1; i < vm.object_count(); ++i) {
+    if (!vm.Valid(i) || !vm.Get(i).is_movie_clip) continue;
+    const swf::AsValue c = swf::AsValue::Obj(i);
+    const base::String n = vm.ToString(vm.GetMember(c, "_name"));
+    if (n != "QuestsTab" && n != "SystemTab") continue;
+    base::String own;
+    for (const base::String& k : vm.Get(i).order) { own += k; own += " "; }
+    std::printf("DBG %s frame=%s own=[%s]\n", n.c_str(),
+                vm.ToString(vm.GetMember(c, "_currentframe")).c_str(), own.c_str());
+  }
   // A navigation key through the movie's own components, which is how a host
   // drives every screen's selection without knowing any of them: build the
   // `details` the game builds and hand it to whatever is listening.
