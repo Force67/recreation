@@ -139,6 +139,9 @@ u32 Stage::BuildClip(const Timeline& timeline, u32 parent, base::StringRef name,
   } else if (const base::String* symbol = movie_.exports.find(character)) {
     unclassed_.push_back(base::Format("{} <- {}", name, *symbol));
   }
+  // The constructor is where a class installs its own onLoad, so the event goes
+  // out after it rather than before.
+  Dispatch(self, "onLoad");
   return clip;
 }
 
@@ -457,6 +460,40 @@ void Stage::Run() {
 
   for (u32 index : root_scripts)
     vm_.Run(index, root_);
+}
+
+bool Stage::Dispatch(const AsValue& clip, base::StringRef handler,
+                     const base::Vector<AsValue>& args) {
+  const AsValue fn = vm_.GetMember(clip, handler);
+  if (!fn.is_object() || !vm_.Valid(fn.object()) || !vm_.Get(fn.object()).is_function)
+    return false;
+  vm_.Call(fn, clip, args);
+  return true;
+}
+
+bool Stage::Dispatch(const AsValue& clip, base::StringRef handler) {
+  return Dispatch(clip, handler, base::Vector<AsValue>());
+}
+
+u32 Stage::Broadcast(base::StringRef handler) {
+  u32 ran = 0;
+  // The object ids are copied first: a handler can attach or remove clips,
+  // which moves the table underneath the walk.
+  base::Vector<u32> targets;
+  for (const ClipState& state : clips_)
+    targets.push_back(state.object);
+  for (u32 object : targets) {
+    if (!vm_.Valid(object))
+      continue;
+    if (Dispatch(AsValue::Obj(object), handler))
+      ++ran;
+  }
+  return ran;
+}
+
+u32 Stage::Tick(f64 elapsed_ms) {
+  const u32 timers = vm_.Tick(elapsed_ms);
+  return timers + Broadcast("onEnterFrame");
 }
 
 base::Vector<AsValue> Stage::StatefulClips() const {

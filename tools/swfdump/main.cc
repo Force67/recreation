@@ -201,6 +201,14 @@ void RunScripts(const swf::Movie& movie) {
   for (mem_size i = 0; i < labels.size() && i < 12; ++i)
     std::printf("  label %s\n", labels[i].c_str());
 
+  // Run a few frames, so the timers a menu sets and its onEnterFrame work get
+  // a chance to happen rather than sitting queued forever.
+  u32 ticked = 0;
+  for (int f = 0; f < 10; ++f)
+    ticked += stage.Tick(1000.0 / 30.0);
+  std::printf("%u timer(s) pending, %u handler(s) ran over 10 frames\n",
+              vm.timer_count(), ticked);
+
   // Exercise the timeline on real assets: take a clip that carries states and
   // step it through each, reporting what the display list did.
   const base::Vector<swf::AsValue> stateful = stage.StatefulClips();

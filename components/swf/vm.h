@@ -180,6 +180,16 @@ class Vm {
   f64 ToNumber(const AsValue& v) const;
   base::String ToString(const AsValue& v);
 
+  // setInterval / setTimeout, drained by Tick. A menu uses them for key repeat,
+  // fades and deferred setup, so a run that never ticks leaves that work undone.
+  u32 AddTimer(const AsValue& fn, const AsValue& self, base::Vector<AsValue> args,
+               f64 interval_ms, bool once);
+  void ClearTimer(u32 id);
+  void MakeTimerOneShot(u32 id);
+  // Advances time and fires whatever came due. Returns how many fired.
+  u32 Tick(f64 elapsed_ms);
+  u32 timer_count() const { return static_cast<u32>(timers_.size()); }
+
   // Whatever the script traced, in order. The menus trace a great deal, and it
   // is the most direct evidence that a script ran and took the branch expected.
   const base::Vector<base::String>& traces() const { return traces_; }
@@ -213,6 +223,19 @@ class Vm {
   void* external_user_ = nullptr;
   void* host_ = nullptr;
   base::Vector<base::String> external_calls_;
+
+  struct Timer {
+    AsValue fn;
+    AsValue self;
+    base::Vector<AsValue> args;
+    f64 interval_ms = 0;
+    f64 due_ms = 0;
+    u32 id = 0;
+    bool once = false;
+  };
+  base::Vector<Timer> timers_;
+  u32 next_timer_id_ = 1;
+  f64 now_ms_ = 0;
   base::UnorderedMap<base::String, AsValue> registered_classes_;
   AsValue root_;
   u64 steps_ = 0;

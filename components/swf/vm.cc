@@ -1387,10 +1387,40 @@ AsValue ObjectRegisterClass(Vm& vm, const AsValue&, const base::Vector<AsValue>&
   return AsValue::Bool(true);
 }
 
-AsValue SetIntervalStub(Vm&, const AsValue&, const base::Vector<AsValue>&) {
-  // Timers need a clock the host owns; a menu uses them for repeat and fades,
-  // never to produce the contents a translation cares about.
-  return AsValue::Number(0);
+// setInterval(fn, ms, ...) and setInterval(scope, "method", ms, ...), which are
+// both spellings the shipped scripts use.
+AsValue SetIntervalNative(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) {
+  if (args.size() < 2)
+    return AsValue::Number(0);
+  AsValue fn = args[0];
+  AsValue self = AsValue::Undefined();
+  mem_size next = 1;
+  if (args[1].is_string()) {
+    self = args[0];
+    fn = vm.GetMember(args[0], args[1].string());
+    next = 2;
+  }
+  if (next >= args.size())
+    return AsValue::Number(0);
+  const f64 interval = vm.ToNumber(args[next]);
+  base::Vector<AsValue> extra;
+  for (mem_size i = next + 1; i < args.size(); ++i)
+    extra.push_back(args[i]);
+  return AsValue::Number(
+      static_cast<f64>(vm.AddTimer(fn, self, base::move(extra), interval, false)));
+}
+
+AsValue SetTimeoutNative(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  const AsValue id = SetIntervalNative(vm, self, args);
+  // Same shape, fires once. The id came back from AddTimer, so flip it there.
+  vm.MakeTimerOneShot(static_cast<u32>(vm.ToNumber(id)));
+  return id;
+}
+
+AsValue ClearIntervalNative(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) {
+  if (!args.empty())
+    vm.ClearTimer(static_cast<u32>(vm.ToNumber(args[0])));
+  return AsValue::Undefined();
 }
 
 }  // namespace
@@ -1403,8 +1433,10 @@ void Vm::InstallStandardLibrary() {
   SetMember(g, "parseFloat", AsValue::Obj(NewNative(GlobalParseInt)));
   SetMember(g, "isNaN", AsValue::Obj(NewNative(GlobalIsNaN)));
   SetMember(g, "ASSetPropFlags", AsValue::Obj(NewNative(NoOp)));
-  SetMember(g, "setInterval", AsValue::Obj(NewNative(SetIntervalStub)));
-  SetMember(g, "clearInterval", AsValue::Obj(NewNative(NoOp)));
+  SetMember(g, "setInterval", AsValue::Obj(NewNative(SetIntervalNative)));
+  SetMember(g, "setTimeout", AsValue::Obj(NewNative(SetTimeoutNative)));
+  SetMember(g, "clearInterval", AsValue::Obj(NewNative(ClearIntervalNative)));
+  SetMember(g, "clearTimeout", AsValue::Obj(NewNative(ClearIntervalNative)));
   SetMember(g, "updateAfterEvent", AsValue::Obj(NewNative(NoOp)));
   SetMember(g, "undefined", AsValue::Undefined());
   SetMember(g, "NaN", AsValue::Number(std::nan("")));
@@ -1549,6 +1581,63 @@ void Vm::InstallStandardLibrary() {
 
   object_prototype_ = object_proto;
   string_prototype_ = string_proto;
+}
+
+u32 Vm::AddTimer(const AsValue& fn, const AsValue& self, base::Vector<AsValue> args,
+                 f64 interval_ms, bool once) {
+  Timer timer;
+  timer.fn = fn;
+  timer.self = self;
+  timer.args = base::move(args);
+  timer.interval_ms = interval_ms < 1 ? 1 : interval_ms;
+  timer.due_ms = now_ms_ + timer.interval_ms;
+  timer.id = next_timer_id_++;
+  timer.once = once;
+  const u32 id = timer.id;
+  timers_.push_back(base::move(timer));
+  return id;
+}
+
+void Vm::MakeTimerOneShot(u32 id) {
+  for (Timer& timer : timers_)
+    if (timer.id == id)
+      timer.once = true;
+}
+
+void Vm::ClearTimer(u32 id) {
+  for (mem_size i = 0; i < timers_.size(); ++i) {
+    if (timers_[i].id == id) {
+      timers_.erase(i);
+      return;
+    }
+  }
+}
+
+u32 Vm::Tick(f64 elapsed_ms) {
+  now_ms_ += elapsed_ms;
+  u32 fired = 0;
+  // Copied before firing: a handler can add or clear timers, which would move
+  // the vector underneath the walk.
+  base::Vector<Timer> due;
+  for (const Timer& timer : timers_)
+    if (timer.due_ms <= now_ms_)
+      due.push_back(timer);
+  for (const Timer& timer : due) {
+    bool still_live = false;
+    for (Timer& live : timers_) {
+      if (live.id != timer.id)
+        continue;
+      still_live = true;
+      live.due_ms = now_ms_ + live.interval_ms;
+    }
+    if (!still_live)
+      continue;
+    ++fired;
+    Call(timer.fn, timer.self, timer.args);
+    if (timer.once)
+      ClearTimer(timer.id);
+  }
+  return fired;
 }
 
 AsValue Vm::DispatchExternal(base::StringRef name, const base::Vector<AsValue>& args) {

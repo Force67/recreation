@@ -720,6 +720,75 @@ int main() {
           "and a helper added to the prototype binds to the field");
   }
 
+
+  {
+    // Timers: a menu sets them for key repeat, fades and deferred setup, so a
+    // run that never ticks leaves that work queued forever.
+    swf::Vm vm;
+    const rx::u32 counter = vm.NewObject();
+    vm.SetMember(swf::AsValue::Obj(counter), "n", swf::AsValue::Number(0));
+    const rx::u32 bump = vm.NewNative(
+        [](swf::Vm& v, const swf::AsValue& self, const base::Vector<swf::AsValue>&) {
+          v.SetMember(self, "n", swf::AsValue::Number(v.ToNumber(v.GetMember(self, "n")) + 1));
+          return swf::AsValue::Undefined();
+        });
+    const rx::u32 id = vm.AddTimer(swf::AsValue::Obj(bump), swf::AsValue::Obj(counter),
+                                   base::Vector<swf::AsValue>(), 100.0, false);
+    Check(vm.Tick(50.0) == 0, "a timer does not fire before it is due");
+    Check(vm.Tick(60.0) == 1, "and does once it is");
+    Check(vm.ToNumber(vm.GetMember(swf::AsValue::Obj(counter), "n")) == 1,
+          "the handler ran against the scope it was given");
+    Check(vm.Tick(100.0) == 1, "an interval repeats");
+    vm.ClearTimer(id);
+    Check(vm.Tick(100.0) == 0, "and stops once cleared");
+
+    const rx::u32 once = vm.AddTimer(swf::AsValue::Obj(bump), swf::AsValue::Obj(counter),
+                                     base::Vector<swf::AsValue>(), 10.0, true);
+    (void)once;
+    Check(vm.Tick(20.0) == 1, "a one-shot fires");
+    Check(vm.Tick(100.0) == 0, "and does not come back");
+  }
+  {
+    // Events. onLoad goes out after the constructor, because that is where a
+    // class installs its own handler; onEnterFrame is broadcast per frame.
+    swf::Movie movie;
+    movie.sprites.push_back(swf::Timeline{});
+    movie.sprites[0].id = 3;
+    movie.sprites[0].frames.push_back(swf::Frame{});
+    movie.characters[3] = swf::CharacterRef{swf::CharacterKind::kSprite, 0};
+    swf::Frame frame;
+    swf::Place place;
+    place.depth = 1;
+    place.character_id = 3;
+    place.has_character = true;
+    place.name = "child";
+    frame.places.push_back(base::move(place));
+    movie.root.frames.push_back(base::move(frame));
+
+    swf::Vm vm;
+    swf::Stage stage(vm, movie);
+    stage.Run();
+    const swf::AsValue child = vm.GetMember(stage.root(), "child");
+    Check(child.is_object(), "the child clip exists");
+
+    vm.SetMember(child, "ticks", swf::AsValue::Number(0));
+    vm.SetMember(child, "onEnterFrame",
+                 swf::AsValue::Obj(vm.NewNative(
+                     [](swf::Vm& v, const swf::AsValue& self,
+                        const base::Vector<swf::AsValue>&) {
+                       v.SetMember(self, "ticks",
+                                   swf::AsValue::Number(
+                                       v.ToNumber(v.GetMember(self, "ticks")) + 1));
+                       return swf::AsValue::Undefined();
+                     })));
+    stage.Tick(16.0);
+    stage.Tick(16.0);
+    Check(vm.ToNumber(vm.GetMember(child, "ticks")) == 2,
+          "onEnterFrame reaches a clip once per frame");
+    Check(!stage.Dispatch(child, "onNothingLikeThis"),
+          "dispatching a handler a clip does not carry does nothing");
+  }
+
   std::printf("swftest: %d failure(s)\n", failures);
   return failures == 0 ? 0 : 1;
 }

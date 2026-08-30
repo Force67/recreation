@@ -75,6 +75,18 @@ class Stage {
   // for before attaching something.
   i32 NextDepth(const AsValue& clip) const;
 
+  // --- events -------------------------------------------------------------
+  // Calls `handler` on the clip if it carries one, e.g. "onPress". Returns
+  // whether anything ran, so a host can tell a handled click from a stray one.
+  bool Dispatch(const AsValue& clip, base::StringRef handler,
+                const base::Vector<AsValue>& args);
+  bool Dispatch(const AsValue& clip, base::StringRef handler);
+  // Sends `handler` to every clip on the stage, which is what a frame or a
+  // key does. Returns how many ran.
+  u32 Broadcast(base::StringRef handler);
+  // One frame: fires the timers that came due, then onEnterFrame everywhere.
+  u32 Tick(f64 elapsed_ms);
+
  private:
   // What a clip needs in order to play: the timeline it came from, where it is,
   // and what it currently has placed.
