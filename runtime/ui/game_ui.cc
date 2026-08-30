@@ -1511,6 +1511,11 @@ struct GameUi::Impl {
   void BuildVanillaMenus() {
     start_menu_active = false;
     pause_menu_active = false;
+    // The interpreter fills these screens from the movies' own code. Running a
+    // driver as well would have the two writing over each other, which is not
+    // a comparison of either.
+    if (ui::VanillaRuntime::Enabled())
+      return;
     for (const ui::VanillaScreen& screen : VanillaScreens()) {
       if (screen.name == "startmenu") {
         ui::VanillaStartMenu::Availability availability;
@@ -1538,8 +1543,24 @@ struct GameUi::Impl {
     }
   }
 
-  // Loads each screen's movie and runs its code against the widgets the
-  // translation produced. Additive: nothing here replaces a driver yet.
+  // The message the game sends a menu when it opens it. Most screens fill
+  // themselves from their own onLoad; the start menu is the one that waits to
+  // be told what the build offers, and the arguments are positional (see
+  // StartMenu::setupMainMenu in the decompiled script beside the screen).
+  void OpenVanillaScreen(ui::VanillaRuntime& runtime, base::StringRef name) {
+    if (name != "startmenu")
+      return;
+    const bool has_save = false;  // no save browser wired to the vanilla frame yet
+    base::Vector<swf::AsValue> args;
+    for (int i = 0; i < 15; ++i)
+      args.push_back(swf::AsValue::Bool(false));
+    args[0] = swf::AsValue::Bool(true);       // quit is offered
+    args[1] = swf::AsValue::Bool(has_save);   // continue, and load is enabled
+    args[7] = swf::AsValue::Bool(true);       // mod manager
+    args[9] = swf::AsValue::Bool(true);       // no login screen is needed
+    runtime.Send(ui, "sendMenuProperties", args);
+  }
+
   void StartVanillaVms() {
     vanilla_vms.clear();
     if (!ui::VanillaRuntime::Enabled())
@@ -1547,8 +1568,11 @@ struct GameUi::Impl {
     const base::String dir = ui::VanillaScreenDir();
     for (const ui::VanillaScreen& screen : VanillaScreens()) {
       ui::VanillaRuntime runtime;
-      if (runtime.Load(ui, dir, screen.name, VanillaRootName(screen.name)))
-        vanilla_vms.push_back(base::move(runtime));
+      runtime.SetStrings(&vanilla_strings);
+      if (!runtime.Load(ui, dir, screen.name, VanillaRootName(screen.name)))
+        continue;
+      OpenVanillaScreen(runtime, screen.name);
+      vanilla_vms.push_back(base::move(runtime));
     }
   }
 

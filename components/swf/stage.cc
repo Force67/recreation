@@ -93,6 +93,18 @@ u32 Stage::StateIndexOf(const AsValue& clip) const {
   return static_cast<u32>(vm_.Get(clip.object()).host);
 }
 
+// Where a placed character sits and how big it is, in pixels. A menu lays
+// itself out from these: a scrolling list measures its border to decide how
+// many rows fit and reads each row's height to step down the column, so a clip
+// without them computes NaN and hides every row it was about to show.
+void Stage::PlaceGeometry(const AsValue& self, const Matrix& matrix, u16 character) {
+  const Rect bounds = Transform(matrix, CharacterBounds(movie_, character));
+  vm_.SetMember(self, "_x", AsValue::Number(ToPixels(matrix.translate_x)));
+  vm_.SetMember(self, "_y", AsValue::Number(ToPixels(matrix.translate_y)));
+  vm_.SetMember(self, "_width", AsValue::Number(ToPixels(bounds.width())));
+  vm_.SetMember(self, "_height", AsValue::Number(ToPixels(bounds.height())));
+}
+
 u32 Stage::BuildClip(const Timeline& timeline, u32 parent, base::StringRef name,
                      u16 character, u32 depth) {
   // The class the movie bound to this symbol, if it bound one. Its prototype
@@ -142,8 +154,14 @@ u32 Stage::BuildClip(const Timeline& timeline, u32 parent, base::StringRef name,
     unclassed_.push_back(base::Format("{} <- {}", name, *symbol));
   }
   // The constructor is where a class installs its own onLoad, so the event goes
-  // out after it rather than before.
-  Dispatch(self, "onLoad");
+  // out after it rather than before. During the first build it is queued
+  // instead: the player runs a frame's actions before it dispatches that
+  // frame's load events, and the root's actions are what install the helpers a
+  // menu's onLoad calls (TextField.prototype.SetText among them).
+  if (running_)
+    Dispatch(self, "onLoad");
+  else
+    pending_load_.push_back(clip);
   return clip;
 }
 
@@ -194,6 +212,7 @@ void Stage::ApplyFrame(u32 state_index, u32 frame, u32 depth) {
       if (depth >= kMaxDepth)
         continue;
       const u32 child = BuildClip(*sprite, object, name, place.character_id, depth + 1);
+      PlaceGeometry(AsValue::Obj(child), place.matrix, place.character_id);
       vm_.SetMember(self, name, AsValue::Obj(child));
       continue;
     }
@@ -209,6 +228,7 @@ void Stage::ApplyFrame(u32 state_index, u32 frame, u32 depth) {
       vm_.SetMember(field_value, "text", AsValue::Str(StripHtml(text->initial_text)));
       vm_.SetMember(field_value, "htmlText", AsValue::Str(text->initial_text));
       vm_.SetMember(field_value, "_parent", self);
+      PlaceGeometry(field_value, place.matrix, place.character_id);
       vm_.SetMember(self, name, field_value);
     }
   }
@@ -521,6 +541,13 @@ void Stage::Run() {
 
   for (u32 index : root_scripts)
     vm_.Run(index, root_);
+
+  // Children first: a page's onLoad fills the list inside it, which only works
+  // once that list's own onLoad has sized it.
+  running_ = true;
+  const base::Vector<u32> loading = base::move(pending_load_);
+  for (mem_size i = loading.size(); i > 0; --i)
+    Dispatch(AsValue::Obj(loading[i - 1]), "onLoad");
 }
 
 bool Stage::Dispatch(const AsValue& clip, base::StringRef handler,

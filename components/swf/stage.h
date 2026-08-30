@@ -113,6 +113,8 @@ class Stage {
                 u16 character, u32 depth);
   // Applies a frame's display list to a clip that already exists.
   void ApplyFrame(u32 state_index, u32 frame, u32 depth);
+  // Writes _x/_y/_width/_height from where the frame put the character.
+  void PlaceGeometry(const AsValue& self, const Matrix& matrix, u16 character);
   u32 StateIndexOf(const AsValue& clip) const;
   void InstallClipApi();
 
@@ -124,6 +126,10 @@ class Stage {
   u32 clip_count_ = 0;
   u32 classed_count_ = 0;
   u32 goto_count_ = 0;
+  // Clips built but not yet told they loaded, and whether the first build is
+  // over. See BuildClip for why the events wait.
+  base::Vector<u32> pending_load_;
+  bool running_ = false;
 };
 
 }  // namespace rx::swf

@@ -267,6 +267,80 @@ base::StringRef Movie::ExportName(u16 id) const {
   return name ? base::StringRef(*name) : base::StringRef();
 }
 
+namespace {
+
+// A sprite has no box of its own, so it is the union of what its frames place.
+// A movie can place a sprite inside itself through a chain of others, so the
+// recursion is capped rather than trusted.
+constexpr u32 kMaxBoundsDepth = 24;
+
+Rect Union(const Rect& a, const Rect& b, bool first) {
+  if (first)
+    return b;
+  Rect out = a;
+  out.x_min = out.x_min < b.x_min ? out.x_min : b.x_min;
+  out.y_min = out.y_min < b.y_min ? out.y_min : b.y_min;
+  out.x_max = out.x_max > b.x_max ? out.x_max : b.x_max;
+  out.y_max = out.y_max > b.y_max ? out.y_max : b.y_max;
+  return out;
+}
+
+Rect BoundsOf(const Movie& movie, u16 character_id, u32 depth) {
+  if (depth > kMaxBoundsDepth)
+    return Rect{};
+  if (const Shape* shape = movie.FindShape(character_id))
+    return shape->bounds;
+  if (const EditText* text = movie.FindEditText(character_id))
+    return text->bounds;
+  if (const StaticText* text = movie.FindStaticText(character_id))
+    return text->bounds;
+  if (const Bitmap* bitmap = movie.FindBitmap(character_id)) {
+    Rect r;
+    r.x_max = static_cast<i32>(bitmap->width * kTwipsPerPixel);
+    r.y_max = static_cast<i32>(bitmap->height * kTwipsPerPixel);
+    return r;
+  }
+  if (const ExternalImage* image = movie.FindExternalImage(character_id)) {
+    Rect r;
+    r.x_max = static_cast<i32>(image->width * kTwipsPerPixel);
+    r.y_max = static_cast<i32>(image->height * kTwipsPerPixel);
+    return r;
+  }
+  if (const Button* button = movie.FindButton(character_id)) {
+    Rect out;
+    bool first = true;
+    for (const ButtonRecord& record : button->records) {
+      if (!record.up)
+        continue;
+      out = Union(out, Transform(record.matrix, BoundsOf(movie, record.character_id, depth + 1)),
+                  first);
+      first = false;
+    }
+    return out;
+  }
+  if (const Timeline* sprite = movie.FindSprite(character_id)) {
+    Rect out;
+    bool first = true;
+    for (const Frame& frame : sprite->frames) {
+      for (const Place& place : frame.places) {
+        if (!place.has_character)
+          continue;
+        out = Union(out, Transform(place.matrix, BoundsOf(movie, place.character_id, depth + 1)),
+                    first);
+        first = false;
+      }
+    }
+    return out;
+  }
+  return Rect{};
+}
+
+}  // namespace
+
+Rect CharacterBounds(const Movie& movie, u16 character_id) {
+  return BoundsOf(movie, character_id, 0);
+}
+
 base::Optional<Movie> LoadMovie(const SwfFile& file, bool want_font_outlines) {
   Movie movie;
   movie.frame_size = file.frame_size;

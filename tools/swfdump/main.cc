@@ -186,6 +186,47 @@ void RunScripts(const swf::Movie& movie) {
   swf::GameBridge bridge(vm);
   swf::Stage stage(vm, movie);
   stage.Run();
+  // Every list the run left with entries in it. A shipped menu ships its lists
+  // empty, so this is the direct measure of how much of a screen the movie's
+  // own code managed to fill.
+  {
+    u32 filled = 0;
+    const u32 objects = vm.object_count();
+    for (u32 i = 1; i < objects; ++i) {
+      if (!vm.Valid(i) || !vm.Get(i).is_movie_clip)
+        continue;
+      const swf::AsValue clip = swf::AsValue::Obj(i);
+      const swf::AsValue entries = vm.GetMember(clip, "entryList");
+      if (!entries.is_object())
+        continue;
+      const int n = static_cast<int>(vm.ToNumber(vm.GetMember(entries, "length")));
+      if (n <= 0)
+        continue;
+      ++filled;
+      if (filled > 8)
+        continue;
+      std::printf("  list %s: %d entr%s\n",
+                  vm.ToString(vm.GetMember(clip, "_name")).c_str(), n, n == 1 ? "y" : "ies");
+      for (int e = 0; e < n && e < 10; ++e) {
+        const swf::AsValue entry = vm.GetMember(entries, base::Format("{}", e));
+        std::printf("    %s\n", vm.ToString(vm.GetMember(entry, "text")).c_str());
+      }
+      // What the list actually put on screen: its rows are timeline clips it
+      // fills and shows, so an entry list with no visible row is a list the
+      // player would see as empty.
+      for (int r = 0; r < 10; ++r) {
+        const swf::AsValue row = vm.GetMember(clip, base::Format("Entry{}", r));
+        if (!row.is_object())
+          break;
+        std::printf("    row %d: visible=%d item=%s text='%s'\n", r,
+                    vm.ToBool(vm.GetMember(row, "_visible")) ? 1 : 0,
+                    vm.ToString(vm.GetMember(row, "itemIndex")).c_str(),
+                    vm.ToString(vm.GetMember(vm.GetMember(row, "textField"), "text")).c_str());
+      }
+    }
+    std::printf("%u list(s) came out with entries\n", filled);
+  }
+
   // What there is to play: a menu keeps its states on labelled frames.
   u32 multiframe = 0;
   base::Vector<base::String> labels;

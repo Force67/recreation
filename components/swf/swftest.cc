@@ -710,6 +710,124 @@ int main() {
           "a stopped clip stays put");
   }
 
+  {
+    // A clip carries the box the frame gave it. The menus lay themselves out
+    // from these: a scrolling list divides its border's height by a row's to
+    // decide how many rows fit, so a clip without a size shows nothing.
+    swf::Movie movie;
+    swf::Shape plate;
+    plate.id = 1;
+    plate.bounds = swf::Rect{0, 2000, 0, 600};  // 100x30 px
+    movie.shapes.push_back(base::move(plate));
+    movie.characters[1] = swf::CharacterRef{swf::CharacterKind::kShape, 0};
+
+    swf::Timeline holder;
+    holder.id = 2;
+    swf::Frame inner;
+    swf::Place art;
+    art.depth = 1;
+    art.character_id = 1;
+    art.has_character = true;
+    art.name = "art";
+    inner.places.push_back(base::move(art));
+    holder.frames.push_back(base::move(inner));
+    movie.sprites.push_back(base::move(holder));
+    movie.characters[2] = swf::CharacterRef{swf::CharacterKind::kSprite, 0};
+
+    swf::Frame first;
+    swf::Place placed;
+    placed.depth = 1;
+    placed.character_id = 2;
+    placed.has_character = true;
+    placed.name = "border";
+    placed.matrix.translate_x = 400;  // 20 px
+    placed.matrix.translate_y = 200;  // 10 px
+    first.places.push_back(base::move(placed));
+    movie.root.frames.push_back(base::move(first));
+
+    swf::Vm vm;
+    swf::Stage stage(vm, movie);
+    stage.Run();
+    const swf::AsValue border = vm.GetMember(stage.root(), "border");
+    Check(vm.ToNumber(vm.GetMember(border, "_x")) == 20 &&
+              vm.ToNumber(vm.GetMember(border, "_y")) == 10,
+          "a clip sits where its matrix put it, in pixels");
+    Check(vm.ToNumber(vm.GetMember(border, "_width")) == 100 &&
+              vm.ToNumber(vm.GetMember(border, "_height")) == 30,
+          "a sprite is as big as what it places");
+  }
+
+  {
+    // Load events wait for the frame's own actions. A menu's onLoad calls the
+    // helpers the root script installs (TextField.prototype.SetText is the one
+    // that matters: it is how every list writes a row's label), so dispatching
+    // during the build instead left every list filled with its placeholders.
+    base::Vector<rx::u8> body;  // trace("loaded")
+    body.push_back(0x96);
+    body.push_back(static_cast<rx::u8>(std::strlen("loaded") + 2));
+    body.push_back(0);
+    body.push_back(0);
+    for (const char* c = "loaded"; *c; ++c)
+      body.push_back(static_cast<rx::u8>(*c));
+    body.push_back(0);
+    body.push_back(0x26);  // Trace
+
+    base::Vector<rx::u8> code;
+    auto literal = [&code](const char* text) {
+      code.push_back(0x96);
+      const rx::u16 len = static_cast<rx::u16>(std::strlen(text) + 2);
+      code.push_back(static_cast<rx::u8>(len & 0xff));
+      code.push_back(static_cast<rx::u8>(len >> 8));
+      code.push_back(0);
+      for (const char* c = text; *c; ++c)
+        code.push_back(static_cast<rx::u8>(*c));
+      code.push_back(0);
+    };
+    literal("MovieClip");
+    code.push_back(0x1c);  // GetVariable
+    literal("prototype");
+    code.push_back(0x4e);  // GetMember
+    literal("onLoad");
+    // DefineFunction "" with no parameters, body appended after the action.
+    code.push_back(0x9b);
+    const rx::u16 payload = 1 + 2 + 2;
+    code.push_back(static_cast<rx::u8>(payload & 0xff));
+    code.push_back(static_cast<rx::u8>(payload >> 8));
+    code.push_back(0);  // empty name: the function is pushed, not declared
+    code.push_back(0);  // parameter count
+    code.push_back(0);
+    code.push_back(static_cast<rx::u8>(body.size() & 0xff));
+    code.push_back(static_cast<rx::u8>(body.size() >> 8));
+    for (rx::u8 byte : body)
+      code.push_back(byte);
+    code.push_back(0x4f);  // SetMember
+    code.push_back(0x00);  // End
+
+    swf::Movie movie;
+    movie.sprites.push_back(swf::Timeline{});
+    movie.sprites[0].id = 1;
+    movie.sprites[0].frames.push_back(swf::Frame{});
+    movie.characters[1] = swf::CharacterRef{swf::CharacterKind::kSprite, 0};
+    swf::Frame frame;
+    swf::Place place;
+    place.depth = 1;
+    place.character_id = 1;
+    place.has_character = true;
+    place.name = "child";
+    frame.places.push_back(base::move(place));
+    movie.root.frames.push_back(base::move(frame));
+    swf::Script script;
+    script.kind = swf::Script::Kind::kFrame;
+    script.code = ByteSpan{code.data(), code.size()};
+    movie.scripts.push_back(base::move(script));
+
+    swf::Vm vm;
+    swf::Stage stage(vm, movie);
+    stage.Run();
+    Check(vm.traces().size() == 2,
+          "onLoad reaches every clip, after the root's own actions ran");
+  }
+
 
   {
     // addProperty backs a name with functions instead of a slot. The shipped

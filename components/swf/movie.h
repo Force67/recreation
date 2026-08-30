@@ -158,6 +158,16 @@ struct Movie {
   base::StringRef ExportName(u16 id) const;
 };
 
+// What a character covers, in twips, within one movie's own dictionary: a
+// shape's or text field's authored box, a bitmap's pixel size, a button's up
+// state, and for a sprite the union of what its frames place. This is what a
+// clip's `_width` and `_height` report, and the menus compute layout from them.
+//
+// The ugui exporter has its own copy of this that also follows ImportAssets2
+// placeholders into other movies and caches sprite unions across a whole
+// translation; this is the single-movie form the interpreter needs.
+Rect CharacterBounds(const Movie& movie, u16 character_id);
+
 // Decodes every tag in `file` into the dictionary and timelines. Tags the
 // menus never use (sound, video, morph shapes) are skipped, not failed on, so
 // an unexpected movie still yields everything else. `want_font_outlines` also

@@ -1,11 +1,13 @@
 #ifndef RECREATION_RUNTIME_UI_VANILLA_RUNTIME_H_
 #define RECREATION_RUNTIME_UI_VANILLA_RUNTIME_H_
 
+#include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
 #include <base/memory/unique_pointer.h>
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
 
+#include "components/swf/vm.h"
 #include "core/types.h"
 
 namespace ugui {
@@ -40,6 +42,11 @@ class VanillaRuntime {
   // Whether the host asked for this at all.
   static bool Enabled();
 
+  // The interface's "$KEY" table (see LoadVanillaStrings). A menu writes the
+  // keys, not the words: Scaleform resolved them on the way to the screen and
+  // so does this. Must outlive the runtime; nothing is resolved without it.
+  void SetStrings(const base::UnorderedMap<base::String, base::String>* strings);
+
   // Loads <dir>/<screen>.swf, runs its library code, builds its display list
   // and binds it to the widgets under `root`. False when the movie is missing
   // or carries no script worth running.
@@ -54,6 +61,15 @@ class VanillaRuntime {
   // Returns whether the movie's own code handled it.
   bool Click(ugui::UIContext& ui, u32 widget);
 
+  // Sends the host's side of the conversation, e.g. "sendMenuProperties" with
+  // what this build offers. False when the movie is not listening for `name`.
+  // See components/swf/bridge.h for which direction is which.
+  bool Send(ugui::UIContext& ui, base::StringRef name,
+            const base::Vector<swf::AsValue>& args);
+
+  // What the movie asked the host for and nothing answered. Drains the queue.
+  base::Vector<base::String> TakePending();
+
   bool loaded() const;
   // How many clips found a widget, for the log line that says whether the two
   // trees actually lined up.
@@ -63,6 +79,7 @@ class VanillaRuntime {
  private:
   struct Impl;
   base::UniquePointer<Impl> impl_;
+  const base::UnorderedMap<base::String, base::String>* strings_ = nullptr;
 };
 
 }  // namespace rx::ui

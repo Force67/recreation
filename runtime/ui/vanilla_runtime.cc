@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 
+#include "components/swf/bridge.h"
 #include "components/swf/movie.h"
 #include "components/swf/stage.h"
 #include "components/swf/swf.h"
@@ -88,6 +89,7 @@ struct VanillaRuntime::Impl {
   swf::SwfFile file;
   swf::Movie movie;
   swf::Vm vm;
+  base::UniquePointer<swf::GameBridge> bridge;
   base::UniquePointer<swf::Stage> stage;
 
   struct Bound {
@@ -96,7 +98,19 @@ struct VanillaRuntime::Impl {
     bool is_text = false;
   };
   base::Vector<Bound> bound;
+  const base::UnorderedMap<base::String, base::String>* strings = nullptr;
+  ugui::wid root;
   bool ready = false;
+  // What the tree looked like when `bound` was built. A menu attaches clips as
+  // it runs (a list makes its own rows), so the binding has to be redone when
+  // the count moves rather than only at load.
+  u32 bound_clips = 0;
+
+  void Rebind(ugui::UIContext& ui) {
+    bound.clear();
+    Bind(ui, stage->root(), root, 0);
+    bound_clips = stage->clip_count();
+  }
 
   // Walks the two trees together. They come from the same movie, so a clip's
   // instance name is the widget's name at the same place in the hierarchy.
@@ -127,6 +141,16 @@ struct VanillaRuntime::Impl {
       if (child_widget.valid())
         Bind(ui, child, child_widget, depth + 1);
     }
+  }
+
+  // "$KEY" resolved against the interface's own table, the way Scaleform's
+  // translation layer did on the way to the screen. Left as-is when the table
+  // has no such key, which is what the game shows too.
+  base::String Localise(const base::String& text) const {
+    if (strings == nullptr || text.empty() || text[0] != '$')
+      return text;
+    const base::String* found = strings->find(text);
+    return found ? *found : text;
   }
 
   // Copies what the script changed onto the widgets. Done once a frame rather
@@ -167,7 +191,7 @@ struct VanillaRuntime::Impl {
       if (entry.is_text) {
         const swf::AsValue text = vm.GetMember(clip, "text");
         if (!text.is_undefined())
-          ugui::SetText(entry.widget, vm.ToString(text).c_str());
+          ugui::SetText(entry.widget, Localise(vm.ToString(text)).c_str());
       }
     }
   }
@@ -180,6 +204,13 @@ VanillaRuntime& VanillaRuntime::operator=(VanillaRuntime&&) noexcept = default;
 
 bool VanillaRuntime::Enabled() {
   return bool(VanillaVm);
+}
+
+void VanillaRuntime::SetStrings(
+    const base::UnorderedMap<base::String, base::String>* strings) {
+  strings_ = strings;
+  if (impl_)
+    impl_->strings = strings;
 }
 
 bool VanillaRuntime::loaded() const {
@@ -195,6 +226,7 @@ u32 VanillaRuntime::clip_count() const {
 bool VanillaRuntime::Load(ugui::UIContext& ui, base::StringRef dir, base::StringRef screen,
                           base::StringRef root) {
   impl_ = base::MakeUnique<Impl>();
+  impl_->strings = strings_;
   const fs::path path =
       fs::path(base::String(dir).c_str()) / (base::String(screen) + ".swf").c_str();
   impl_->bytes = ReadFile(path);
@@ -217,8 +249,13 @@ bool VanillaRuntime::Load(ugui::UIContext& ui, base::StringRef dir, base::String
   }
   impl_->movie = base::move(movie.value());
 
+  impl_->bridge = base::MakeUnique<swf::GameBridge>(impl_->vm);
   impl_->stage = base::MakeUnique<swf::Stage>(impl_->vm, impl_->movie);
   impl_->stage->Run();
+  // What the game does once a menu's code object is up. Most of a menu's
+  // callbacks are registered in there, so without it the screen is listening
+  // for almost nothing the host might send.
+  impl_->bridge->Open();
 
   const ugui::wid root_widget = ui.FindWidget(base::String(root).c_str());
   if (!root_widget.valid()) {
@@ -226,18 +263,43 @@ bool VanillaRuntime::Load(ugui::UIContext& ui, base::StringRef dir, base::String
     impl_.Reset();
     return false;
   }
-  impl_->Bind(ui, impl_->stage->root(), root_widget, 0);
+  impl_->root = root_widget;
+  impl_->Rebind(ui);
   impl_->Sync(ui);
   impl_->ready = true;
-  RX_INFO("vanilla vm: {} ran {} clip(s), {} bound to widgets", screen,
-          impl_->stage->clip_count(), impl_->bound.size());
+  RX_INFO("vanilla vm: {} ran {} clip(s), {} bound to widgets, listening for {}",
+          screen, impl_->stage->clip_count(), impl_->bound.size(),
+          impl_->bridge->Callbacks().size());
   return true;
+}
+
+bool VanillaRuntime::Send(ugui::UIContext& ui, base::StringRef name,
+                          const base::Vector<swf::AsValue>& args) {
+  if (!impl_ || !impl_->ready)
+    return false;
+  if (!impl_->bridge->Invoke(name, args))
+    return false;
+  impl_->Rebind(ui);
+  impl_->Sync(ui);
+  return true;
+}
+
+base::Vector<base::String> VanillaRuntime::TakePending() {
+  base::Vector<base::String> out;
+  if (!impl_ || !impl_->ready)
+    return out;
+  for (const swf::GameBridge::Call& call : impl_->bridge->pending())
+    out.push_back(call.name);
+  impl_->bridge->ClearPending();
+  return out;
 }
 
 void VanillaRuntime::Tick(ugui::UIContext& ui, f32 delta_seconds) {
   if (!impl_ || !impl_->ready)
     return;
   impl_->stage->Tick(static_cast<f64>(delta_seconds) * 1000.0);
+  if (impl_->stage->clip_count() != impl_->bound_clips)
+    impl_->Rebind(ui);
   impl_->Sync(ui);
 }
 
@@ -250,8 +312,11 @@ bool VanillaRuntime::Click(ugui::UIContext& ui, u32 widget) {
     const swf::AsValue clip = swf::AsValue::Obj(entry.clip);
     bool handled = impl_->stage->Dispatch(clip, "onPress");
     handled = impl_->stage->Dispatch(clip, "onRelease") || handled;
-    if (handled)
+    if (handled) {
+      if (impl_->stage->clip_count() != impl_->bound_clips)
+        impl_->Rebind(ui);
       impl_->Sync(ui);
+    }
     return handled;
   }
   return false;
@@ -271,6 +336,10 @@ VanillaRuntime& VanillaRuntime::operator=(VanillaRuntime&&) noexcept = default;
 bool VanillaRuntime::Enabled() {
   return false;
 }
+void VanillaRuntime::SetStrings(
+    const base::UnorderedMap<base::String, base::String>* strings) {
+  strings_ = strings;
+}
 bool VanillaRuntime::loaded() const {
   return false;
 }
@@ -287,6 +356,13 @@ bool VanillaRuntime::Load(ugui::UIContext&, base::StringRef, base::StringRef,
 void VanillaRuntime::Tick(ugui::UIContext&, f32) {}
 bool VanillaRuntime::Click(ugui::UIContext&, u32) {
   return false;
+}
+bool VanillaRuntime::Send(ugui::UIContext&, base::StringRef,
+                          const base::Vector<swf::AsValue>&) {
+  return false;
+}
+base::Vector<base::String> VanillaRuntime::TakePending() {
+  return base::Vector<base::String>();
 }
 
 }  // namespace rx::ui
