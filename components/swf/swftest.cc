@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "components/swf/abc.h"
+#include "components/swf/bridge.h"
 #include "components/swf/stage.h"
 #include "components/swf/vm.h"
 #include "components/swf/movie.h"
@@ -530,6 +531,106 @@ int main() {
           "CallMethod with no method name calls the target itself");
   }
 
+  {
+    // InitArray takes its elements off the stack the same way a call takes its
+    // arguments: element 0 on top. Reversing it silently swapped every pair the
+    // scripts build, which is how GameDelegate's [scope, method] came back as
+    // [method, scope] and no callback the game sent ever reached its handler.
+    swf::Vm vm;
+    base::Vector<rx::u8> prog;
+    auto emit_str = [&prog](const char* literal) {
+      prog.push_back(0x96);
+      const rx::u16 len = static_cast<rx::u16>(std::strlen(literal) + 2);
+      prog.push_back(static_cast<rx::u8>(len & 0xff));
+      prog.push_back(static_cast<rx::u8>(len >> 8));
+      prog.push_back(0);
+      for (const char* c = literal; *c; ++c)
+        prog.push_back(static_cast<rx::u8>(*c));
+      prog.push_back(0);
+    };
+    auto emit_int = [&prog](rx::i32 value) {
+      prog.push_back(0x96);
+      prog.push_back(5);
+      prog.push_back(0);
+      prog.push_back(7);
+      for (int i = 0; i < 4; ++i)
+        prog.push_back(static_cast<rx::u8>((static_cast<rx::u32>(value) >> (i * 8)) & 0xff));
+    };
+    // CallMethod pops the method name, then the target, then the argument
+    // count, so they go on in the opposite order.
+    emit_int(0);  // join takes no arguments
+    emit_str("second");
+    emit_str("first");
+    emit_int(2);
+    prog.push_back(0x42);  // InitArray -> ["first", "second"]
+    emit_str("join");
+    prog.push_back(0x52);  // CallMethod
+    prog.push_back(0x26);  // Trace
+    prog.push_back(0x00);
+    const rx::u32 script = vm.AddScript(ByteSpan{prog.data(), prog.size()});
+    vm.Run(script, swf::AsValue::Undefined());
+    Check(vm.traces().size() == 1 && vm.traces()[0] == "first,second",
+          "InitArray keeps the elements in source order");
+  }
+
+  {
+    // splice on an array whose length was never set. The components do exactly
+    // this (BSScrollingList::ClearList splices its entry array before anything
+    // has filled it), and reading that undefined length as an index used to be
+    // undefined behaviour that left the array's length NaN.
+    swf::Vm vm;
+    const swf::AsValue list = swf::AsValue::Obj(vm.NewArray());
+    vm.Get(list.object()).props.erase(base::String("length"));
+    base::Vector<swf::AsValue> args;
+    args.push_back(swf::AsValue::Number(0));
+    args.push_back(vm.GetMember(list, "length"));
+    vm.Call(vm.GetMember(list, "splice"), list, args);
+    Check(vm.ToNumber(vm.GetMember(list, "length")) == 0,
+          "splicing an array with no length leaves it empty, not NaN");
+
+    base::Vector<swf::AsValue> one;
+    one.push_back(swf::AsValue::Str("a"));
+    vm.Call(vm.GetMember(list, "push"), list, one);
+    one[0] = swf::AsValue::Str("b");
+    vm.Call(vm.GetMember(list, "push"), list, one);
+    one[0] = swf::AsValue::Str("c");
+    vm.Call(vm.GetMember(list, "push"), list, one);
+    base::Vector<swf::AsValue> cut;
+    cut.push_back(swf::AsValue::Number(1));
+    cut.push_back(swf::AsValue::Number(1));
+    const swf::AsValue removed = vm.Call(vm.GetMember(list, "splice"), list, cut);
+    Check(vm.ToString(vm.GetMember(removed, "0")) == "b", "splice returns what it removed");
+    Check(vm.ToNumber(vm.GetMember(list, "length")) == 2 &&
+              vm.ToString(vm.GetMember(list, "1")) == "c",
+          "splice closes the gap it left");
+    base::Vector<swf::AsValue> from;
+    from.push_back(swf::AsValue::Number(1));
+    const swf::AsValue tail = vm.Call(vm.GetMember(list, "slice"), list, from);
+    Check(vm.ToNumber(vm.GetMember(tail, "length")) == 1 &&
+              vm.ToString(vm.GetMember(tail, "0")) == "c",
+          "slice copies the run it was asked for");
+  }
+
+  {
+    // The host bridge. A call the host has no answer for queues up with the
+    // response id the movie sent, which is what a host needs in order to answer
+    // it later; one with an answer is settled on the spot.
+    swf::Vm vm;
+    swf::GameBridge bridge(vm);
+    base::Vector<swf::AsValue> args;
+    args.push_back(swf::AsValue::Number(7));  // the response id GameDelegate made
+    args.push_back(swf::AsValue::Str("payload"));
+    vm.DispatchExternal("RequestSaveList", args);
+    Check(bridge.pending().size() == 1, "an unanswered call is queued for the host");
+    Check(bridge.pending().size() == 1 && bridge.pending()[0].name == "RequestSaveList" &&
+              bridge.pending()[0].id == 7 && bridge.pending()[0].args.size() == 1,
+          "the queued call keeps its id and drops the id from the arguments");
+
+    bridge.SetAnswer("GetPlatform", swf::AsValue::Number(0));
+    bridge.ClearPending();
+    vm.DispatchExternal("GetPlatform", args);
+    Check(bridge.pending().empty(), "a call with a standing answer does not queue");
+  }
 
   {
     // The timeline is what resolves a menu's states: each state lives on its

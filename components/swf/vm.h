@@ -131,6 +131,9 @@ class Vm {
   AsObject& Get(u32 index) { return objects_[index]; }
   const AsObject& Get(u32 index) const { return objects_[index]; }
   bool Valid(u32 index) const { return index != 0 && index < objects_.size(); }
+  // One past the highest live index, for the passes that have to look at every
+  // object the run produced (finding the clips a host has to drive).
+  u32 object_count() const { return static_cast<u32>(objects_.size()); }
 
   // Property access that walks the prototype chain.
   AsValue GetMember(const AsValue& target, base::StringRef name);

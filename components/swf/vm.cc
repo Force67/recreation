@@ -1,6 +1,7 @@
 #include "components/swf/vm.h"
 
 #include <base/algorithm.h>
+#include <base/containers/pair.h>
 #include <base/memory/move.h>
 #include <base/strings/format.h>
 
@@ -634,8 +635,9 @@ void Vm::Execute(u32 script_index, u32 first, u32 count, Frame& frame) {
       case op::kInitArray: {
         const u32 n = static_cast<u32>(ToNumber(frame.Pop()));
         const u32 array = NewArray();
+        // Element 0 is on top, the same way a call's arguments are pushed.
         for (u32 e = 0; e < n; ++e)
-          SetMember(AsValue::Obj(array), base::Format("{}", n - 1 - e), frame.Pop());
+          SetMember(AsValue::Obj(array), base::Format("{}", e), frame.Pop());
         SetMember(AsValue::Obj(array), "length", AsValue::Number(n));
         frame.Push(AsValue::Obj(array));
         break;
@@ -1172,6 +1174,23 @@ AsValue NativeTrace(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) {
   return AsValue::Undefined();
 }
 
+// An array's length as an index bound. A script reaches these methods with
+// `length` still unset often enough to matter (`ClearList` splices an array the
+// component never initialised), and casting that NaN straight to i64 is
+// undefined, so it has to be pinned here rather than at each use.
+i64 ArrayLength(Vm& vm, const AsValue& self) {
+  const f64 n = vm.ToNumber(vm.GetMember(self, "length"));
+  if (std::isnan(n) || n <= 0)
+    return 0;
+  return static_cast<i64>(n);
+}
+
+// A count argument, with the same NaN pin.
+i64 ArrayIndexArg(Vm& vm, const AsValue& value, i64 fallback) {
+  const f64 n = vm.ToNumber(value);
+  return std::isnan(n) ? fallback : static_cast<i64>(n);
+}
+
 AsValue ArrayPush(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
   const AsValue length = vm.GetMember(self, "length");
   f64 n = vm.ToNumber(length);
@@ -1197,7 +1216,7 @@ AsValue ArrayPop(Vm& vm, const AsValue& self, const base::Vector<AsValue>&) {
 
 AsValue ArrayJoin(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
   const base::String sep = args.empty() ? base::String(",") : vm.ToString(args[0]);
-  const i64 n = static_cast<i64>(vm.ToNumber(vm.GetMember(self, "length")));
+  const i64 n = ArrayLength(vm, self);
   base::String out;
   for (i64 i = 0; i < n; ++i) {
     if (i)
@@ -1296,7 +1315,7 @@ AsValue FunctionApply(Vm& vm, const AsValue& self, const base::Vector<AsValue>& 
   const AsValue this_arg = args.size() > 0 ? args[0] : AsValue::Undefined();
   base::Vector<AsValue> call_args;
   if (args.size() > 1 && args[1].is_object()) {
-    const i64 n = static_cast<i64>(vm.ToNumber(vm.GetMember(args[1], "length")));
+    const i64 n = ArrayLength(vm, args[1]);
     for (i64 i = 0; i < n; ++i)
       call_args.push_back(vm.GetMember(args[1], base::Format("{}", i)));
   }
@@ -1312,7 +1331,7 @@ AsValue FunctionCall(Vm& vm, const AsValue& self, const base::Vector<AsValue>& a
 }
 
 AsValue ArrayUnshift(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
-  const i64 n = static_cast<i64>(vm.ToNumber(vm.GetMember(self, "length")));
+  const i64 n = ArrayLength(vm, self);
   const i64 shift = static_cast<i64>(args.size());
   for (i64 i = n - 1; i >= 0; --i)
     vm.SetMember(self, base::Format("{}", i + shift),
@@ -1321,6 +1340,158 @@ AsValue ArrayUnshift(Vm& vm, const AsValue& self, const base::Vector<AsValue>& a
     vm.SetMember(self, base::Format("{}", i), args[i]);
   vm.SetMember(self, "length", AsValue::Number(static_cast<f64>(n + shift)));
   return AsValue::Number(static_cast<f64>(n + shift));
+}
+
+// A start/end pair the way the language resolves them: negative counts from the
+// end, out of range clamps, an absent end means "to the end".
+base::Pair<i64, i64> SliceRange(Vm& vm, const base::Vector<AsValue>& args, i64 n) {
+  auto clamp = [n](i64 i) {
+    if (i < 0)
+      i += n;
+    return i < 0 ? 0 : (i > n ? n : i);
+  };
+  const i64 first = args.empty() ? 0 : clamp(ArrayIndexArg(vm, args[0], 0));
+  const i64 last =
+      args.size() > 1 && !args[1].is_undefined() ? clamp(ArrayIndexArg(vm, args[1], n)) : n;
+  return base::Pair<i64, i64>{first, last > first ? last : first};
+}
+
+// Copies a run of elements into a fresh array. GameDelegate dispatches through
+// this: `receiveCall` forwards `arguments.slice(1)` to the movie's own handler.
+AsValue ArraySlice(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  const i64 n = ArrayLength(vm, self);
+  const base::Pair<i64, i64> range = SliceRange(vm, args, n);
+  const AsValue out = AsValue::Obj(vm.NewArray());
+  i64 written = 0;
+  for (i64 i = range.first; i < range.second; ++i)
+    vm.SetMember(out, base::Format("{}", written++), vm.GetMember(self, base::Format("{}", i)));
+  vm.SetMember(out, "length", AsValue::Number(static_cast<f64>(written)));
+  return out;
+}
+
+// splice(start, count, ...inserted): removes a run and puts one in its place,
+// returning what came out. The lists use it to keep their entry arrays in sync
+// with what the game sent.
+AsValue ArraySplice(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  const i64 n = ArrayLength(vm, self);
+  i64 start = args.empty() ? 0 : ArrayIndexArg(vm, args[0], 0);
+  if (start < 0)
+    start += n;
+  start = start < 0 ? 0 : (start > n ? n : start);
+  i64 remove = args.size() > 1 ? ArrayIndexArg(vm, args[1], n - start) : n - start;
+  remove = remove < 0 ? 0 : (remove > n - start ? n - start : remove);
+
+  const AsValue out = AsValue::Obj(vm.NewArray());
+  for (i64 i = 0; i < remove; ++i)
+    vm.SetMember(out, base::Format("{}", i), vm.GetMember(self, base::Format("{}", start + i)));
+  vm.SetMember(out, "length", AsValue::Number(static_cast<f64>(remove)));
+
+  base::Vector<AsValue> tail;
+  for (mem_size i = 2; i < args.size(); ++i)
+    tail.push_back(args[i]);
+  for (i64 i = start + remove; i < n; ++i)
+    tail.push_back(vm.GetMember(self, base::Format("{}", i)));
+  for (mem_size i = 0; i < tail.size(); ++i)
+    vm.SetMember(self, base::Format("{}", start + static_cast<i64>(i)), tail[i]);
+
+  const i64 length = start + static_cast<i64>(tail.size());
+  if (self.is_object() && vm.Valid(self.object()))
+    for (i64 i = length; i < n; ++i)
+      vm.Get(self.object()).props.erase(base::Format("{}", i));
+  vm.SetMember(self, "length", AsValue::Number(static_cast<f64>(length)));
+  return out;
+}
+
+AsValue ArrayShift(Vm& vm, const AsValue& self, const base::Vector<AsValue>&) {
+  base::Vector<AsValue> args;
+  args.push_back(AsValue::Number(0));
+  args.push_back(AsValue::Number(1));
+  const AsValue removed = ArraySplice(vm, self, args);
+  return vm.GetMember(removed, "0");
+}
+
+AsValue ArrayConcat(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  const AsValue out = AsValue::Obj(vm.NewArray());
+  i64 written = 0;
+  auto append = [&](const AsValue& value) {
+    const bool spread = value.is_object() && vm.Valid(value.object()) &&
+                        vm.Get(value.object()).is_array;
+    if (!spread) {
+      vm.SetMember(out, base::Format("{}", written++), value);
+      return;
+    }
+    const i64 n = ArrayLength(vm, value);
+    for (i64 i = 0; i < n; ++i)
+      vm.SetMember(out, base::Format("{}", written++),
+                   vm.GetMember(value, base::Format("{}", i)));
+  };
+  append(self);
+  for (const AsValue& arg : args)
+    append(arg);
+  vm.SetMember(out, "length", AsValue::Number(static_cast<f64>(written)));
+  return out;
+}
+
+AsValue ArrayIndexOf(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  if (args.empty())
+    return AsValue::Number(-1);
+  const i64 n = ArrayLength(vm, self);
+  for (i64 i = 0; i < n; ++i) {
+    const AsValue element = vm.GetMember(self, base::Format("{}", i));
+    if (element.type() != args[0].type())
+      continue;
+    switch (element.type()) {
+      case AsValue::Type::kObject:
+        if (element.object() == args[0].object())
+          return AsValue::Number(static_cast<f64>(i));
+        break;
+      case AsValue::Type::kString:
+        if (element.string() == args[0].string())
+          return AsValue::Number(static_cast<f64>(i));
+        break;
+      case AsValue::Type::kNumber:
+        if (element.raw_number() == args[0].raw_number())
+          return AsValue::Number(static_cast<f64>(i));
+        break;
+      case AsValue::Type::kBool:
+        if (element.raw_bool() == args[0].raw_bool())
+          return AsValue::Number(static_cast<f64>(i));
+        break;
+      default:
+        return AsValue::Number(static_cast<f64>(i));
+    }
+  }
+  return AsValue::Number(-1);
+}
+
+// sort(comparator?). Insertion sort: the arrays here are menu-sized, and it
+// keeps the comparator calls in the order the script would see them.
+AsValue ArraySort(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  const i64 n = ArrayLength(vm, self);
+  const AsValue comparator = args.empty() ? AsValue::Undefined() : args[0];
+  const bool custom = comparator.is_object() && vm.Valid(comparator.object()) &&
+                      vm.Get(comparator.object()).is_function;
+  for (i64 i = 1; i < n; ++i) {
+    const AsValue value = vm.GetMember(self, base::Format("{}", i));
+    i64 j = i - 1;
+    for (; j >= 0; --j) {
+      const AsValue other = vm.GetMember(self, base::Format("{}", j));
+      f64 order = 0;
+      if (custom) {
+        base::Vector<AsValue> pair;
+        pair.push_back(other);
+        pair.push_back(value);
+        order = vm.ToNumber(vm.Call(comparator, AsValue::Undefined(), pair));
+      } else {
+        order = vm.ToString(other) > vm.ToString(value) ? 1 : -1;
+      }
+      if (order <= 0)
+        break;
+      vm.SetMember(self, base::Format("{}", j + 1), other);
+    }
+    vm.SetMember(self, base::Format("{}", j + 1), value);
+  }
+  return self;
 }
 
 // flash.external.ExternalInterface.call(name, ...): the one door a Scaleform
@@ -1507,6 +1678,12 @@ void Vm::InstallStandardLibrary() {
   SetMember(g, "Function", AsValue::Obj(function_ctor));
 
   SetMember(AsValue::Obj(array_proto), "unshift", AsValue::Obj(NewNative(ArrayUnshift)));
+  SetMember(AsValue::Obj(array_proto), "slice", AsValue::Obj(NewNative(ArraySlice)));
+  SetMember(AsValue::Obj(array_proto), "splice", AsValue::Obj(NewNative(ArraySplice)));
+  SetMember(AsValue::Obj(array_proto), "shift", AsValue::Obj(NewNative(ArrayShift)));
+  SetMember(AsValue::Obj(array_proto), "concat", AsValue::Obj(NewNative(ArrayConcat)));
+  SetMember(AsValue::Obj(array_proto), "indexOf", AsValue::Obj(NewNative(ArrayIndexOf)));
+  SetMember(AsValue::Obj(array_proto), "sort", AsValue::Obj(NewNative(ArraySort)));
 
   // flash.external.ExternalInterface, the host bridge.
   const u32 external = NewObject(object_proto);

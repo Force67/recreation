@@ -3,6 +3,7 @@ recreation_add_module(swf
   swf.cc
   vm.cc
   stage.cc
+  bridge.cc
   shape.cc
   bitmap.cc
   text.cc

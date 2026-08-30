@@ -15,6 +15,7 @@
 #include "components/bethesda/archive.h"
 #include "components/bethesda/strings.h"
 #include "components/swf/abc.h"
+#include "components/swf/bridge.h"
 #include "components/swf/stage.h"
 #include "components/swf/vm.h"
 #include "components/swf/decompile.h"
@@ -182,6 +183,7 @@ void RunScripts(const swf::Movie& movie) {
   std::printf("scripts: %u init, %u frame\n", inits, frames);
 
   swf::Vm vm;
+  swf::GameBridge bridge(vm);
   swf::Stage stage(vm, movie);
   stage.Run();
   // What there is to play: a menu keeps its states on labelled frames.
@@ -261,8 +263,17 @@ void RunScripts(const swf::Movie& movie) {
       std::printf("  _global.%s\n", name.c_str());
   }
   std::printf("%u function(s)/class(es) defined on _global\n", classes);
-  // The end-to-end check: a menu's contents are produced by its own code, so
-  // find the clip that carries the setup the game calls on open, call it the
+  std::printf("%u clip(s) took InitExtensions\n", bridge.Open());
+  const base::Vector<base::String> callbacks = bridge.Callbacks();
+  if (!callbacks.empty()) {
+    std::printf("%zu callback(s) the movie is listening for:\n",
+                static_cast<size_t>(callbacks.size()));
+    for (mem_size i = 0; i < callbacks.size() && i < 12; ++i)
+      std::printf("  %s\n", callbacks[i].c_str());
+  }
+
+  // The end-to-end check: a menu's contents are produced by its own code when
+  // the game sends it something. Send the message the game sends on open, the
   // same way, and print what came out.
   for (u32 i = 1; i < 200000; ++i) {
     if (!vm.Valid(i) || !vm.Get(i).is_movie_clip)
@@ -271,14 +282,15 @@ void RunScripts(const swf::Movie& movie) {
     const swf::AsValue setup = vm.GetMember(clip, "setupMainMenu");
     if (!setup.is_object() || !vm.Valid(setup.object()) || !vm.Get(setup.object()).is_function)
       continue;
-    // StartMenu::setupMainMenu(platform, hasSave, ... ) - the booleans the game
-    // passes for what the build offers. No save, so no CONTINUE.
+    // sendMenuProperties(platform, hasSave, ...): the booleans the game passes
+    // for what the build offers. No save, so no CONTINUE.
     base::Vector<swf::AsValue> args;
     args.push_back(swf::AsValue::Number(0));   // platform: PC
     args.push_back(swf::AsValue::Bool(false)); // has a save
     for (int a = 0; a < 12; ++a)
       args.push_back(swf::AsValue::Bool(a == 6 || a == 10));  // creations, quit
-    vm.Call(setup, clip, args);
+    if (!bridge.Invoke("sendMenuProperties", args))
+      vm.Call(setup, clip, args);
 
     const swf::AsValue list = vm.GetMember(clip, "MainList");
     // The property form, which is what the scripts actually write. It only
