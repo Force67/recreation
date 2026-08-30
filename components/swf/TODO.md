@@ -19,16 +19,18 @@ movie the way the game does, ticks it, and reports what the player would see.
 
 The Skyrim menus are drawn entirely by their own bytecode (`RX_VANILLA_VM=0`
 turns the interpreter off and leaves the screens as the translation drew them),
-in
-the layout the designer authored: a centred list with the selection large and
+in the layout the designer authored: a centred list with the selection large and
 bright and the rows falling away from it. The pause menu builds QUICKSAVE / SAVE
 / LOAD / INSTALLED CONTENT / SETTINGS / CONTROLS / HELP / QUIT and a bottom bar
 reading `LEVEL 0` and `12:00am, 17th of Last Seed, 4E 201` from the world clock;
 the start menu builds NEW / LOAD / CREATIONS / CREDITS / QUIT. Navigation goes
 in through the components' own `handleInput`, so one host path drives every
 screen's selection, activating a row opens the sub-panel the movie opens, and
-what a row means reaches the host as the call the movie makes for it. The
-hand-written Skyrim drivers are gone.
+what a row means reaches the host as the call the movie makes for it.
+
+Fallout 4's is too. `avm2.{h,cc}` is an ActionScript 3 interpreter beside the
+AS2 one, and `VanillaRuntime` picks between them by what the movie carries. No
+hand-written driver is left in the UI for either game.
 
 ## 1. What is still missing on a Skyrim screen
 
@@ -75,29 +77,27 @@ missing is the host having anything to answer with.
 
 ## 3. Fallout 4 on the interpreter
 
-`VanillaRuntime` picks its machine from what the movie carries, so Fallout 4's
-main menu now builds NEW / LOAD / SETTINGS / CREW / QUIT out of its own
-`MainMenu.InitList` instead of the array `BuildFalloutMainMenu` used to hold.
-InitList's arguments are what the build offers, positionally: of the ten, three
-matter - 0 adds QUIT, 1 adds ADD-ONS, 7 adds the PlayStation save transfer.
+`VanillaRuntime` picks its machine from what the movie carries, and Fallout 4's
+main menu is now drawn entirely by its own bytecode: it opens on the splash
+state its own frame scripts put it in, prints `v recreation` from its own
+`SetVersionText`, and answers to the host through the code object the game hands
+it. `BuildFalloutMainMenu` is gone; there is no hand-written driver left in the
+UI at all.
 
-What that driver still does, and why it is not gone yet:
+What is left on that screen:
 
-- **It hides the sixteen state panels.** An AS3 screen keeps its states on
-  frames the same way an AS2 one does. The objects are bound to their widgets
-  now (26 of them on the main menu, walking the root display list and
-  constructing the class SymbolClass names for each placement), and
-  `gotoAndStop` records a `currentFrame`, but nothing puts a screen on its
-  opening frame at load, so every panel still reads as shown. That is the last
-  thing between here and deleting the driver.
-- **It drives the rows.** The AS3 list component is not executed, so the rows
-  stay the ones `StampListRows` stamped and `VanillaList` writes into them. The
-  entries in them are the movie's; the layout is not.
 - **Nothing ticks an AS3 screen.** `Tick` returns early without a stage, so a
-  fade or an enter-frame handler never runs.
-- **The host conversation is unconnected either way.** An AS3 menu reaches out
-  through `Shared.BGSExternalInterface` rather than `gfx.io.GameDelegate`, so
-  none of the bridge work applies, and activating a row does nothing.
+  fade or an enter-frame handler never runs, and the splash never gives way to
+  the option list. The list is built (`InitList` fills it with $NEW / $LOAD /
+  $SETTINGS / $CREW / $QUIT) and hidden behind the splash; what is missing is a
+  playhead and the button press that moves it on.
+- **It drives the rows from the timeline.** The AS3 list component is not
+  executed, so the rows stay the ones `StampListRows` stamped. The entries in
+  them come from the movie; the layout does not.
+- **The host conversation is one-way.** The screen asks and is answered
+  (`GetHasSavedGames`, `GetHasInstalledContent`, `GetShowBethesdaNetOption`,
+  `GetShowCreationClubOption`), but nothing sends it input, so `StartNewGame`
+  and the rest are wired and unreachable.
 - Its sub-panels, the message-of-the-day body and the background art are
   unfilled.
 
@@ -119,15 +119,15 @@ What it does not do yet:
 - **Nothing enumerates what a call returned.** `swfdump --run` reports the calls
   that resolved to nothing, which is the list to work down, but a call that
   resolves and returns the wrong thing is still silent.
-- **The runtime is the player's display API, and it is partial.** Measuring what
-  the corpus calls showed it is not a standard library that is missing but
-  Flash's own: `addFrameScript`, `gotoAndStop`, `addEventListener`,
-  `dispatchEvent`, `addChild` and the graphics calls. Those are in, along with
-  a class's static methods and a typed stand-in carrying its declared class's
-  methods, which took Fallout 4 from 2169 unresolved calls to 1532. What is
-  left is reported per movie by `swfdump --run` rather than passed over:
-  `RespondToRequest`, `SetButtonHintData`, and the graphics calls made on
-  objects that are not traits-declared.
+- **The runtime is the player's display API, and it is partial.** Flash's own
+  API (`addFrameScript`, `gotoAndStop`, `addEventListener`, `dispatchEvent`,
+  `addChild`, the graphics calls), a class's static methods, a typed stand-in
+  carrying its declared class's methods, and the String and Math members the
+  menus lean on are all in. What is left is reported per movie by `swfdump
+  --run` rather than passed over, and over both corpora the top of that list is
+  `getStackTrace`, `SetButtonData`, `getTextFormat`, `getDefinitionByName`,
+  `AddButtonWithData`, `getBounds` and `setTextFormat`: the button-hint bar and
+  the text-format API, neither of which changes what a screen shows.
 - **Types are not checked.** `coerce`, `astype` and `istype` pass values
   through, and `instanceof` answers false. Nothing in the menus turned out to
   branch on one, but a screen that does will take the wrong path quietly.
@@ -147,6 +147,35 @@ but it caps how long a session can be play-tested.
 
 ## Done
 
+- Opacity inherits in ugui, which is where it belonged: `PaintWidgetTree` folds
+  each widget's own into what it hands its children and `ComputedStyle` applies
+  it. Both interpreters used to write a clip's resolved opacity onto every
+  widget beneath it, which flattened the alpha a placement had authored.
+- An AS3 screen opening on the state its own frames say. Three things had to be
+  true at once: only the frame a clip opens on may run its script (a Fallout 4
+  panel keeps `visible = false` on frame 1, `true` on frame 3 and `false` again
+  on frame 5, so running all three leaves whichever the traits end on); a
+  display object has to answer to `visible` from the start, or `findproperty`
+  walks past it and the assignment lands on the global object; and which class a
+  placement is comes from the movie's SymbolClass, not from the declared trait
+  type, which is only ever `flash.display.MovieClip`.
+- The AS3 host bridge. `Shared.BGSExternalInterface.call(codeObj, name, ...)`
+  looks a name up on the code object the game hands the screen, so a code object
+  whose every member is a call to the host is the whole of it. That is AS3's
+  spelling of GameDelegate, and unlike GameDelegate the answer is the call's own
+  return value.
+- The String and Math members the menus use (`length`, `substr`, `substring`,
+  `slice`, `charAt`, `charCodeAt`, `indexOf`, case folding, `floor`, `ceil`,
+  `round`, `abs`, `sqrt`, `pow`, `min`, `max`). `length` is the one that decides
+  branches: `SetVersionText` prints a blank corner rather than the build when
+  the string it was handed cannot say how long it is.
+- Localising the labels the translation baked into the markup. A movie ships
+  them as the game's own string keys, because the player resolves them when it
+  draws the field rather than when the field is authored.
+- `swfdump --states`, which prints each sprite's frames, the ones the export
+  treats as states, their labels and how opaque each leaves the clip. Fallout 4
+  hides a panel by playing it to a frame where everything it places is
+  transparent, and that is not visible any other way.
 - The interpreter: values, objects, prototypes, closures, the DefineFunction2
   preloads, and the instruction set the menus use.
 - `Array`: the constructor's own arguments (`new Array(a, b, c)` was building an
@@ -229,6 +258,5 @@ but it caps how long a session can be play-tested.
   byte for byte, and the rest stay named and unparsed rather than guessed at.
 - Binding the interpreter's clips to the translated widgets, and writing back
   what the script changes: text (resolved through the interface's own "$KEY"
-  table), visibility as opacity down the whole subtree (ugui does not inherit
-  it), the timeline's own fades, and position when a script moves a clip off
-  where its frame put it.
+  table), visibility as opacity, the timeline's own fades, and position when a
+  script moves a clip off where its frame put it.
