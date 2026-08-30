@@ -488,6 +488,70 @@ int main() {
           "an unknown opcode stops the decode rather than desynchronising it");
   }
 
+  {
+    // A method that calls another decodes the callee while it is itself
+    // running. The decoded bodies are cached, so the running method holds a
+    // reference into that cache across the call: it has to survive the cache
+    // growing, or the caller resumes on freed instructions.
+    swf::AbcFile abc;
+    abc.strings.push_back("");
+    abc.strings.push_back("reached");
+    abc.names.push_back("");
+    abc.names.push_back("callee");   // 1
+    abc.names.push_back("mark");     // 2
+
+    // caller: this.callee(); this.mark = "reached"; (the write proves the
+    // caller carried on with intact code after the nested decode)
+    static const rx::u8 kCaller[] = {
+        0xd0,        // getlocal_0
+        0x30,        // pushscope
+        0xd0,        // getlocal_0
+        0x4f, 0x01, 0x00,  // callpropvoid callee, 0 args
+        0xd0,        // getlocal_0
+        0x2c, 0x01,  // pushstring "reached"
+        0x61, 0x02,  // setproperty mark
+        0x47,        // returnvoid
+    };
+    static const rx::u8 kCallee[] = {0xd0, 0x30, 0x47};
+    static const rx::u8 kCtor[] = {0xd0, 0x30, 0x47};
+
+    for (int m = 0; m < 3; ++m) {
+      swf::AbcMethod method;
+      method.body = static_cast<rx::u32>(m);
+      abc.methods.push_back(base::move(method));
+    }
+    const rx::u8* code[3] = {kCtor, kCaller, kCallee};
+    const mem_size sizes[3] = {sizeof(kCtor), sizeof(kCaller), sizeof(kCallee)};
+    for (int m = 0; m < 3; ++m) {
+      swf::AbcMethodBody body;
+      body.method = static_cast<rx::u32>(m);
+      body.local_count = 1;
+      body.code = ByteSpan{code[m], sizes[m]};
+      abc.bodies.push_back(base::move(body));
+    }
+
+    swf::AbcClass klass;
+    klass.name = "Nested";
+    klass.constructor = 0;
+    swf::AbcTrait caller;
+    caller.kind = swf::TraitKind::kMethod;
+    caller.name = "frame1";  // run on construction, as the player runs it
+    caller.method = 1;
+    klass.instance_traits.push_back(base::move(caller));
+    swf::AbcTrait callee;
+    callee.kind = swf::TraitKind::kMethod;
+    callee.name = "callee";
+    callee.method = 2;
+    klass.instance_traits.push_back(base::move(callee));
+    abc.classes.push_back(base::move(klass));
+
+    swf::Avm2 vm;
+    vm.AddAbc(abc);
+    const swf::As3Value instance = vm.Construct("Nested");
+    Check(vm.ToString(vm.GetProperty(instance, "mark")) == "reached",
+          "a method resumes on its own instructions after calling another");
+  }
+
 
   // --- the interpreter ------------------------------------------------------
   // Hand-assembled AVM1: the disassembler is exercised elsewhere, so these

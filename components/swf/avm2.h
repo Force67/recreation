@@ -3,6 +3,7 @@
 
 #include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
+#include <base/memory/unique_pointer.h>
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
 
@@ -69,12 +70,18 @@ struct As3Object {
   u32 prototype = 0;                 // 0 = none
   // Set on the object that stands for a class: `constructprop` makes instances
   // from it and its traits are what an instance starts with.
-  i32 klass = -1;   // index into AbcFile::classes, -1 when this is not a class
+  i32 klass = -1;    // index into AbcFile::classes, -1 when this is not a class
   u32 method = ~0u;  // a function object: the method it runs
+  u32 unit = 0;      // which loaded abc the method or class belongs to
   As3Native native = nullptr;
   bool is_function = false;
   bool is_class = false;
   bool is_array = false;
+  // A stand-in for something the player would have put there: a display object
+  // the timeline placed, or a child of one. Reading a member it does not have
+  // yields another stand-in rather than undefined, which is what lets a panel
+  // walk `MainPanel_mc.List_mc.entryList` before anything has built it.
+  bool is_display = false;
 };
 
 class Avm2 {
@@ -93,6 +100,13 @@ class Avm2 {
   // Calls a method body with `this` bound to `self`.
   As3Value Call(const As3Value& function, const As3Value& self,
                 const base::Vector<As3Value>& args);
+
+  // Calls a method on an instance by name, which is how the game talks to an
+  // AS3 menu: a screen exposes `InitList`, `SetPlatform` and the rest, and the
+  // host calls them the way it calls an AS2 movie's GameDelegate callbacks.
+  // False when the instance has no such method.
+  bool Invoke(const As3Value& instance, base::StringRef name,
+              const base::Vector<As3Value>& args);
 
   // --- object model -------------------------------------------------------
   u32 NewObject(u32 prototype = 0);
@@ -134,7 +148,7 @@ class Avm2 {
   // Finds the object on the scope chain that carries `name`, or the global.
   As3Value FindProperty(Frame& frame, base::StringRef name, bool strict);
   u32 ClassObject(u32 unit, base::StringRef name);
-  void InstallTraits(const AbcClass& definition, const As3Value& instance);
+  void InstallTraits(u32 unit, const AbcClass& definition, const As3Value& instance);
   void RunFrameScripts(u32 unit, const AbcClass& definition, const As3Value& instance);
   void InstallClass(u32 unit, u32 class_index);
 
@@ -145,10 +159,14 @@ class Avm2 {
   // Qualified class name -> the object that stands for it.
   base::UnorderedMap<base::String, u32> classes_;
   // (unit << 32 | method) -> the decoded body, so a method called in a loop is
-  // decoded once.
-  base::UnorderedMap<u64, base::Vector<AbcInstruction>> decoded_;
+  // decoded once. Held behind a pointer because a running method holds a
+  // reference into this while it calls others, and the map rehashing under it
+  // would leave that reference pointing at freed instructions.
+  base::UnorderedMap<u64, base::UniquePointer<base::Vector<AbcInstruction>>> decoded_;
   u32 global_ = 0;
+  u32 object_prototype_ = 0;
   u64 steps_ = 0;
+  u32 depth_ = 0;
   bool exhausted_ = false;
 };
 

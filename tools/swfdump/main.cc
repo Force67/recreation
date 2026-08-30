@@ -230,6 +230,52 @@ void RunAbc(const swf::Movie& movie) {
                   vm.ToString(vm.GetProperty(list, "numListItems")).c_str());
     }
   }
+  // What the game says to a screen when it opens it. An AS3 menu takes these as
+  // plain methods on the instance rather than through a delegate, and a screen
+  // ships its lists empty until one arrives: MainMenu::InitList is Fallout 4's
+  // spelling of the AS2 sendMenuProperties.
+  for (const swf::AbcFile& abc : files) {
+    for (const swf::AbcClass& klass : abc.classes) {
+      if (klass.name.empty() || klass.is_interface)
+        continue;
+      const swf::As3Value instance = vm.Construct(klass.name);
+      if (!instance.is_object())
+        continue;
+      base::Vector<swf::As3Value> flags;
+      for (int k = 0; k < 10; ++k)
+        flags.push_back(swf::As3Value::Bool(k == 6));  // a build with add-ons
+      vm.Invoke(instance, "SetPlatform", flags);
+      vm.Invoke(instance, "InitList", flags);
+    }
+  }
+
+  // Any list the code actually filled. This is the same question the AS2 side
+  // asks: a shipped menu ships its lists empty, so what is in one afterwards is
+  // the measure of how much of a screen its own code managed to build.
+  {
+    u32 filled = 0;
+    const u32 objects = vm.object_count();
+    for (u32 i = 1; i < objects; ++i) {
+      const swf::As3Value list =
+          vm.GetProperty(swf::As3Value::Obj(i), "entryList");
+      if (!list.is_object())
+        continue;
+      const int n = static_cast<int>(vm.ToNumber(vm.GetProperty(list, "length")));
+      if (n <= 0)
+        continue;
+      ++filled;
+      if (filled > 4)
+        continue;
+      std::printf("  a list came out with %d entr%s:\n", n, n == 1 ? "y" : "ies");
+      for (int e = 0; e < n && e < 12; ++e) {
+        const swf::As3Value entry = vm.GetProperty(list, base::Format("{}", e));
+        std::printf("    %s\n", vm.ToString(vm.GetProperty(entry, "text")).c_str());
+      }
+    }
+    if (filled != 0)
+      std::printf("%u list(s) came out with entries\n", filled);
+  }
+
   std::printf("%u list(s) filled by their own code, %llu instruction(s)%s\n", ran,
               static_cast<unsigned long long>(vm.steps()),
               vm.exhausted() ? "  [step budget exhausted]" : "");

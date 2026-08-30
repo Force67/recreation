@@ -11,7 +11,10 @@ namespace {
 // A menu's setup is short. This is a runaway guard, not a budget: the shipped
 // screens settle in a few hundred thousand instructions.
 constexpr u64 kMaxSteps = 8'000'000;
-constexpr u32 kMaxDepth = 128;
+constexpr u32 kMaxDepth = 64;
+// Stand-ins are made on demand, so a loop that walks a display tree can ask for
+// them forever. A screen's tree is thousands of objects, not millions.
+constexpr u32 kMaxObjects = 400'000;
 
 // AVM2 opcodes, by the names the disassembler gives them. Switching on the byte
 // keeps the machine readable against the format documentation.
@@ -212,14 +215,34 @@ struct Avm2::Frame {
   }
 };
 
+namespace {
+
+// Array.push, which is how a menu fills a list: `entryList.push({text: "$NEW"})`.
+As3Value ArrayPush(Avm2& vm, const As3Value& self, const base::Vector<As3Value>& args) {
+  f64 length = vm.ToNumber(vm.GetProperty(self, "length"));
+  if (std::isnan(length) || length < 0)
+    length = 0;
+  for (const As3Value& arg : args)
+    vm.SetProperty(self, base::Format("{}", static_cast<i64>(length++)), arg);
+  vm.SetProperty(self, "length", As3Value::Number(length));
+  return As3Value::Number(length);
+}
+
+}  // namespace
+
 Avm2::Avm2() {
   objects_.push_back(As3Object{});  // index 0 is "no object"
   global_ = NewObject();
+  // Everything inherits `push`: a list's entries arrive through it, and the
+  // objects they arrive on are the stand-ins below rather than real arrays.
+  object_prototype_ = NewObject();
+  SetProperty(As3Value::Obj(object_prototype_), "push",
+              As3Value::Obj(NewNative(&ArrayPush)));
 }
 
 u32 Avm2::NewObject(u32 prototype) {
   As3Object object;
-  object.prototype = prototype;
+  object.prototype = prototype != 0 ? prototype : object_prototype_;
   objects_.push_back(base::move(object));
   return static_cast<u32>(objects_.size() - 1);
 }
@@ -310,6 +333,14 @@ As3Value Avm2::GetProperty(const As3Value& target, base::StringRef name) {
       return *found;
     current = objects_[current].prototype;
   }
+  // A stand-in's missing member is another stand-in: the player would have put
+  // a display object there, and the code walks straight through it.
+  if (objects_[target.object()].is_display && objects_.size() < kMaxObjects) {
+    const u32 child = NewObject();
+    objects_[child].is_display = true;
+    SetProperty(target, key, As3Value::Obj(child));
+    return As3Value::Obj(child);
+  }
   return As3Value::Undefined();
 }
 
@@ -341,7 +372,7 @@ void Avm2::InstallClass(u32 unit, u32 class_index) {
   const u32 object = NewObject();
   objects_[object].is_class = true;
   objects_[object].klass = static_cast<i32>(class_index);
-  objects_[object].method = unit;  // which abc the class belongs to
+  objects_[object].unit = unit;
   classes_[klass.name] = object;
   // Reachable by qualified name and by the bare class name, since a script
   // names it either way depending on its imports.
@@ -367,8 +398,18 @@ u32 Avm2::ClassObject(u32 unit, base::StringRef name) {
 // instance first - a panel's `List_mc` is there because the frame placed it,
 // not because the code made it - so a machine that starts with a bare object
 // watches every assignment to one go nowhere.
-void Avm2::InstallTraits(const AbcClass& definition, const As3Value& instance) {
+void Avm2::InstallTraits(u32 unit, const AbcClass& definition,
+                        const As3Value& instance) {
   for (const AbcTrait& trait : definition.instance_traits) {
+    // A method is callable by name, which is how the host reaches a screen.
+    if (trait.kind == TraitKind::kMethod || trait.kind == TraitKind::kGetter) {
+      const u32 fn = NewObject();
+      objects_[fn].is_function = true;
+      objects_[fn].method = trait.method;
+      objects_[fn].unit = unit;
+      SetProperty(instance, trait.name, As3Value::Obj(fn));
+      continue;
+    }
     if (trait.kind != TraitKind::kSlot && trait.kind != TraitKind::kConst)
       continue;
     if (trait.name.empty())
@@ -377,7 +418,9 @@ void Avm2::InstallTraits(const AbcClass& definition, const As3Value& instance) {
     if (type == "Number" || type == "int" || type == "uint" || type == "String" ||
         type == "Boolean" || type == "*" || type.empty())
       continue;  // a value, which the constructor assigns for itself
-    SetProperty(instance, trait.name, As3Value::Obj(NewObject()));
+    const u32 child = NewObject();
+    objects_[child].is_display = true;
+    SetProperty(instance, trait.name, As3Value::Obj(child));
   }
 }
 
@@ -412,7 +455,7 @@ As3Value Avm2::Construct(base::StringRef class_name) {
   const u32 klass = ClassObject(0, class_name);
   if (!Valid(klass))
     return As3Value::Undefined();
-  const u32 unit = objects_[klass].method;
+  const u32 unit = objects_[klass].unit;
   if (unit >= units_.size())
     return As3Value::Undefined();
   const AbcFile& abc = *units_[unit].abc;
@@ -426,11 +469,20 @@ As3Value Avm2::Construct(base::StringRef class_name) {
   // The instance starts with the slots its traits declare, so a `setslot` in
   // the constructor lands somewhere rather than off the end.
   objects_[instance].slots.resize(definition.instance_traits.size() + 1);
-  InstallTraits(definition, As3Value::Obj(instance));
+  InstallTraits(unit, definition, As3Value::Obj(instance));
   base::Vector<As3Value> args;
   Run(unit, definition.constructor, As3Value::Obj(instance), args, 0);
   RunFrameScripts(unit, definition, As3Value::Obj(instance));
   return As3Value::Obj(instance);
+}
+
+bool Avm2::Invoke(const As3Value& instance, base::StringRef name,
+                  const base::Vector<As3Value>& args) {
+  const As3Value fn = GetProperty(instance, name);
+  if (!fn.is_object() || !Valid(fn.object()) || !objects_[fn.object()].is_function)
+    return false;
+  Call(fn, instance, args);
+  return true;
 }
 
 As3Value Avm2::Call(const As3Value& function, const As3Value& self,
@@ -442,7 +494,7 @@ As3Value Avm2::Call(const As3Value& function, const As3Value& self,
     return fn.native(*this, self, args);
   if (!fn.is_function || fn.method == ~0u)
     return As3Value::Undefined();
-  return Run(fn.prototype, fn.method, self, args, 0);
+  return Run(fn.unit, fn.method, self, args, 0);
 }
 
 As3Value Avm2::FindProperty(Frame& frame, base::StringRef name, bool strict) {
@@ -464,7 +516,12 @@ As3Value Avm2::FindProperty(Frame& frame, base::StringRef name, bool strict) {
 
 As3Value Avm2::Run(u32 unit, u32 method_index, const As3Value& self,
                    const base::Vector<As3Value>& args, u32 depth) {
-  if (unit >= units_.size() || depth > kMaxDepth)
+  // The machine's own depth, not the caller's guess at it: a method reached
+  // through `callproperty` is one level deeper than the one that called it, and
+  // counting from the entry point every time lets a cycle run until the C++
+  // stack gives out instead of the guard catching it.
+  (void)depth;
+  if (unit >= units_.size() || depth_ > kMaxDepth)
     return As3Value::Undefined();
   const AbcFile& abc = *units_[unit].abc;
   if (method_index >= abc.methods.size())
@@ -475,9 +532,11 @@ As3Value Avm2::Run(u32 unit, u32 method_index, const As3Value& self,
   const AbcMethodBody& body = abc.bodies[method.body];
 
   const u64 key = (static_cast<u64>(unit) << 32) | method_index;
-  if (decoded_.find(key) == nullptr)
-    decoded_[key] = DisassembleMethod(body);
-  const base::Vector<AbcInstruction>& code = decoded_[key];
+  if (decoded_.find(key) == nullptr) {
+    decoded_[key] =
+        base::MakeUnique<base::Vector<AbcInstruction>>(DisassembleMethod(body));
+  }
+  const base::Vector<AbcInstruction>& code = *decoded_[key];
 
   Frame frame;
   frame.unit = unit;
@@ -504,6 +563,12 @@ As3Value Avm2::Run(u32 unit, u32 method_index, const As3Value& self,
     else
       i = static_cast<u32>(code.size());
   };
+
+  ++depth_;
+  struct DepthGuard {
+    u32& depth;
+    ~DepthGuard() { --depth; }
+  } guard{depth_};
 
   for (u32 i = 0; i < code.size();) {
     if (++steps_ > kMaxSteps) {
@@ -721,14 +786,14 @@ As3Value Avm2::Run(u32 unit, u32 method_index, const As3Value& self,
         const u32 instance = NewObject();
         if (klass.is_object() && Valid(klass.object()) && objects_[klass.object()].is_class) {
           SetProperty(As3Value::Obj(instance), "constructor", klass);
-          const u32 klass_unit = objects_[klass.object()].method;
+          const u32 klass_unit = objects_[klass.object()].unit;
           const i32 index = objects_[klass.object()].klass;
           if (klass_unit < units_.size() && index >= 0) {
             const AbcFile& owner = *units_[klass_unit].abc;
             if (static_cast<u32>(index) < owner.classes.size()) {
               objects_[instance].slots.resize(
                   owner.classes[index].instance_traits.size() + 1);
-              InstallTraits(owner.classes[index], As3Value::Obj(instance));
+              InstallTraits(klass_unit, owner.classes[index], As3Value::Obj(instance));
               Run(klass_unit, owner.classes[index].constructor, As3Value::Obj(instance),
                   call_args, depth + 1);
             }
@@ -749,7 +814,7 @@ As3Value Avm2::Run(u32 unit, u32 method_index, const As3Value& self,
         const u32 fn = NewObject();
         objects_[fn].is_function = true;
         objects_[fn].method = insn.a;
-        objects_[fn].prototype = unit;  // which abc the body belongs to
+        objects_[fn].unit = unit;
         frame.Push(As3Value::Obj(fn));
         break;
       }
