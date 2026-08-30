@@ -24,28 +24,31 @@ the world clock. The start menu builds NEW / LOAD / CREATIONS / CREDITS / QUIT
 the same way. Navigation goes in through the components' own `handleInput`, so
 one host path drives every screen's selection.
 
-## 1. Export every frame, not just one
+## 1. Finish the CLIK component chain
 
-**This is the blocker for everything below it.** `swfdump --ugui` exports one
-frame of each timeline, so the widgets only ever stand for that frame. A menu
-keeps each of its states on a different frame and switches with `gotoAndStop`,
-so any state the movie moves to has nothing to draw.
+The translation carries every state now (see Done), so the export is no longer
+what limits a screen. What is left is one chain inside the shipped component
+library, and it is the last thing between here and
+`Stage::set_authored_state(true)` in the runtime.
 
-The interpreter already does the right thing and it is what exposed this:
-`Stage::set_authored_state(true)` runs the `construct` handlers carrying a
-component's authored parameters (a tab's `labelID`, a list's `numTopHalfEntries`)
-and the actions on a frame a clip arrives at (a fade ends in `stop()`). With it
-on, `swfdump --run` reports the real tab labels ($QUESTS, $GENERAL STATS,
-$SYSTEM) instead of "BUTTON TEXT", and the system list centres its selection the
-way the designer authored it. With it on in the *runtime*, the journal comes out
-blank: the list centres onto rows the export never laid out, and the page fader
-parks on a frame whose transform hides a page that has no other frame to show.
+Symptom: the journal's tab strip comes back empty. `Quest_Journal.onLoad` does
+`ButtonGroup(this.QuestsTab.group).length`, that comes back `undefined`, and the
+NaN travels into `iCurrentTab`, so `SwitchPageToFront` never runs and the System
+page is left on its hidden frame. With the authored state off the page is shown
+anyway and the menu works; with it on the page goes with the tab strip.
 
-So it is off by default in the runtime and on in `swfdump --run`, and the tab
-labels stay "BUTTON TEXT" until the export carries the states. What that needs:
-each timeline's frames emitted as sibling state groups, and the runtime showing
-the group matching `_currentframe` (`Stage::PlacedNames` already reports what a
-clip places now versus over its whole timeline, which is the hook for it).
+What is known about it:
+- The tab does get its authored `inspectableGroupName = "tabGroup"`, and a
+  ButtonGroup for it is created on the parent (`_buttonGroup_tabGroup` exists).
+- But the group the tab ends up holding is the DEFAULT one, named
+  "buttonGroup", so something calls `__set__group` again afterwards.
+- That instance has `name` set and `children` unset, two adjacent statements in
+  `ButtonGroup`'s own constructor. Its body stops between them, which is the
+  thing to find; `__get__length` returns `this.children.length`, hence the
+  `undefined`.
+- Two earlier stops of the same shape turned out to be the interpreter running a
+  `try`'s catch block as well as its body (fixed), so look for another construct
+  whose inline layout the machine walks straight through.
 
 ## 2. Retire the hand-written drivers
 
@@ -60,12 +63,16 @@ still own the live menus; the interpreter path runs instead of them under
   `GameBridge::pending()`, which `swfdump --run` prints.
 - **A screen-by-screen check** before each driver is deleted. Only the journal
   and the start menu have been looked at on screen.
+- **State groups under a clip nothing drives.** A widget reached without a clip
+  keeps whatever state it is showing, so a couple of tab chevrons draw over
+  each other. Harmless, and it goes when §1 does.
 
 ## 3. The menus themselves
 
 - Pause menu: the option list is live and navigable, but SAVE, LOAD, CONTROLS,
   HELP and INSTALLED CONTENT select without opening anything, and the QUEST and
-  STATS tabs do not switch (both are §1: the sub-panels are other frames).
+  STATS tabs do not switch. The widgets for those states are translated now, so
+  what is left is §1.
 - Start menu: LOAD, CREATIONS and CREDITS likewise.
 - "Main Menu" from the quit list reopens the front screen with the world still
   loaded behind it, rather than tearing it down.
@@ -118,7 +125,19 @@ but it caps how long a session can be play-tested.
   interpreter; the two had drifted, and the interpreter's copy was dropping the
   colour transform off a move, which left every fade on its first frame.
 - Clip-event handlers off a PlaceObject (306 across the corpus, almost all
-  `construct`), behind `set_authored_state` for the reason in §1.
+  `construct`), behind `set_authored_state` until §1 is done.
+- Every state a clip can be in, translated as a sibling group per labelled frame
+  that puts something different on the display list, which a host shows by
+  matching `_currentframe`. Both halves of that rule earn their keep: counting
+  unlabelled keyframes as states takes the journal from 1.4k widgets to 61k, and
+  counting a fader's labelled tween frames (which place the same thing all the
+  way through) triples the whole menu under every fader. As it stands the
+  journal goes from 869 widgets to 1607 and carries 289 states.
+- `Try`/`Catch`/`Finally`. The three blocks sit inline after the action, so a
+  machine that falls through runs all three; the catch block stores an exception
+  nobody threw and the stack is out of step for the rest of the function.
+- `SomeClass(value)` as a cast rather than a construction, which is how the
+  journal gets its tab strip.
 - `addProperty` (1688 uses), the accessor the components are built on.
 - Runtime clip creation: `attachMovie` (414), `getNextHighestDepth` (416),
   `removeMovieClip` (108), `createEmptyMovieClip`, `duplicateMovieClip`.
