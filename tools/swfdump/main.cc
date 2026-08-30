@@ -181,7 +181,29 @@ void MountData(asset::Vfs& vfs, const char* data_dir) {
 // same idea for Skyrim; this is what Fallout 4 and Starfield need, and it is
 // the direct check on the interpreter: a class's constructor is where a menu
 // assigns the things a static read can only pattern-match for.
+// Walks an instance's own members the way a host binding does, reporting the
+// ones the screen has taken down.
+void ReportHidden(swf::Avm2& vm, const swf::As3Value& object, base::StringRef path,
+                  u32 depth) {
+  if (depth > 8 || !object.is_object())
+    return;
+  const swf::As3Value visible = vm.GetProperty(object, "visible");
+  if (!visible.is_undefined() && !vm.ToBool(visible)) {
+    std::printf("  hidden: %s\n", base::String(path).c_str());
+    return;  // its children go with it
+  }
+  const base::Vector<base::String> members = vm.Get(object.object()).order;
+  for (const base::String& key : members) {
+    if (key.empty() || key[0] == '_')
+      continue;
+    const swf::As3Value child = vm.GetProperty(object, key);
+    if (child.is_object() && child.object() != object.object())
+      ReportHidden(vm, child, base::Format("{}.{}", path, key), depth + 1);
+  }
+}
+
 void RunAbc(const swf::Movie& movie) {
+  base::UnorderedMap<base::String, u32> instances;
   base::Vector<swf::AbcFile> files;
   for (const ByteSpan& block : movie.abc_blocks) {
     swf::AbcFile abc;
@@ -243,13 +265,31 @@ void RunAbc(const swf::Movie& movie) {
       const swf::As3Value instance = vm.Construct(klass.name);
       if (!instance.is_object())
         continue;
+      instances[klass.name] = instance.object();
       base::Vector<swf::As3Value> flags;
       const char* mask = getenv("RX_INITLIST");
       for (int k = 0; k < 10; ++k)
         flags.push_back(swf::As3Value::Bool(mask ? mask[k] == '1' : k == 6));
       vm.Invoke(instance, "SetPlatform", flags);
+      vm.Invoke(instance, "InitMenu", flags);
       vm.Invoke(instance, "InitList", flags);
     }
+  }
+
+  // What the screen hid of itself, along the path a host binding walks. A menu
+  // keeps every panel it owns in one tree and takes down the ones it is not
+  // showing, so a panel reachable from a placed instance and reporting hidden
+  // is one the translated screen can stop drawing.
+  for (const swf::Place& place : swf::DisplayListAt(movie.root, 0)) {
+    if (!place.has_character || place.name.empty())
+      continue;
+    const base::String* klass = movie.exports.find(place.character_id);
+    if (klass == nullptr)
+      continue;
+    const u32* built = instances.find(*klass);
+    if (built == nullptr)
+      continue;
+    ReportHidden(vm, swf::As3Value::Obj(*built), place.name, 0);
   }
 
   // Any list the code actually filled. This is the same question the AS2 side
@@ -299,6 +339,36 @@ void RunAbc(const swf::Movie& movie) {
         break;
       std::printf("  %-16s %u\n", entry.key.c_str(), entry.value);
     }
+  }
+}
+
+// Every sprite's timeline: how many frames it holds, which of them the export
+// treats as a state, and the labels a script's gotoAndStop can name.
+void PrintStates(const swf::Movie& movie) {
+  for (const auto& entry : movie.exports) {
+    const swf::CharacterRef* ref = movie.characters.find(entry.key);
+    if (!ref || ref->kind != swf::CharacterKind::kSprite ||
+        ref->index >= movie.sprites.size())
+      continue;
+    const swf::Timeline& sprite = movie.sprites[ref->index];
+    const base::Vector<u32> states = swf::StateFrames(sprite);
+    std::printf("  %-40s %2zu frame(s), %zu state(s)", entry.value.c_str(),
+                static_cast<size_t>(sprite.frames.size()),
+                static_cast<size_t>(states.size()));
+    for (mem_size f = 0; f < sprite.frames.size(); ++f) {
+      f32 alpha = 0;
+      u32 placed = 0;
+      for (const swf::Place& place : swf::DisplayListAt(sprite, static_cast<u32>(f))) {
+        ++placed;
+        const f32 own = place.has_color_transform ? place.color_transform.mul_a : 1.0f;
+        if (own > alpha)
+          alpha = own;
+      }
+      std::printf("  %zu:%s[%u@%.2f]", static_cast<size_t>(f),
+                  sprite.frames[f].label.empty() ? "-" : sprite.frames[f].label.c_str(),
+                  placed, static_cast<double>(alpha));
+    }
+    std::printf("\n");
   }
 }
 
@@ -937,6 +1007,7 @@ int Usage() {
       "       swfdump --data <data-dir> --ugui-all <out-dir> [scale] [filter]\n"
       "                     translate every movie in a game's archives at once\n"
       "\n"
+      "  --states           each sprite's frames, its states and their labels\n"
       "  --reveal           show what the movie is authored to look like: a\n"
       "                     Scaleform menu ships transparent and fades itself in\n");
   return 1;
@@ -999,6 +1070,10 @@ int main(int argc, char** argv) {
   }
   if (mode == "--exports") {
     PrintExports(movie.value());
+    return 0;
+  }
+  if (mode == "--states") {
+    PrintStates(movie.value());
     return 0;
   }
   if (mode == "--text") {

@@ -144,6 +144,8 @@ struct Box {
 // thing throughout, so without the second half every fader triples the whole
 // menu underneath it. What a tween does to the transform the interpreter reads
 // off the movie; it needs no widgets of its own.
+}  // namespace
+
 base::Vector<u32> StateFrames(const Timeline& timeline) {
   base::Vector<u32> out;
   base::Vector<u32> shown;
@@ -165,6 +167,8 @@ base::Vector<u32> StateFrames(const Timeline& timeline) {
   }
   return out;
 }
+
+namespace {
 
 Box PlaceBox(const Matrix& m, const Rect& local) {
   const f32 sx = std::sqrt(m.scale_x * m.scale_x + m.rotate_skew0 * m.rotate_skew0);

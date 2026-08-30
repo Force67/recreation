@@ -106,6 +106,11 @@ UguiScreen ExportUgui(const Movie& movie, const UguiExportOptions& options);
 // block naming which timeline, frame or sprite class it came from.
 base::String ExportScript(const Movie& movie);
 
+// The frames of a timeline that stand for a state a host can ask for: the
+// labelled ones whose display list differs from the frame before. The export
+// emits a group per state and a host shows the one its clip is on.
+base::Vector<u32> StateFrames(const Timeline& timeline);
+
 }  // namespace rx::swf
 
 #endif  // RECREATION_SWF_UGUI_EXPORT_H_

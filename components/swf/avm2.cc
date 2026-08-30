@@ -420,8 +420,7 @@ As3Value Avm2::GetProperty(const As3Value& target, base::StringRef name) {
   // A stand-in's missing member is another stand-in: the player would have put
   // a display object there, and the code walks straight through it.
   if (objects_[target.object()].is_display && objects_.size() < kMaxObjects) {
-    const u32 child = NewObject();
-    objects_[child].is_display = true;
+    const u32 child = NewDisplay();
     SetProperty(target, key, As3Value::Obj(child));
     return As3Value::Obj(child);
   }
@@ -496,6 +495,19 @@ u32 Avm2::ClassObject(u32 unit, base::StringRef name) {
 // instance first - a panel's `List_mc` is there because the frame placed it,
 // not because the code made it - so a machine that starts with a bare object
 // watches every assignment to one go nowhere.
+// A stand-in for a display object. It answers to `visible` from the start: the
+// player's every display object has one, and a timeline script says how its
+// clip opens by assigning to it. `findproperty` walks the scope chain for an
+// object that already carries the name and falls back to the global when none
+// does, so a stand-in without `visible` sends its clip's own state to the
+// global object and the clip reads as showing whatever it was exported as.
+u32 Avm2::NewDisplay(u32 prototype) {
+  const u32 object = NewObject(prototype);
+  objects_[object].is_display = true;
+  SetProperty(As3Value::Obj(object), "visible", As3Value::Bool(true));
+  return object;
+}
+
 u32 Avm2::MethodsOf(base::StringRef class_name, u32 depth) {
   const base::String key(class_name);
   if (const u32* found = methods_.find(key))
@@ -532,9 +544,11 @@ void Avm2::InstallTraits(u32 unit, const AbcClass& definition,
                         const As3Value& instance) {
   // Every display object has one, and a menu draws its own backing plates
   // through it. The drawing goes nowhere here, but the calls have to land.
-  const u32 graphics = NewObject();
-  objects_[graphics].is_display = true;
+  const u32 graphics = NewDisplay();
   SetProperty(instance, "graphics", As3Value::Obj(graphics));
+  // The instance is a display object too, and every one of those is visible
+  // until something says otherwise (see NewDisplay).
+  SetProperty(instance, "visible", As3Value::Bool(true));
   for (const AbcTrait& trait : definition.instance_traits) {
     // A method is callable by name, which is how the host reaches a screen.
     if (trait.kind == TraitKind::kMethod || trait.kind == TraitKind::kGetter) {
@@ -555,9 +569,12 @@ void Avm2::InstallTraits(u32 unit, const AbcClass& definition,
       continue;  // a value, which the constructor assigns for itself
     // The stand-in stands for something of a declared type, so it answers to
     // that type's methods: `List_mc:MainMenuList` has MainMenuList's.
-    const u32 child = NewObject(MethodsOf(trait.type, 0));
-    objects_[child].is_display = true;
+    const u32 child = NewDisplay(MethodsOf(trait.type, 0));
     SetProperty(instance, trait.name, As3Value::Obj(child));
+    // A nested panel is a timeline class of its own, and its frame-1 script is
+    // what says how it opens. Every one of Fallout 4's ships hidden that way,
+    // so a stand-in that never runs it reads as a panel that is showing.
+    RunOpeningFrame(trait.type, As3Value::Obj(child));
   }
 }
 
@@ -571,6 +588,21 @@ void Avm2::InstallTraits(u32 unit, const AbcClass& definition,
 // is the AS3 spelling of the `construct` clip-event handler an AS2 movie hangs
 // on a placement - so a machine that runs only the constructor sees a class
 // that does almost nothing.
+// The opening frame code of the class `class_name`, run against `instance`.
+void Avm2::RunOpeningFrame(base::StringRef class_name, const As3Value& instance) {
+  const u32 klass = ClassObject(0, class_name);
+  if (!Valid(klass))
+    return;
+  const u32 unit = objects_[klass].unit;
+  const i32 index = objects_[klass].klass;
+  if (unit >= units_.size() || index < 0)
+    return;
+  const AbcFile& abc = *units_[unit].abc;
+  if (static_cast<u32>(index) >= abc.classes.size())
+    return;
+  RunFrameScripts(unit, abc.classes[index], instance);
+}
+
 void Avm2::RunFrameScripts(u32 unit, const AbcClass& definition,
                            const As3Value& instance) {
   const AbcFile& abc = *units_[unit].abc;
@@ -578,7 +610,12 @@ void Avm2::RunFrameScripts(u32 unit, const AbcClass& definition,
     if (trait.kind != TraitKind::kMethod || trait.method >= abc.methods.size())
       continue;
     const base::StringRef name = LastSegment(trait.name);
-    const bool frame = name.size() > 5 && name.subslice(0, 5) == base::StringRef("frame");
+    // Only the frame the clip opens on. A panel keeps a script on each of its
+    // frames and they contradict each other by design - Fallout 4's ship
+    // `frame1: visible = false`, `frame3: visible = true`, `frame5: visible =
+    // false` - so running all three leaves the clip in whichever state the
+    // traits happen to end on rather than the one it starts in.
+    const bool frame = name == base::StringRef("frame1");
     const bool props =
         name.size() > 9 && name.subslice(0, 9) == base::StringRef("__setProp");
     if (!frame && !props)

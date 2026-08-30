@@ -37,6 +37,10 @@ base::Option<bool> VanillaVm{"ui.vanilla.vm", true, "RX_VANILLA_VM"};
 // On, now that the translation carries the states these move a clip into. The
 // switch is for telling a problem in them from one somewhere else.
 base::Option<bool> VanillaAuthored{"ui.vanilla.authored", true, "RX_VANILLA_AUTHORED"};
+// Logs what the ActionScript 3 binding resolved for every widget it drives.
+// The screens are large and the state is spread over three trees, so this is
+// how a panel that should be down and is not gets found.
+base::Option<bool> VanillaReport{"ui.vanilla.report", false, "RX_VANILLA_REPORT"};
 
 base::Vector<u8> ReadFile(const fs::path& path) {
   base::Vector<u8> out;
@@ -176,8 +180,16 @@ struct VanillaRuntime::Impl {
     u32 object = 0;
     ugui::wid widget;
     bool is_text = false;
+    // The clip's own timeline, when the placement named one. A panel is faded
+    // in and out by its own frames rather than by `visible`, so this is what
+    // says whether the frame it has been sent to is a visible one.
+    const swf::Timeline* timeline = nullptr;
   };
   base::Vector<As3Bound> as3_bound;
+  // The instance RunAbc built for each class. Binding has to reuse these rather
+  // than construct its own: the opening messages went to these, and a screen
+  // that has been told to open is the one holding the state to show.
+  base::UnorderedMap<base::String, u32> as3_instances;
 
   // Walks the movie's root display list beside the widget tree. A placed sprite
   // whose character the movie bound a class to becomes an instance of it, the
@@ -191,24 +203,57 @@ struct VanillaRuntime::Impl {
       const base::String* klass = movie.exports.find(place.character_id);
       if (klass == nullptr)
         continue;
-      const swf::As3Value instance = avm2->Construct(*klass);
-      if (!instance.is_object())
+      const u32* built = as3_instances.find(*klass);
+      if (built == nullptr)
         continue;
+      const swf::As3Value instance = swf::As3Value::Obj(*built);
       base::Vector<ugui::wid> widgets;
       ChildrenNamed(world, root_widget, place.name, widgets);
       for (ugui::wid widget : widgets)
-        BindAbcInto(ui, instance, widget, 0);
+        BindAbcInto(ui, instance, widget,
+                    ChildRef{SpriteOf(place.character_id), place.character_id}, 0);
     }
   }
 
+  // The timeline behind a character, when it has one.
+  const swf::Timeline* SpriteOf(u16 character) const {
+    const swf::CharacterRef* ref = movie.characters.find(character);
+    if (!ref || ref->kind != swf::CharacterKind::kSprite ||
+        ref->index >= movie.sprites.size())
+      return nullptr;
+    return &movie.sprites[ref->index];
+  }
+
+  // What `parent` places under the name `name`: the character, so the class the
+  // movie bound to it can be found, and its timeline.
+  struct ChildRef {
+    const swf::Timeline* timeline = nullptr;
+    u16 character = 0;
+  };
+  ChildRef ChildOf(const swf::Timeline* parent, base::StringRef name) const {
+    if (parent == nullptr)
+      return ChildRef();
+    for (const swf::Place& place : swf::DisplayListAt(*parent, 0)) {
+      if (place.has_character && place.name == name)
+        return ChildRef{SpriteOf(place.character_id), place.character_id};
+    }
+    return ChildRef();
+  }
+
   void BindAbcInto(ugui::UIContext& ui, const swf::As3Value& object, ugui::wid widget,
-                   u32 depth) {
+                   const ChildRef& placed, u32 depth) {
     if (depth > 16 || !object.is_object() || !widget.valid())
       return;
     ugui::WidgetRegistry& world = ui.world();
+    // The class the movie bound to the character placed here. A nested panel is
+    // a timeline class of its own, and its frame-1 script is what says how it
+    // opens: every one of Fallout 4's ships hidden that way.
+    if (const base::String* klass = movie.exports.find(placed.character))
+      avm2->RunOpeningFrame(*klass, object);
     As3Bound entry;
     entry.object = object.object();
     entry.widget = widget;
+    entry.timeline = placed.timeline;
     const ugui::WidgetNode* node = world.Get<ugui::WidgetNode>(widget);
     entry.is_text = node && node->kind == ugui::WidgetKind::kText;
     as3_bound.push_back(entry);
@@ -222,7 +267,52 @@ struct VanillaRuntime::Impl {
       base::Vector<ugui::wid> widgets;
       ChildrenNamed(world, widget, key, widgets);
       for (ugui::wid found : widgets)
-        BindAbcInto(ui, child, found, depth + 1);
+        BindAbcInto(ui, child, found, ChildOf(placed.timeline, key), depth + 1);
+    }
+  }
+
+  // The frame a bound object is on, zero-based. gotoAndStop records whatever it
+  // was given: a number is the frame, one-based as the language counts them,
+  // and a string is a label only the clip's own timeline can resolve.
+  i32 CurrentFrame(const As3Bound& entry) {
+    const swf::As3Value frame =
+        avm2->GetProperty(swf::As3Value::Obj(entry.object), "currentFrame");
+    if (frame.is_undefined())
+      return 0;
+    if (frame.is_string() && entry.timeline != nullptr) {
+      for (mem_size f = 0; f < entry.timeline->frames.size(); ++f)
+        if (entry.timeline->frames[f].label == frame.string())
+          return static_cast<i32>(f);
+      return 0;
+    }
+    const f64 number = avm2->ToNumber(frame);
+    if (number != number || number < 1)
+      return 0;
+    return static_cast<i32>(number) - 1;
+  }
+
+  // How visible a clip's own timeline leaves it on a frame. A fade is authored
+  // as a colour transform on what the clip places, not on the clip, so the most
+  // opaque thing it puts on that frame is how opaque the clip is.
+  f32 FrameAlpha(const swf::Timeline& timeline, u32 frame) {
+    f32 alpha = 0.0f;
+    bool any = false;
+    for (const swf::Place& place : swf::DisplayListAt(timeline, frame)) {
+      any = true;
+      const f32 own = place.has_color_transform ? place.color_transform.mul_a : 1.0f;
+      if (own > alpha)
+        alpha = own;
+    }
+    return any ? alpha : 1.0f;
+  }
+
+  void HideOtherStates(ugui::WidgetRegistry& world, ugui::wid widget, ugui::wid active) {
+    const ugui::Hierarchy* h = world.Get<ugui::Hierarchy>(widget);
+    if (!h)
+      return;
+    for (ugui::wid child : h->children) {
+      if (IsStateGroup(world, child))
+        SetOpacity(world, child, Same(child, active) ? 1.0f : 0.0f);
     }
   }
 
@@ -244,11 +334,23 @@ struct VanillaRuntime::Impl {
         if (own >= 0 && own <= 1)
           opacity *= own;
       }
-      if (ugui::StyleC* sc = world.Get<ugui::StyleC>(entry.widget);
-          sc && sc->style.opacity != opacity) {
-        ugui::Style style = sc->style;
-        style.opacity = opacity;
-        ugui::SetStyle(world, entry.widget, style);
+      // The frame the clip has been sent to. A panel is not taken down with
+      // `visible`: it is a five-frame clip labelled start / shown / end, and
+      // the game plays it to "end", where everything it places is transparent.
+      const i32 at = CurrentFrame(entry);
+      if (entry.timeline != nullptr)
+        opacity *= FrameAlpha(*entry.timeline, static_cast<u32>(at));
+      SetOpacity(world, entry.widget, opacity);
+      // The rest of a timeline's states, the way the AS2 side does them: only
+      // the group for the frame the clip is on is drawn.
+      const ugui::wid active = ActiveState(world, entry.widget, at);
+      if (active.valid())
+        HideOtherStates(world, entry.widget, active);
+      if (bool(VanillaReport)) {
+        const ugui::WidgetNode* node = world.Get<ugui::WidgetNode>(entry.widget);
+        RX_INFO("  vanilla as3: {} frame {} timeline {} opacity {}",
+                node ? node->name.c_str() : "?", at,
+                entry.timeline ? "yes" : "no", opacity);
       }
       if (entry.is_text) {
         const swf::As3Value text = avm2->GetProperty(object, "text");
@@ -282,7 +384,9 @@ struct VanillaRuntime::Impl {
         const swf::As3Value instance = avm2->Construct(klass.name);
         if (!instance.is_object())
           continue;
+        as3_instances[klass.name] = instance.object();
         avm2->Invoke(instance, "SetPlatform", flags);
+        avm2->Invoke(instance, "InitMenu", flags);
         avm2->Invoke(instance, "InitList", flags);
       }
     }
@@ -385,6 +489,26 @@ struct VanillaRuntime::Impl {
   // "$KEY" resolved against the interface's own table, the way Scaleform's
   // translation layer did on the way to the screen. Left as-is when the table
   // has no such key, which is what the game shows too.
+  // The text the translation baked into the markup. A movie ships its labels as
+  // the game's own string keys ("$PIPBOY"), because the player looks them up
+  // when it draws the field rather than when the field is authored.
+  void LocaliseTree(ugui::WidgetRegistry& world, ugui::wid widget, u32 depth) {
+    if (!widget.valid() || depth > 32)
+      return;
+    if (ugui::TextContent* content = world.Get<ugui::TextContent>(widget)) {
+      const base::String text(content->text.c_str());
+      if (!text.empty() && text[0] == '$') {
+        const base::String localised = Localise(text);
+        if (localised != text)
+          Write(world, widget, localised);
+      }
+    }
+    if (const ugui::Hierarchy* h = world.Get<ugui::Hierarchy>(widget)) {
+      for (ugui::wid child : h->children)
+        LocaliseTree(world, child, depth + 1);
+    }
+  }
+
   base::String Localise(const base::String& text) const {
     if (strings == nullptr || text.empty() || text[0] != '$')
       return text;
@@ -397,20 +521,20 @@ struct VanillaRuntime::Impl {
   // while it settles, and the screen only has to agree at the end of it.
   void Sync(ugui::UIContext& ui) {
     if (!bound.empty())
-      SyncNode(ui, 0, 1.0f);
+      SyncNode(ui, 0);
   }
 
-  // One clip and everything the translation put under it. `inherited` is the
-  // opacity the clips above it resolved to: a menu hides a whole page by
-  // clearing _visible on the page, and the widgets under it have to follow.
-  void SyncNode(ugui::UIContext& ui, u32 index, f32 inherited) {
+  // One clip and everything the translation put under it. Only the clip's own
+  // contribution goes on its widget: ugui inherits opacity, so a menu that
+  // hides a whole page by clearing _visible takes the page's widgets with it.
+  void SyncNode(ugui::UIContext& ui, u32 index) {
     const Bound& entry = bound[index];
     if (!vm.Valid(entry.clip) || !entry.widget.valid())
       return;
     const swf::AsValue clip = swf::AsValue::Obj(entry.clip);
 
     const swf::Stage::Placement placed = stage->PlacedAt(clip);
-    f32 opacity = inherited * placed.alpha;
+    f32 opacity = placed.alpha;
     const swf::AsValue visible = vm.GetMember(clip, "_visible");
     if (!visible.is_undefined() && !vm.ToBool(visible))
       opacity = 0.0f;
@@ -441,7 +565,7 @@ struct VanillaRuntime::Impl {
         Write(ui.world(), entry.widget, Localise(vm.ToString(text)));
     }
     for (u32 child : entry.children)
-      SyncNode(ui, child, opacity);
+      SyncNode(ui, child);
   }
 
   // A clip its script has moved off where the frame put it. A list lays its
@@ -480,19 +604,24 @@ struct VanillaRuntime::Impl {
     ugui::MarkDirty(world, widget);
   }
 
-  // ugui does not inherit opacity, so a clip's has to be written onto every
-  // widget under it. The walk stops wherever a child clip took over, since that
-  // clip resolves its own and paints its own subtree.
+  void SetOpacity(ugui::WidgetRegistry& world, ugui::wid widget, f32 opacity) {
+    ugui::StyleC* sc = world.Get<ugui::StyleC>(widget);
+    if (!sc || sc->style.opacity == opacity)
+      return;
+    ugui::Style style = sc->style;
+    style.opacity = opacity;
+    ugui::SetStyle(world, widget, style);
+  }
+
+  // The clip's own opacity, then whatever of its subtree this frame is not
+  // showing. Only widgets the timeline has something to say about are written:
+  // the rest keep the alpha the placement authored, and inherit the clip's.
   void Paint(ugui::WidgetRegistry& world, ugui::wid widget, f32 opacity,
              const Bound& owner, const base::Vector<base::String>& current,
              const base::Vector<base::String>& ever, ugui::wid active) {
     if (!widget.valid())
       return;
-    if (ugui::StyleC* sc = world.Get<ugui::StyleC>(widget); sc && sc->style.opacity != opacity) {
-      ugui::Style style = sc->style;
-      style.opacity = opacity;
-      ugui::SetStyle(world, widget, style);
-    }
+    SetOpacity(world, widget, opacity);
     const ugui::Hierarchy* h = world.Get<ugui::Hierarchy>(widget);
     if (!h)
       return;
@@ -502,15 +631,13 @@ struct VanillaRuntime::Impl {
         owned = owned || Same(bound[index].widget, child);
       if (owned)
         continue;  // that clip resolves its own state
+      // Only the group for the frame the clip is on is drawn, and taking a
+      // group down takes everything under it, so the walk stops there.
       if (IsStateGroup(world, child)) {
-        Paint(world, child, Same(child, active) ? opacity : 0.0f, owner, current, ever,
-              ugui::kNullWidget);
+        SetOpacity(world, child, Same(child, active) ? 1.0f : 0.0f);
         continue;
       }
-      // Anything below a state group keeps whatever state it is showing: only
-      // the clip that owns a group knows which frame it is on, and a widget
-      // reached without one has no clip to ask.
-      Paint(world, child, OnStage(world, child, current, ever) ? opacity : 0.0f, owner,
+      Paint(world, child, OnStage(world, child, current, ever) ? 1.0f : 0.0f, owner,
             current, ever, active);
     }
   }
@@ -606,6 +733,7 @@ bool VanillaRuntime::Load(ugui::UIContext& ui, base::StringRef dir, base::String
     const ugui::wid as3_root = ui.FindWidget(base::String(root).c_str());
     if (as3_root.valid()) {
       impl_->root = as3_root;
+      impl_->LocaliseTree(ui.world(), as3_root, 0);
       impl_->BindAbc(ui, as3_root);
       impl_->SyncAbc(ui);
     }
@@ -634,6 +762,7 @@ bool VanillaRuntime::Load(ugui::UIContext& ui, base::StringRef dir, base::String
     return false;
   }
   impl_->root = root_widget;
+  impl_->LocaliseTree(ui.world(), root_widget, 0);
   impl_->Rebind(ui);
   impl_->Sync(ui);
   impl_->ready = true;

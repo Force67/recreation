@@ -1467,20 +1467,6 @@ struct GameUi::Impl {
   // rows at runtime out of the exported MainMenuListEntry symbol rather than
   // placing them on the timeline the way Skyrim's AS2 lists do.
   void BuildFalloutMainMenu(base::StringRef screen) {
-    static const char* const kStatePanels[] = {
-        "ColorReference_mc",     "BackgroundAndBrackets_mc",
-        "DLCPanel_mc",           "DLCImageSizer_mc",
-        "ConfirmPanel_mc",       "SettingsPanel_mc",
-        "BackgroundAndBracketsInstalledContentTopic_mc",
-        "InstalledContentPanel_mc",
-        "BackgroundAndBracketsHelpTopic_mc",
-        "HelpPanel_mc",          "ControlsPanel_mc",
-        "RemapPrompt_mc",        "OptionsPanel_mc",
-        "SaveLoadHolder_mc",     "CharacterSelectList_mc",
-        "Upsell_mc",             "Spinner_mc",
-    };
-    for (const char* panel : kStatePanels)
-      ui::ShowVanillaSubtree(ui, panel, false);
     ui::SetVanillaTextIn(ui, VanillaRootName(screen), "VersionText_tf", "recreation");
 
     // The entries are the screen's own: MainMenu.InitList pushes them, and the

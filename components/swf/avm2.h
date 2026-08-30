@@ -108,6 +108,14 @@ class Avm2 {
   bool Invoke(const As3Value& instance, base::StringRef name,
               const base::Vector<As3Value>& args);
 
+  // Runs the frame code the class `class_name` opens on against `instance`.
+  // A movie's nested panels are timeline classes whose frame-1 script is what
+  // says how they open, and which class a placement is comes from the movie's
+  // SymbolClass rather than from the trait's declared type: the declaration is
+  // only `flash.display.MovieClip`. So the host, which has the movie, is what
+  // can pair a placement with its class.
+  void RunOpeningFrame(base::StringRef class_name, const As3Value& instance);
+
   // --- object model -------------------------------------------------------
   u32 NewObject(u32 prototype = 0);
   u32 NewArray();
@@ -153,6 +161,7 @@ class Avm2 {
   // Finds the object on the scope chain that carries `name`, or the global.
   As3Value FindProperty(Frame& frame, base::StringRef name, bool strict);
   u32 ClassObject(u32 unit, base::StringRef name);
+  u32 NewDisplay(u32 prototype = 0);
   void InstallTraits(u32 unit, const AbcClass& definition, const As3Value& instance);
   // An object carrying a class's instance methods, and its base's behind it.
   // A display stand-in whose declared type names a class gets this as its

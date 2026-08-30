@@ -464,6 +464,91 @@ int main() {
   }
 
   {
+    // A timeline class's frame scripts. Every frame of a Fallout 4 panel has
+    // one and they contradict each other on purpose: frame 1 hides the panel,
+    // frame 3 shows it, frame 5 hides it again. A clip opens on frame 1, so
+    // that is the only one that may run, and `visible` has to be somewhere the
+    // script can find: `findproperty` walks the scope chain and falls back to
+    // the global object, which is where a clip's own state would end up.
+    swf::AbcFile abc;
+    abc.strings.push_back("");
+    abc.names.push_back("");         // 0
+    abc.names.push_back("visible");  // 1
+
+    static const rx::u8 kCtor[] = {0xd0, 0x30, 0x47};
+    // function frame1() { visible = false; }
+    static const rx::u8 kFrame1[] = {
+        0xd0,        // getlocal_0
+        0x30,        // pushscope
+        0x5e, 0x01,  // findproperty visible
+        0x27,        // pushfalse
+        0x68, 0x01,  // initproperty visible
+        0x47,        // returnvoid
+    };
+    // function frame3() { visible = true; }
+    static const rx::u8 kFrame3[] = {
+        0xd0, 0x30, 0x5e, 0x01, 0x26, 0x68, 0x01, 0x47,
+    };
+
+    for (rx::u32 i = 0; i < 3; ++i) {
+      swf::AbcMethod method;
+      method.body = i;
+      abc.methods.push_back(base::move(method));
+    }
+    const ByteSpan bodies[] = {ByteSpan{kCtor, sizeof(kCtor)},
+                               ByteSpan{kFrame1, sizeof(kFrame1)},
+                               ByteSpan{kFrame3, sizeof(kFrame3)}};
+    for (rx::u32 i = 0; i < 3; ++i) {
+      swf::AbcMethodBody body;
+      body.method = i;
+      body.local_count = 1;
+      body.code = bodies[i];
+      abc.bodies.push_back(base::move(body));
+    }
+
+    swf::AbcClass panel;
+    panel.name = "MainMenu_fla.OptionsListPanel";
+    panel.constructor = 0;
+    swf::AbcTrait child;
+    child.kind = swf::TraitKind::kSlot;
+    child.name = "Fader_mc";
+    child.type = "flash.display.MovieClip";
+    panel.instance_traits.push_back(base::move(child));
+    swf::AbcTrait frame1;
+    frame1.kind = swf::TraitKind::kMethod;
+    frame1.name = "MainMenu_fla.frame1";
+    frame1.method = 1;
+    panel.instance_traits.push_back(base::move(frame1));
+    swf::AbcTrait frame3;
+    frame3.kind = swf::TraitKind::kMethod;
+    frame3.name = "MainMenu_fla.frame3";
+    frame3.method = 2;
+    panel.instance_traits.push_back(base::move(frame3));
+    abc.classes.push_back(base::move(panel));
+
+    swf::Avm2 vm;
+    vm.AddAbc(abc);
+    const swf::As3Value panel_instance = vm.Construct("MainMenu_fla.OptionsListPanel");
+    Check(panel_instance.is_object(), "the panel class constructs");
+    const swf::As3Value visible = vm.GetProperty(panel_instance, "visible");
+    Check(!visible.is_undefined(),
+          "the frame script's assignment lands on the clip, not on the global object");
+    Check(!vm.ToBool(visible), "and it is frame 1's, which is the frame a clip opens on");
+    const swf::As3Value child_clip = vm.GetProperty(panel_instance, "Fader_mc");
+    Check(vm.ToBool(vm.GetProperty(child_clip, "visible")),
+          "a display member answers to visible from the start, as the player's does");
+    Check(vm.unhandled().empty(), "with no opcode the machine had to step over");
+
+    // And the host can run the same frame code against something else, which is
+    // how a placement gets the class the movie's SymbolClass bound to it: the
+    // declared trait type is only ever flash.display.MovieClip.
+    const rx::u32 stand_in = vm.NewObject();
+    vm.RunOpeningFrame("MainMenu_fla.OptionsListPanel", swf::As3Value::Obj(stand_in));
+    Check(!vm.ToBool(vm.GetProperty(swf::As3Value::Obj(stand_in), "visible")),
+          "so a panel the movie placed opens hidden the way its own frame says");
+  }
+
+  {
     // The decoder. A branch is measured from the END of its instruction, and an
     // opcode the table does not know desynchronises the stream, so decoding
     // stops there rather than reading operands out of the next instruction.
