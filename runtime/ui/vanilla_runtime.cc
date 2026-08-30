@@ -394,6 +394,44 @@ void VanillaRuntime::SetAnswerer(swf::GameBridge::Answerer answerer, void* user)
     impl_->bridge->set_answerer(answerer, user);
 }
 
+bool VanillaRuntime::Navigate(ugui::UIContext& ui, base::StringRef navigation) {
+  if (!impl_ || !impl_->ready)
+    return false;
+  swf::Vm& vm = impl_->vm;
+  const swf::AsValue details = swf::AsValue::Obj(vm.NewObject());
+  vm.SetMember(details, "navEquivalent", swf::AsValue::Str(navigation));
+  vm.SetMember(details, "value", swf::AsValue::Str("keyDown"));
+  vm.SetMember(details, "code", swf::AsValue::Number(0));
+  vm.SetMember(details, "controllerIdx", swf::AsValue::Number(0));
+  const swf::AsValue path = swf::AsValue::Obj(vm.NewArray());
+  vm.SetMember(path, "length", swf::AsValue::Number(0));
+
+  // The game routes a key through its focus manager to the component that has
+  // focus. There is no focus manager here, so the key goes to the lists that
+  // have something in them, which is what the player is looking at.
+  bool handled = false;
+  for (const Impl::Bound& entry : impl_->bound) {
+    if (!vm.Valid(entry.clip))
+      continue;
+    const swf::AsValue clip = swf::AsValue::Obj(entry.clip);
+    const swf::AsValue entries = vm.GetMember(clip, "entryList");
+    if (!entries.is_object() || vm.ToNumber(vm.GetMember(entries, "length")) <= 0)
+      continue;
+    if (!vm.ToBool(vm.GetMember(clip, "_visible")))
+      continue;
+    base::Vector<swf::AsValue> args;
+    args.push_back(details);
+    args.push_back(path);
+    if (impl_->stage->Dispatch(clip, "handleInput", args))
+      handled = true;
+  }
+  if (handled) {
+    impl_->Rebind(ui);
+    impl_->Sync(ui);
+  }
+  return handled;
+}
+
 bool VanillaRuntime::Send(ugui::UIContext& ui, base::StringRef name,
                           const base::Vector<swf::AsValue>& args) {
   if (!impl_ || !impl_->ready)
@@ -495,6 +533,9 @@ bool VanillaRuntime::Load(ugui::UIContext&, base::StringRef, base::StringRef,
 }
 void VanillaRuntime::Tick(ugui::UIContext&, f32) {}
 bool VanillaRuntime::Click(ugui::UIContext&, u32) {
+  return false;
+}
+bool VanillaRuntime::Navigate(ugui::UIContext&, base::StringRef) {
   return false;
 }
 bool VanillaRuntime::Send(ugui::UIContext&, base::StringRef,

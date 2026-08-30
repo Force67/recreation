@@ -62,6 +62,12 @@ class VanillaRuntime {
   // Returns whether the movie's own code handled it.
   bool Click(ugui::UIContext& ui, u32 widget);
 
+  // A navigation key or pad press, as gfx.ui.NavigationCode names it: "up",
+  // "down", "left", "right", "enter", "escape". Reaches the components through
+  // the movie's own `handleInput`, so it drives every screen's navigation
+  // rather than one screen's. Returns whether anything took it.
+  bool Navigate(ugui::UIContext& ui, base::StringRef navigation);
+
   // Sends the host's side of the conversation, e.g. "sendMenuProperties" with
   // what this build offers. False when the movie is not listening for `name`.
   // See components/swf/bridge.h for which direction is which.

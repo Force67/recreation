@@ -3317,6 +3317,24 @@ void GameUi::Build(Window& window,
   // The vanilla menus are lists the game drives itself rather than focus rings,
   // so they take up/down and activate directly instead of going through ugui's
   // navigation. Their rows are all one widget deep and carry no focus index.
+  // The interpreter path takes navigation through the movies' own components,
+  // which reaches whichever screen is up without the host knowing which.
+  if (!impl->legal_open && ui::VanillaRuntime::Enabled()) {
+    const char* navigation = nullptr;
+    if (in.key_pressed(Key::kArrowUp) || pad_pressed[static_cast<int>(GamepadButton::kDpadUp)])
+      navigation = "up";
+    else if (in.key_pressed(Key::kArrowDown) ||
+             pad_pressed[static_cast<int>(GamepadButton::kDpadDown)])
+      navigation = "down";
+    else if (in.key_pressed(Key::kReturn) ||
+             pad_pressed[static_cast<int>(GamepadButton::kSouth)])
+      navigation = "enter";
+    if (navigation != nullptr) {
+      for (ui::VanillaRuntime& runtime : impl->vanilla_vms)
+        runtime.Navigate(impl->ui, navigation);
+    }
+  }
+
   const bool start_menu_live = impl->start_menu_active && impl->main_menu_open;
   const bool pause_menu_live = impl->pause_menu_active && impl->menu_open;
   if (!impl->legal_open && (start_menu_live || pause_menu_live)) {

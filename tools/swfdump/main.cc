@@ -225,6 +225,40 @@ void RunScripts(const swf::Movie& movie) {
     std::printf("%u of %u clip(s) hidden\n", hidden, stage.clip_count());
   }
 
+  // A navigation key through the movie's own components, which is how a host
+  // drives every screen's selection without knowing any of them: build the
+  // `details` the game builds and hand it to whatever is listening.
+  {
+    const swf::AsValue details = swf::AsValue::Obj(vm.NewObject());
+    vm.SetMember(details, "navEquivalent", swf::AsValue::Str("down"));
+    vm.SetMember(details, "value", swf::AsValue::Str("keyDown"));
+    const swf::AsValue path = swf::AsValue::Obj(vm.NewArray());
+    vm.SetMember(path, "length", swf::AsValue::Number(0));
+    u32 took = 0;
+    const u32 objects = vm.object_count();
+    for (u32 i = 1; i < objects; ++i) {
+      if (!vm.Valid(i) || !vm.Get(i).is_movie_clip)
+        continue;
+      const swf::AsValue clip = swf::AsValue::Obj(i);
+      const swf::AsValue entries = vm.GetMember(clip, "entryList");
+      if (!entries.is_object() || vm.ToNumber(vm.GetMember(entries, "length")) <= 0)
+        continue;
+      const f64 before = vm.ToNumber(vm.GetMember(clip, "iSelectedIndex"));
+      base::Vector<swf::AsValue> args;
+      args.push_back(details);
+      args.push_back(path);
+      if (!stage.Dispatch(clip, "handleInput", args))
+        continue;
+      ++took;
+      const f64 after = vm.ToNumber(vm.GetMember(clip, "iSelectedIndex"));
+      if (took <= 4)
+        std::printf("  down on %s: selection %d -> %d\n",
+                    vm.ToString(vm.GetMember(clip, "_name")).c_str(),
+                    static_cast<int>(before), static_cast<int>(after));
+    }
+    std::printf("%u list(s) took a navigation key\n", took);
+  }
+
   // Every list the run left with entries in it. A shipped menu ships its lists
   // empty, so this is the direct measure of how much of a screen the movie's
   // own code managed to fill.
