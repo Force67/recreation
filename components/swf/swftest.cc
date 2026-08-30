@@ -464,6 +464,51 @@ int main() {
   }
 
   {
+    // The standard library an AS3 menu leans on. Each of these decides a
+    // branch: a screen asks whether the string it was handed is empty before it
+    // prints it, and unanswered `length` is undefined, which reads as empty.
+    swf::Avm2 vm;
+    const swf::As3Value text = swf::As3Value::Str("Fallout");
+    Check(vm.ToNumber(vm.GetProperty(text, "length")) == 7, "a string knows its length");
+
+    base::Vector<swf::As3Value> args;
+    args.push_back(swf::As3Value::Number(3));
+    Check(vm.ToString(vm.Call(vm.GetProperty(text, "substr"), text, args)) == "lout",
+          "substr counts from its start");
+    Check(vm.ToString(vm.Call(vm.GetProperty(text, "charAt"), text, args)) == "l",
+          "charAt takes one");
+    Check(vm.ToNumber(vm.Call(vm.GetProperty(text, "charCodeAt"), text, args)) == 108,
+          "and charCodeAt its code");
+    Check(vm.ToString(vm.Call(vm.GetProperty(text, "toUpperCase"), text,
+                              base::Vector<swf::As3Value>())) == "FALLOUT",
+          "case folding leaves everything else alone");
+
+    base::Vector<swf::As3Value> needle;
+    needle.push_back(swf::As3Value::Str("out"));
+    Check(vm.ToNumber(vm.Call(vm.GetProperty(text, "indexOf"), text, needle)) == 4,
+          "indexOf finds a substring");
+    needle[0] = swf::As3Value::Str("Skyrim");
+    Check(vm.ToNumber(vm.Call(vm.GetProperty(text, "indexOf"), text, needle)) == -1,
+          "and answers -1 rather than nothing when it is not there");
+
+    // Out of range is empty, not a read off the end.
+    base::Vector<swf::As3Value> past;
+    past.push_back(swf::As3Value::Number(99));
+    Check(vm.ToString(vm.Call(vm.GetProperty(text, "charAt"), text, past)).empty(),
+          "an index past the end yields nothing");
+
+    const swf::As3Value math = vm.GetProperty(swf::As3Value::Obj(vm.global()), "Math");
+    Check(math.is_object(), "Math is on the global scope where getlex looks");
+    base::Vector<swf::As3Value> half;
+    half.push_back(swf::As3Value::Number(2.5));
+    Check(vm.ToNumber(vm.Call(vm.GetProperty(math, "round"), math, half)) == 3,
+          "Math.round takes a half upwards, as the player does");
+    half[0] = swf::As3Value::Number(-2.5);
+    Check(vm.ToNumber(vm.Call(vm.GetProperty(math, "round"), math, half)) == -2,
+          "upwards in both directions, which is not away from zero");
+  }
+
+  {
     // A timeline class's frame scripts. Every frame of a Fallout 4 panel has
     // one and they contradict each other on purpose: frame 1 hides the panel,
     // frame 3 shows it, frame 5 hides it again. A clip opens on frame 1, so

@@ -295,6 +295,166 @@ As3Value AddChild(Avm2& vm, const As3Value& self, const base::Vector<As3Value>& 
   return args[0];
 }
 
+// --- the standard library the menus actually use ----------------------------
+//
+// A shipped menu leans on a handful of String and Math members and on little
+// else: it slices a save's timestamp apart, upper-cases a label, rounds a
+// percentage. Unanswered, each of these hands back undefined and the branch
+// that reads it takes the wrong turn quietly, which is worse than an opcode the
+// machine does not implement because nothing reports it.
+
+// The index `at` counts from, clamped into the string. Negative counts back
+// from the end, as the language does.
+mem_size StringOffset(const base::String& text, f64 at) {
+  if (at != at)
+    return 0;
+  if (at < 0) {
+    const f64 from_end = static_cast<f64>(text.size()) + at;
+    return from_end < 0 ? 0 : static_cast<mem_size>(from_end);
+  }
+  const mem_size index = static_cast<mem_size>(at);
+  return index > text.size() ? text.size() : index;
+}
+
+f64 ArgOr(const base::Vector<As3Value>& args, mem_size index, Avm2& vm, f64 fallback) {
+  if (index >= args.size() || args[index].is_undefined())
+    return fallback;
+  const f64 value = vm.ToNumber(args[index]);
+  return value == value ? value : fallback;
+}
+
+As3Value StringLength(Avm2&, const As3Value& self, const base::Vector<As3Value>&) {
+  return As3Value::Number(static_cast<f64>(self.string().size()));
+}
+
+As3Value StringSubstr(Avm2& vm, const As3Value& self,
+                      const base::Vector<As3Value>& args) {
+  const base::String& text = self.string();
+  const mem_size start = StringOffset(text, ArgOr(args, 0, vm, 0));
+  const f64 count = ArgOr(args, 1, vm, static_cast<f64>(text.size()));
+  const mem_size length =
+      count <= 0 ? 0
+                 : base::Min<mem_size>(static_cast<mem_size>(count), text.size() - start);
+  return As3Value::Str(base::StringRef(text).subslice(start, length));
+}
+
+// substring takes two ends rather than a start and a count, and puts them in
+// order if the caller had them the other way round.
+As3Value StringSubstring(Avm2& vm, const As3Value& self,
+                         const base::Vector<As3Value>& args) {
+  const base::String& text = self.string();
+  mem_size from = StringOffset(text, base::Max<f64>(0, ArgOr(args, 0, vm, 0)));
+  mem_size to =
+      StringOffset(text, base::Max<f64>(0, ArgOr(args, 1, vm, static_cast<f64>(text.size()))));
+  if (from > to) {
+    const mem_size swap = from;
+    from = to;
+    to = swap;
+  }
+  return As3Value::Str(base::StringRef(text).subslice(from, to - from));
+}
+
+As3Value StringSlice(Avm2& vm, const As3Value& self,
+                     const base::Vector<As3Value>& args) {
+  const base::String& text = self.string();
+  const mem_size from = StringOffset(text, ArgOr(args, 0, vm, 0));
+  const mem_size to =
+      StringOffset(text, ArgOr(args, 1, vm, static_cast<f64>(text.size())));
+  if (from >= to)
+    return As3Value::Str("");
+  return As3Value::Str(base::StringRef(text).subslice(from, to - from));
+}
+
+As3Value StringCharAt(Avm2& vm, const As3Value& self,
+                      const base::Vector<As3Value>& args) {
+  const base::String& text = self.string();
+  const f64 at = ArgOr(args, 0, vm, 0);
+  if (at < 0 || at != at || static_cast<mem_size>(at) >= text.size())
+    return As3Value::Str("");
+  return As3Value::Str(base::StringRef(text).subslice(static_cast<mem_size>(at), 1));
+}
+
+As3Value StringCharCodeAt(Avm2& vm, const As3Value& self,
+                          const base::Vector<As3Value>& args) {
+  const base::String& text = self.string();
+  const f64 at = ArgOr(args, 0, vm, 0);
+  if (at < 0 || at != at || static_cast<mem_size>(at) >= text.size())
+    return As3Value::Number(std::numeric_limits<f64>::quiet_NaN());
+  return As3Value::Number(
+      static_cast<f64>(static_cast<u8>(text[static_cast<mem_size>(at)])));
+}
+
+As3Value StringIndexOf(Avm2& vm, const As3Value& self,
+                       const base::Vector<As3Value>& args) {
+  const base::String& text = self.string();
+  if (args.empty())
+    return As3Value::Number(-1);
+  const base::String needle = vm.ToString(args[0]);
+  const mem_size from = StringOffset(text, ArgOr(args, 1, vm, 0));
+  if (needle.empty())
+    return As3Value::Number(static_cast<f64>(from));
+  for (mem_size i = from; i + needle.size() <= text.size(); ++i) {
+    bool hit = true;
+    for (mem_size c = 0; hit && c < needle.size(); ++c)
+      hit = text[i + c] == needle[c];
+    if (hit)
+      return As3Value::Number(static_cast<f64>(i));
+  }
+  return As3Value::Number(-1);
+}
+
+As3Value StringUpper(Avm2&, const As3Value& self, const base::Vector<As3Value>&) {
+  base::String out = self.string();
+  for (mem_size i = 0; i < out.size(); ++i)
+    if (out[i] >= 'a' && out[i] <= 'z')
+      out[i] = static_cast<char>(out[i] - 'a' + 'A');
+  return As3Value::Str(out);
+}
+
+As3Value StringLower(Avm2&, const As3Value& self, const base::Vector<As3Value>&) {
+  base::String out = self.string();
+  for (mem_size i = 0; i < out.size(); ++i)
+    if (out[i] >= 'A' && out[i] <= 'Z')
+      out[i] = static_cast<char>(out[i] - 'A' + 'a');
+  return As3Value::Str(out);
+}
+
+As3Value ValueToString(Avm2& vm, const As3Value& self, const base::Vector<As3Value>&) {
+  return As3Value::Str(vm.ToString(self));
+}
+
+As3Value MathFloor(Avm2& vm, const As3Value&, const base::Vector<As3Value>& args) {
+  return As3Value::Number(std::floor(ArgOr(args, 0, vm, 0)));
+}
+As3Value MathCeil(Avm2& vm, const As3Value&, const base::Vector<As3Value>& args) {
+  return As3Value::Number(std::ceil(ArgOr(args, 0, vm, 0)));
+}
+As3Value MathRound(Avm2& vm, const As3Value&, const base::Vector<As3Value>& args) {
+  // Flash rounds halves up rather than away from zero, so -0.5 is 0.
+  return As3Value::Number(std::floor(ArgOr(args, 0, vm, 0) + 0.5));
+}
+As3Value MathAbs(Avm2& vm, const As3Value&, const base::Vector<As3Value>& args) {
+  return As3Value::Number(std::fabs(ArgOr(args, 0, vm, 0)));
+}
+As3Value MathSqrt(Avm2& vm, const As3Value&, const base::Vector<As3Value>& args) {
+  return As3Value::Number(std::sqrt(ArgOr(args, 0, vm, 0)));
+}
+As3Value MathPow(Avm2& vm, const As3Value&, const base::Vector<As3Value>& args) {
+  return As3Value::Number(std::pow(ArgOr(args, 0, vm, 0), ArgOr(args, 1, vm, 0)));
+}
+As3Value MathMin(Avm2& vm, const As3Value&, const base::Vector<As3Value>& args) {
+  f64 out = std::numeric_limits<f64>::infinity();
+  for (mem_size i = 0; i < args.size(); ++i)
+    out = base::Min<f64>(out, vm.ToNumber(args[i]));
+  return As3Value::Number(out);
+}
+As3Value MathMax(Avm2& vm, const As3Value&, const base::Vector<As3Value>& args) {
+  f64 out = -std::numeric_limits<f64>::infinity();
+  for (mem_size i = 0; i < args.size(); ++i)
+    out = base::Max<f64>(out, vm.ToNumber(args[i]));
+  return As3Value::Number(out);
+}
+
 }  // namespace
 
 Avm2::Avm2() {
@@ -322,6 +482,36 @@ Avm2::Avm2() {
         "removeChildAt", "swapChildren", "hitTestObject"}) {
     SetProperty(proto, name, As3Value::Obj(NewNative(&DisplayNoOp)));
   }
+  SetProperty(proto, "toString", As3Value::Obj(NewNative(&ValueToString)));
+
+  // What a string answers to. Held on an object of its own rather than on the
+  // object prototype: a string is not an object here, so GetProperty looks its
+  // members up here directly.
+  string_members_ = NewObject();
+  const As3Value strings = As3Value::Obj(string_members_);
+  SetProperty(strings, "length", As3Value::Obj(NewNative(&StringLength)));
+  SetProperty(strings, "substr", As3Value::Obj(NewNative(&StringSubstr)));
+  SetProperty(strings, "substring", As3Value::Obj(NewNative(&StringSubstring)));
+  SetProperty(strings, "slice", As3Value::Obj(NewNative(&StringSlice)));
+  SetProperty(strings, "charAt", As3Value::Obj(NewNative(&StringCharAt)));
+  SetProperty(strings, "charCodeAt", As3Value::Obj(NewNative(&StringCharCodeAt)));
+  SetProperty(strings, "indexOf", As3Value::Obj(NewNative(&StringIndexOf)));
+  SetProperty(strings, "toUpperCase", As3Value::Obj(NewNative(&StringUpper)));
+  SetProperty(strings, "toLowerCase", As3Value::Obj(NewNative(&StringLower)));
+  SetProperty(strings, "toString", As3Value::Obj(NewNative(&ValueToString)));
+
+  const u32 math = NewObject();
+  const As3Value math_value = As3Value::Obj(math);
+  SetProperty(math_value, "floor", As3Value::Obj(NewNative(&MathFloor)));
+  SetProperty(math_value, "ceil", As3Value::Obj(NewNative(&MathCeil)));
+  SetProperty(math_value, "round", As3Value::Obj(NewNative(&MathRound)));
+  SetProperty(math_value, "abs", As3Value::Obj(NewNative(&MathAbs)));
+  SetProperty(math_value, "sqrt", As3Value::Obj(NewNative(&MathSqrt)));
+  SetProperty(math_value, "pow", As3Value::Obj(NewNative(&MathPow)));
+  SetProperty(math_value, "min", As3Value::Obj(NewNative(&MathMin)));
+  SetProperty(math_value, "max", As3Value::Obj(NewNative(&MathMax)));
+  SetProperty(math_value, "PI", As3Value::Number(3.141592653589793));
+  SetProperty(As3Value::Obj(global_), "Math", math_value);
 }
 
 u32 Avm2::NewObject(u32 prototype) {
@@ -409,9 +599,21 @@ base::String Avm2::ToString(const As3Value& v) {
 }
 
 As3Value Avm2::GetProperty(const As3Value& target, base::StringRef name) {
+  const base::String key(LastSegment(name));
+  // A string carries its own members. `length` is the one that decides
+  // branches: a menu asks whether the text it was handed is empty before it
+  // writes it anywhere, so a string without one silently takes the empty path.
+  if (target.is_string()) {
+    if (key == "length")
+      return As3Value::Number(static_cast<f64>(target.string().size()));
+    if (Valid(string_members_)) {
+      if (const As3Value* found = objects_[string_members_].props.find(key))
+        return *found;
+    }
+    return As3Value::Undefined();
+  }
   if (!target.is_object() || !Valid(target.object()))
     return As3Value::Undefined();
-  const base::String key(LastSegment(name));
   for (u32 current = target.object(), guard = 0; guard < 64 && Valid(current); ++guard) {
     if (const As3Value* found = objects_[current].props.find(key))
       return *found;
@@ -419,6 +621,14 @@ As3Value Avm2::GetProperty(const As3Value& target, base::StringRef name) {
   }
   // A stand-in's missing member is another stand-in: the player would have put
   // a display object there, and the code walks straight through it.
+  // Any name on the code object is a call the host answers.
+  if (objects_[target.object()].is_code_object && objects_.size() < kMaxObjects) {
+    const u32 fn = NewObject();
+    objects_[fn].is_function = true;
+    objects_[fn].external = key;
+    SetProperty(target, key, As3Value::Obj(fn));
+    return As3Value::Obj(fn);
+  }
   if (objects_[target.object()].is_display && objects_.size() < kMaxObjects) {
     const u32 child = NewDisplay();
     SetProperty(target, key, As3Value::Obj(child));
@@ -501,6 +711,12 @@ u32 Avm2::ClassObject(u32 unit, base::StringRef name) {
 // object that already carries the name and falls back to the global when none
 // does, so a stand-in without `visible` sends its clip's own state to the
 // global object and the clip reads as showing whatever it was exported as.
+u32 Avm2::NewCodeObject() {
+  const u32 object = NewObject();
+  objects_[object].is_code_object = true;
+  return object;
+}
+
 u32 Avm2::NewDisplay(u32 prototype) {
   const u32 object = NewObject(prototype);
   objects_[object].is_display = true;
@@ -663,6 +879,13 @@ As3Value Avm2::Call(const As3Value& function, const As3Value& self,
                     const base::Vector<As3Value>& args) {
   if (!function.is_object() || !Valid(function.object()))
     return As3Value::Undefined();
+  if (!objects_[function.object()].external.empty()) {
+    const base::String name = objects_[function.object()].external;
+    external_calls_.push_back(name);
+    if (external_handler_ == nullptr)
+      return As3Value::Undefined();
+    return external_handler_(external_user_, *this, name, args);
+  }
   const As3Object& fn = objects_[function.object()];
   if (fn.native)
     return fn.native(*this, self, args);

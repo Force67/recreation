@@ -362,8 +362,9 @@ struct VanillaRuntime::Impl {
 
   // Runs an AS3 movie's classes the way the player does, and keeps whatever
   // ended up in the longest list.
-  void RunAbc() {
+  void RunAbc(swf::Avm2::ExternalHandler answerer, void* user) {
     avm2 = base::MakeUnique<swf::Avm2>();
+    avm2->set_external_handler(answerer, user);
     for (const swf::AbcFile& file : abc)
       avm2->AddAbc(file);
     // Every class, then the message the game opens a screen with. An AS3 menu
@@ -385,9 +386,17 @@ struct VanillaRuntime::Impl {
         if (!instance.is_object())
           continue;
         as3_instances[klass.name] = instance.object();
+        // What the game hands a screen to talk back through, before it opens:
+        // the screen asks its questions while it is coming up.
+        avm2->SetProperty(instance, "BGSCodeObj",
+                          swf::As3Value::Obj(avm2->NewCodeObject()));
         avm2->Invoke(instance, "SetPlatform", flags);
         avm2->Invoke(instance, "InitMenu", flags);
         avm2->Invoke(instance, "InitList", flags);
+        base::Vector<swf::As3Value> version;
+        version.push_back(swf::As3Value::Str("recreation"));
+        version.push_back(swf::As3Value::Number(0));
+        avm2->Invoke(instance, "SetVersionText", version);
       }
     }
     for (u32 i = 1; i < avm2->object_count(); ++i) {
@@ -729,7 +738,7 @@ bool VanillaRuntime::Load(ugui::UIContext& ui, base::StringRef dir, base::String
       if (swf::ParseAbc(block, file))
         impl_->abc.push_back(base::move(file));
     }
-    impl_->RunAbc();
+    impl_->RunAbc(as3_answerer_, as3_answer_user_);
     const ugui::wid as3_root = ui.FindWidget(base::String(root).c_str());
     if (as3_root.valid()) {
       impl_->root = as3_root;
@@ -770,6 +779,22 @@ bool VanillaRuntime::Load(ugui::UIContext& ui, base::StringRef dir, base::String
           screen, impl_->stage->clip_count(), impl_->bound.size(),
           impl_->bridge->Callbacks().size());
   return true;
+}
+
+void VanillaRuntime::SetAs3Answerer(swf::Avm2::ExternalHandler handler, void* user) {
+  as3_answerer_ = handler;
+  as3_answer_user_ = user;
+  if (impl_ && impl_->avm2)
+    impl_->avm2->set_external_handler(handler, user);
+}
+
+base::Vector<base::String> VanillaRuntime::As3Calls() const {
+  base::Vector<base::String> out;
+  if (!impl_ || !impl_->avm2)
+    return out;
+  for (const base::String& call : impl_->avm2->external_calls())
+    out.push_back(call);
+  return out;
 }
 
 void VanillaRuntime::SetAnswerer(swf::GameBridge::Answerer answerer, void* user) {

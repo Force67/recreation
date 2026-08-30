@@ -7,6 +7,7 @@
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
 
+#include "components/swf/avm2.h"
 #include "components/swf/bridge.h"
 #include "components/swf/vm.h"
 #include "core/types.h"
@@ -30,10 +31,12 @@ namespace rx::ui {
 // walk of both at once. What the script then changes - visibility, position,
 // text, which frame a state clip is on - is written through to the widget.
 //
-// This is how a Skyrim menu runs now (RX_VANILLA_VM=0 turns it off, which
-// leaves the screen as the translation drew it). Fallout 4 and Starfield are
-// ActionScript 3, which the interpreter does not execute, so those screens are
-// still filled by hand - see GameUi::BuildFalloutMainMenu.
+// This is how every one of these screens runs now (RX_VANILLA_VM=0 turns it
+// off, which leaves the screen as the translation drew it). Skyrim's menus are
+// ActionScript 2 and run on the AVM1 machine; Fallout 4's and Starfield's are
+// ActionScript 3 and run on the AVM2 one beside it. The two differ in how the
+// game talks to a screen - AS2 through GameDelegate, AS3 through a code object
+// the game hands over - and in little else the host has to care about.
 class VanillaRuntime {
  public:
   VanillaRuntime();
@@ -95,6 +98,14 @@ class VanillaRuntime {
   // GameBridge::set_answerer. `user` is handed back untouched.
   void SetAnswerer(swf::GameBridge::Answerer answerer, void* user);
 
+  // The same for an ActionScript 3 screen, which asks through the code object
+  // the game hands it rather than through GameDelegate. Install before Load:
+  // an AS3 screen asks its questions while it is opening.
+  void SetAs3Answerer(swf::Avm2::ExternalHandler handler, void* user);
+
+  // What an ActionScript 3 screen asked the host for, in order.
+  base::Vector<base::String> As3Calls() const;
+
   // What the movie asked the host for and nothing answered, with the arguments
   // it passed. Drains the queue; answer any of them with Respond before the
   // next tick, since the movie drops its response slot as soon as the call it
@@ -120,6 +131,8 @@ class VanillaRuntime {
   const base::UnorderedMap<base::String, base::String>* strings_ = nullptr;
   swf::GameBridge::Answerer answerer_ = nullptr;
   void* answer_user_ = nullptr;
+  swf::Avm2::ExternalHandler as3_answerer_ = nullptr;
+  void* as3_answer_user_ = nullptr;
 };
 
 }  // namespace rx::ui

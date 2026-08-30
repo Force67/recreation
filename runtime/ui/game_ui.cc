@@ -1220,7 +1220,6 @@ struct GameUi::Impl {
   int legal_shown = -1;  // last count written, so the text is not set every frame
 
   // The translated pause menu (the journal's System page), same deal.
-  ui::VanillaList fallout_list_;  // Fallout 4's main menu option list
   // The screens' own ActionScript, running against the translated widgets.
   // Opt-in (RX_VANILLA_VM); the hand-written drivers still own the live menus.
   base::Vector<ui::VanillaRuntime> vanilla_vms;
@@ -1457,51 +1456,6 @@ struct GameUi::Impl {
   // Reassemble the tree from the (edited) fragments and reapply the live
   // visibility state the rebuild reset to markup defaults. Per-frame value
   // updates (HUD text, editor view, main-menu data) refresh the rest next frame.
-  // Fills the translated menus the way the game fills them on open. Runs at
-  // startup and again after a hot reload, which rebuilds the tree from markup
-  // and so throws away everything written into it here.
-  // Fallout 4's main menu is one class with every state's panel stacked into the
-  // single frame a static translation can capture, the same shape as Skyrim's
-  // journal. This puts it in its main state. It cannot fill the option list:
-  // that list ships EMPTY (its only child is a border), because AS3 builds the
-  // rows at runtime out of the exported MainMenuListEntry symbol rather than
-  // placing them on the timeline the way Skyrim's AS2 lists do.
-  void BuildFalloutMainMenu(base::StringRef screen) {
-    ui::SetVanillaTextIn(ui, VanillaRootName(screen), "VersionText_tf", "recreation");
-
-    // The entries are the screen's own: MainMenu.InitList pushes them, and the
-    // interpreter runs it. The rows themselves are still the ones the
-    // translation stamped, because the AS3 list component is not executed.
-    base::Vector<base::String> options;
-    for (ui::VanillaRuntime& runtime : vanilla_vms)
-      if (options.empty())
-        options = runtime.ListEntries();
-    if (!options.empty() && fallout_list_.Bind(ui, "MainPanel_mc")) {
-      base::Vector<ui::VanillaList::Entry> entries;
-      for (const base::String& option : options) {
-        const base::String* hit = vanilla_strings.find(option);
-        entries.push_back(ui::VanillaList::Entry{
-            hit ? *hit
-                : (option.size() > 1 && option[0] == '$' ? option.substr(1) : option),
-            false});
-      }
-      fallout_list_.SetEntries(base::move(entries));
-      fallout_list_.Apply(ui);
-    }
-    RX_INFO("ui: vanilla fallout main menu built {} entr{} from its own code",
-            options.size(), options.size() == 1 ? "y" : "ies");
-  }
-
-  // The screens the interpreter cannot drive. Skyrim's menus run their own
-  // ActionScript (see vanilla_runtime); Fallout 4's are ActionScript 3, which
-  // the interpreter does not execute, so that one is still filled by hand.
-  void BuildVanillaMenus() {
-    for (const ui::VanillaScreen& screen : VanillaScreens()) {
-      if (screen.name == "mainmenu")
-        BuildFalloutMainMenu(screen.name);
-    }
-  }
-
 
   // The message the game sends a menu when it opens it. Most screens fill
   // themselves from their own onLoad; the start menu is the one that waits to
@@ -1534,6 +1488,9 @@ struct GameUi::Impl {
       args.push_back(swf::AsValue::Bool(false));
     args[0] = swf::AsValue::Bool(true);       // quit is offered
     args[1] = swf::AsValue::Bool(has_save);   // continue, and load is enabled
+    // The build, which the screen prints as "v <this>" in its corner. Left as
+    // the `false` the loop fills with, that is what it prints.
+    args[2] = swf::AsValue::Str("recreation");
     args[7] = swf::AsValue::Bool(true);       // mod manager
     args[9] = swf::AsValue::Bool(true);       // no login screen is needed
     runtime.Send(ui, "sendMenuProperties", args);
@@ -1556,6 +1513,43 @@ struct GameUi::Impl {
   // Each action is guarded on the screen that asks for it being up. A menu says
   // these to its host as part of its own housekeeping while it starts, and
   // acting on one then takes the screen down before the player has seen it.
+  // The same conversation for an ActionScript 3 screen. It asks through the
+  // code object the game hands it, one call one answer, rather than through
+  // GameDelegate's two-way registration.
+  static swf::As3Value AnswerVanillaAs3(void* user, swf::Avm2& vm,
+                                        base::StringRef name,
+                                        const base::Vector<swf::As3Value>& args) {
+    Impl* self = static_cast<Impl*>(user);
+    // What this build offers. Each of these adds a row to the main menu, and
+    // answering nothing at all leaves the menu deciding on `undefined`.
+    if (name == "GetHasSavedGames")
+      return swf::As3Value::Bool(false);
+    if (name == "GetHasInstalledContent")
+      return swf::As3Value::Bool(false);
+    if (name == "GetShowBethesdaNetOption")
+      return swf::As3Value::Bool(false);
+    if (name == "GetShowCreationClubOption")
+      return swf::As3Value::Bool(false);
+    if (name == "GetVersionString")
+      return swf::As3Value::Str("recreation");
+    if (name == "StartNewGame") {
+      if (!self->main_menu_open)
+        return swf::As3Value::Undefined();
+      self->mm_request.kind = MainMenuRequest::Kind::kEnterUniverse;
+      self->mm_request.universe = 1;  // Fallout 4
+      self->mm_request.multiplayer = false;
+      return swf::As3Value::Undefined();
+    }
+    if (name == "QuitToDesktop" || name == "ExitGame") {
+      if (self->menu_open || self->main_menu_open)
+        self->quit_requested = true;
+      return swf::As3Value::Undefined();
+    }
+    (void)vm;
+    (void)args;
+    return swf::As3Value::Undefined();
+  }
+
   static bool AnswerVanillaCall(void* user, swf::GameBridge& bridge,
                                 const swf::GameBridge::Call& call) {
     Impl* self = static_cast<Impl*>(user);
@@ -1619,6 +1613,7 @@ struct GameUi::Impl {
       ui::VanillaRuntime runtime;
       runtime.SetStrings(&vanilla_strings);
       runtime.SetAnswerer(&Impl::AnswerVanillaCall, this);
+      runtime.SetAs3Answerer(&Impl::AnswerVanillaAs3, this);
       if (!runtime.Load(ui, dir, screen.name, VanillaRootName(screen.name)))
         continue;
       OpenVanillaScreen(runtime, screen.name);
@@ -1631,13 +1626,12 @@ struct GameUi::Impl {
     ui.LoadUiString(doc.c_str(), "hud");
     BindVanillaScreens(ui, backend);
     CaptureFragmentMtimes();
-    // The tree came back from markup, so everything written into it by hand is
-    // gone: the vanilla menus are placeholder frames again and the legal notice
-    // is visible again (its markup has no `visibility`, and ugui ignores that
-    // property anyway). Both have to be re-applied, and the notice has to go
-    // back to whatever state it was actually in.
+    // The tree came back from markup, so the vanilla menus are placeholder
+    // frames again and the legal notice is visible again (its markup has no
+    // `visibility`, and ugui ignores that property anyway). The screens have to
+    // run over the new tree, and the notice has to go back to whatever state it
+    // was actually in.
     StartVanillaVms();
-    BuildVanillaMenus();
     SetVisible("legal", legal_open);
     const bool hud = !editor.active && !UsingVanillaUi();
     SetVisible("topbar", hud);
@@ -2642,10 +2636,7 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   // does this. See runtime/ui/vanilla_runtime, which runs the movie's own code.
   if (UsingVanillaUi())
     impl_->vanilla_strings = ui::LoadVanillaStrings(ui::VanillaScreenDir());
-  // The screens run first: what a Fallout 4 menu shows is built by its own code
-  // at load, and the driver below only has entries once that has happened.
   impl_->StartVanillaVms();
-  impl_->BuildVanillaMenus();
   if (UsingVanillaUi()) {
     for (const char* fragment : {"topbar", "crosshair", "vitals", "readout", "quest"})
       impl_->SetVisible(fragment, false);

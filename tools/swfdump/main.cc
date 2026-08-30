@@ -266,6 +266,8 @@ void RunAbc(const swf::Movie& movie) {
       if (!instance.is_object())
         continue;
       instances[klass.name] = instance.object();
+      // What the game hands a screen to talk back through, before it opens.
+      vm.SetProperty(instance, "BGSCodeObj", swf::As3Value::Obj(vm.NewCodeObject()));
       base::Vector<swf::As3Value> flags;
       const char* mask = getenv("RX_INITLIST");
       for (int k = 0; k < 10; ++k)
@@ -322,6 +324,20 @@ void RunAbc(const swf::Movie& movie) {
   std::printf("%u list(s) filled by their own code, %llu instruction(s)%s\n", ran,
               static_cast<unsigned long long>(vm.steps()),
               vm.exhausted() ? "  [step budget exhausted]" : "");
+  if (!vm.external_calls().empty()) {
+    base::UnorderedMap<base::String, u32> counts;
+    for (const base::String& call : vm.external_calls())
+      counts[call] += 1;
+    std::printf("%zu call(s) to the host, %zu distinct:\n",
+                static_cast<size_t>(vm.external_calls().size()),
+                static_cast<size_t>(counts.size()));
+    u32 shown = 0;
+    for (const auto& entry : counts) {
+      if (++shown > 20)
+        break;
+      std::printf("  %-32s %u\n", entry.key.c_str(), entry.value);
+    }
+  }
   if (!vm.unresolved().empty()) {
     std::printf("methods the code called that resolved to nothing:\n");
     u32 shown = 0;

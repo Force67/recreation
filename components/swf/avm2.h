@@ -74,6 +74,11 @@ struct As3Object {
   u32 method = ~0u;  // a function object: the method it runs
   u32 unit = 0;      // which loaded abc the method or class belongs to
   As3Native native = nullptr;
+  // Non-empty on a function the host answers, and on the object those come
+  // from. `Shared.BGSExternalInterface.call(codeObj, name, ...)` looks the name
+  // up on the code object the game handed the screen, so any name is a call.
+  base::String external;
+  bool is_code_object = false;
   bool is_function = false;
   bool is_class = false;
   bool is_array = false;
@@ -107,6 +112,23 @@ class Avm2 {
   // False when the instance has no such method.
   bool Invoke(const As3Value& instance, base::StringRef name,
               const base::Vector<As3Value>& args);
+
+  // The object the game hands a screen to talk back through. Reading any name
+  // off it yields a function that reaches the host, which is what
+  // Shared.BGSExternalInterface.call does with it. This is AS3's spelling of
+  // the AS2 GameDelegate, and a screen with no code object talks to nothing.
+  u32 NewCodeObject();
+
+  // `user` is handed back to the handler untouched.
+  using ExternalHandler = As3Value (*)(void* user, Avm2& vm, base::StringRef name,
+                                       const base::Vector<As3Value>& args);
+  void set_external_handler(ExternalHandler handler, void* user) {
+    external_handler_ = handler;
+    external_user_ = user;
+  }
+  // Every call the screen made through its code object, in order, answered or
+  // not. This is the list of host functions a menu actually needs.
+  const base::Vector<base::String>& external_calls() const { return external_calls_; }
 
   // Runs the frame code the class `class_name` opens on against `instance`.
   // A movie's nested panels are timeline classes whose frame-1 script is what
@@ -183,8 +205,12 @@ class Avm2 {
   // reference into this while it calls others, and the map rehashing under it
   // would leave that reference pointing at freed instructions.
   base::UnorderedMap<u64, base::UniquePointer<base::Vector<AbcInstruction>>> decoded_;
+  ExternalHandler external_handler_ = nullptr;
+  void* external_user_ = nullptr;
+  base::Vector<base::String> external_calls_;
   u32 global_ = 0;
   u32 object_prototype_ = 0;
+  u32 string_members_ = 0;
   u64 steps_ = 0;
   u32 depth_ = 0;
   bool exhausted_ = false;
