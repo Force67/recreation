@@ -204,6 +204,9 @@ void Stage::ApplyFrame(u32 state_index, u32 frame, u32 depth) {
     }
   }
 
+  for (const auto& entry : now)
+    clips_[state_index].high_depth =
+        base::Max<i32>(clips_[state_index].high_depth, static_cast<i32>(entry.first));
   clips_[state_index].placed = base::move(now);
   clips_[state_index].frame = frame;
   vm_.SetMember(self, "_currentframe", AsValue::Number(static_cast<f64>(frame + 1)));
@@ -236,6 +239,90 @@ bool Stage::GotoLabel(const AsValue& clip, base::StringRef label) {
       return Goto(clip, static_cast<u32>(i));
   }
   return false;
+}
+
+AsValue Stage::Attach(const AsValue& parent, base::StringRef symbol,
+                      base::StringRef name, i32 depth) {
+  const u32 index = StateIndexOf(parent);
+  if (index == 0 || index > clips_.size())
+    return AsValue::Undefined();
+  u16 character = 0;
+  for (const auto& entry : movie_.exports) {
+    if (entry.value == symbol) {
+      character = entry.key;
+      break;
+    }
+  }
+  const Timeline* sprite = character != 0 ? movie_.FindSprite(character) : nullptr;
+  if (!sprite)
+    return AsValue::Undefined();
+
+  const u32 owner = clips_[index - 1].object;
+  const u32 child = BuildClip(*sprite, owner, name, character, 1);
+  vm_.SetMember(AsValue::Obj(owner), name, AsValue::Obj(child));
+  clips_[index - 1].high_depth = base::Max(clips_[index - 1].high_depth, depth);
+  // Recorded in the parent's display list so a later frame change knows the
+  // clip is there and does not build a second one over the top of it.
+  clips_[index - 1].placed.push_back(
+      base::Pair<u16, base::String>{static_cast<u16>(depth), base::String(name)});
+  return AsValue::Obj(child);
+}
+
+AsValue Stage::CreateEmpty(const AsValue& parent, base::StringRef name, i32 depth) {
+  const u32 index = StateIndexOf(parent);
+  if (index == 0 || index > clips_.size())
+    return AsValue::Undefined();
+  const u32 owner = clips_[index - 1].object;
+  // An empty clip has no timeline of its own; it exists to hold what a script
+  // puts inside it.
+  const u32 child = vm_.NewObject(vm_.movie_clip_prototype());
+  vm_.Get(child).is_movie_clip = true;
+  ++clip_count_;
+  const AsValue self = AsValue::Obj(child);
+  vm_.SetMember(self, "_name", AsValue::Str(name));
+  vm_.SetMember(self, "_visible", AsValue::Bool(true));
+  vm_.SetMember(self, "_alpha", AsValue::Number(100));
+  vm_.SetMember(self, "_x", AsValue::Number(0));
+  vm_.SetMember(self, "_y", AsValue::Number(0));
+  vm_.SetMember(self, "_parent", AsValue::Obj(owner));
+  ClipState state;
+  state.object = child;
+  clips_.push_back(base::move(state));
+  vm_.Get(child).host = clips_.size();
+
+  vm_.SetMember(AsValue::Obj(owner), name, self);
+  clips_[index - 1].high_depth = base::Max(clips_[index - 1].high_depth, depth);
+  clips_[index - 1].placed.push_back(
+      base::Pair<u16, base::String>{static_cast<u16>(depth), base::String(name)});
+  return self;
+}
+
+i32 Stage::NextDepth(const AsValue& clip) const {
+  const u32 index = StateIndexOf(clip);
+  if (index == 0 || index > clips_.size())
+    return 0;
+  return clips_[index - 1].high_depth + 1;
+}
+
+bool Stage::Remove(const AsValue& clip) {
+  const u32 index = StateIndexOf(clip);
+  if (index == 0 || index > clips_.size())
+    return false;
+  const AsValue parent = vm_.GetMember(clip, "_parent");
+  const u32 parent_index = StateIndexOf(parent);
+  const base::String name = vm_.ToString(vm_.GetMember(clip, "_name"));
+  if (parent_index != 0 && parent_index <= clips_.size()) {
+    base::Vector<base::Pair<u16, base::String>>& placed = clips_[parent_index - 1].placed;
+    for (mem_size i = 0; i < placed.size(); ++i) {
+      if (placed[i].second == name) {
+        placed.erase(i);
+        break;
+      }
+    }
+    vm_.SetMember(parent, name, AsValue::Undefined());
+  }
+  clips_[index - 1].timeline = nullptr;  // stops it playing once detached
+  return true;
 }
 
 namespace {
@@ -276,6 +363,47 @@ AsValue ClipPrevFrame(Vm& vm, const AsValue& self, const base::Vector<AsValue>&)
   return AsValue::Undefined();
 }
 
+AsValue ClipAttachMovie(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  Stage* stage = static_cast<Stage*>(vm.host());
+  if (!stage || args.size() < 2)
+    return AsValue::Undefined();
+  const i32 depth = args.size() > 2 ? static_cast<i32>(vm.ToNumber(args[2])) : 0;
+  const AsValue clip =
+      stage->Attach(self, vm.ToString(args[0]), vm.ToString(args[1]), depth);
+  // attachMovie's fourth argument is an object whose members are copied onto
+  // the new clip before its constructor would see them.
+  if (clip.is_object() && args.size() > 3 && args[3].is_object() &&
+      vm.Valid(args[3].object())) {
+    const base::Vector<base::String> keys = vm.Get(args[3].object()).order;
+    for (const base::String& key : keys)
+      vm.SetMember(clip, key, vm.GetMember(args[3], key));
+  }
+  return clip;
+}
+
+AsValue ClipGetNextHighestDepth(Vm& vm, const AsValue& self,
+                                const base::Vector<AsValue>&) {
+  Stage* stage = static_cast<Stage*>(vm.host());
+  if (!stage)
+    return AsValue::Number(0);
+  return AsValue::Number(static_cast<f64>(stage->NextDepth(self)));
+}
+
+AsValue ClipRemove(Vm& vm, const AsValue& self, const base::Vector<AsValue>&) {
+  Stage* stage = static_cast<Stage*>(vm.host());
+  if (stage)
+    stage->Remove(self);
+  return AsValue::Undefined();
+}
+
+AsValue ClipCreateEmpty(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  Stage* stage = static_cast<Stage*>(vm.host());
+  if (!stage || args.empty())
+    return AsValue::Undefined();
+  const i32 depth = args.size() > 1 ? static_cast<i32>(vm.ToNumber(args[1])) : 0;
+  return stage->CreateEmpty(self, vm.ToString(args[0]), depth);
+}
+
 AsValue ClipNoOp(Vm&, const AsValue&, const base::Vector<AsValue>&) {
   // play() and stop() without a clock. Every state a menu shows is reached by
   // an explicit goto; what is left is the tween between them, which a
@@ -293,6 +421,13 @@ void Stage::InstallClipApi() {
   vm_.SetMember(proto, "prevFrame", AsValue::Obj(vm_.NewNative(ClipPrevFrame)));
   vm_.SetMember(proto, "play", AsValue::Obj(vm_.NewNative(ClipNoOp)));
   vm_.SetMember(proto, "stop", AsValue::Obj(vm_.NewNative(ClipNoOp)));
+  vm_.SetMember(proto, "attachMovie", AsValue::Obj(vm_.NewNative(ClipAttachMovie)));
+  vm_.SetMember(proto, "getNextHighestDepth",
+                AsValue::Obj(vm_.NewNative(ClipGetNextHighestDepth)));
+  vm_.SetMember(proto, "removeMovieClip", AsValue::Obj(vm_.NewNative(ClipRemove)));
+  vm_.SetMember(proto, "unloadMovie", AsValue::Obj(vm_.NewNative(ClipRemove)));
+  vm_.SetMember(proto, "createEmptyMovieClip",
+                AsValue::Obj(vm_.NewNative(ClipCreateEmpty)));
 }
 
 void Stage::Run() {

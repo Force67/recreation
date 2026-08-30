@@ -62,6 +62,19 @@ class Stage {
   // The frame labels on a clip's timeline, in frame order.
   base::Vector<base::String> LabelsOf(const AsValue& clip) const;
 
+  // Creates a clip from an exported symbol and puts it inside `parent` under
+  // `name`, the way attachMovie does. Undefined when the movie exports no such
+  // symbol. This is how the lists that build their own rows get them.
+  AsValue Attach(const AsValue& parent, base::StringRef symbol, base::StringRef name,
+                 i32 depth);
+  // Takes a clip out of its parent's display list.
+  bool Remove(const AsValue& clip);
+  // An empty clip, for the scripts that build their own containers.
+  AsValue CreateEmpty(const AsValue& parent, base::StringRef name, i32 depth);
+  // One past the highest depth in use under `clip`, which is what a script asks
+  // for before attaching something.
+  i32 NextDepth(const AsValue& clip) const;
+
  private:
   // What a clip needs in order to play: the timeline it came from, where it is,
   // and what it currently has placed.
@@ -69,6 +82,9 @@ class Stage {
     const Timeline* timeline = nullptr;
     u32 object = 0;
     u32 frame = 0;
+    // Highest depth handed out, so getNextHighestDepth keeps climbing past both
+    // the authored placements and anything attached since.
+    i32 high_depth = 0;
     // depth -> instance name, so a frame change can tell which children to keep
     // and which to drop.
     base::Vector<base::Pair<u16, base::String>> placed;

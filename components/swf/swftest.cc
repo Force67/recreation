@@ -634,6 +634,46 @@ int main() {
           "and writes through its setter");
   }
 
+
+  {
+    // attachMovie builds a clip from an exported symbol at runtime. The lists
+    // that fill themselves use it 414 times across the shipped scripts, always
+    // paired with getNextHighestDepth.
+    swf::Movie movie;
+    movie.sprites.push_back(swf::Timeline{});
+    movie.sprites[0].id = 7;
+    movie.sprites[0].frames.push_back(swf::Frame{});
+    movie.characters[7] = swf::CharacterRef{swf::CharacterKind::kSprite, 0};
+    movie.exports[7] = base::String("RowSymbol");
+    movie.root.frames.push_back(swf::Frame{});
+
+    swf::Vm vm;
+    swf::Stage stage(vm, movie);
+    stage.Run();
+    const swf::AsValue root = stage.root();
+
+    Check(stage.NextDepth(root) == 1, "an empty clip hands out the first depth");
+    const swf::AsValue row =
+        stage.Attach(root, "RowSymbol", "Entry0", stage.NextDepth(root));
+    Check(row.is_object(), "attaching an exported symbol yields a clip");
+    Check(vm.GetMember(root, "Entry0").is_object(),
+          "and it is reachable from the parent by name");
+    Check(vm.ToString(vm.GetMember(row, "_name")) == "Entry0",
+          "the attached clip takes the name it was given");
+    Check(stage.NextDepth(root) == 2, "the depth counter climbs past it");
+
+    Check(!stage.Attach(root, "NoSuchSymbol", "x", 3).is_object(),
+          "a symbol the movie does not export attaches nothing");
+
+    Check(stage.Remove(row), "a clip can be taken back out");
+    Check(!vm.GetMember(root, "Entry0").is_object(),
+          "and is no longer reachable from its parent");
+
+    const swf::AsValue holder = stage.CreateEmpty(root, "Holder", 9);
+    Check(holder.is_object() && vm.GetMember(root, "Holder").is_object(),
+          "an empty clip can be created to hold things");
+  }
+
   std::printf("swftest: %d failure(s)\n", failures);
   return failures == 0 ? 0 : 1;
 }
