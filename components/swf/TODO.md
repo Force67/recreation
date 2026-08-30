@@ -17,38 +17,32 @@ menu talks to its host through. All 49 shipped Skyrim movies run without
 crashing, hanging or exhausting the step budget. `swfdump <movie> --run` opens a
 movie the way the game does, ticks it, and reports what the player would see.
 
-With `RX_VANILLA_VM=1` the Skyrim pause menu is drawn entirely by its own
-bytecode: the eight options, the selection, "recreation" as the version text,
-and a bottom bar reading `LEVEL 0` and `12:00am, 17th of Last Seed, 4E 201` from
-the world clock. The start menu builds NEW / LOAD / CREATIONS / CREDITS / QUIT
-the same way. Navigation goes in through the components' own `handleInput`, so
-one host path drives every screen's selection.
+With `RX_VANILLA_VM=1` both menus are drawn entirely by their own bytecode, in
+the layout the designer authored: a centred list with the selection large and
+bright and the rows falling away from it. The pause menu builds QUICKSAVE / SAVE
+/ LOAD / INSTALLED CONTENT / SETTINGS / CONTROLS / HELP / QUIT and a bottom bar
+reading `LEVEL 0` and `12:00am, 17th of Last Seed, 4E 201` from the world clock;
+the start menu builds NEW / LOAD / CREATIONS / CREDITS / QUIT. Navigation goes
+in through the components' own `handleInput`, so one host path drives every
+screen's selection.
 
-## 1. Finish the CLIK component chain
+## 1. The last of the binder
 
-The translation carries every state now (see Done), so the export is no longer
-what limits a screen. What is left is one chain inside the shipped component
-library, and it is the last thing between here and
-`Stage::set_authored_state(true)` in the runtime.
+The interpreter and the translation now agree: a menu runs its own state
+machine, and the widgets exist for every state it can reach. `swfdump --run`
+reports exactly what a player is shown. What is left is the binder not reaching
+a few of those widgets.
 
-Symptom: the journal's tab strip comes back empty. `Quest_Journal.onLoad` does
-`ButtonGroup(this.QuestsTab.group).length`, that comes back `undefined`, and the
-NaN travels into `iCurrentTab`, so `SwitchPageToFront` never runs and the System
-page is left on its hidden frame. With the authored state off the page is shown
-anyway and the menu works; with it on the page goes with the tab strip.
-
-What is known about it:
-- The tab does get its authored `inspectableGroupName = "tabGroup"`, and a
-  ButtonGroup for it is created on the parent (`_buttonGroup_tabGroup` exists).
-- But the group the tab ends up holding is the DEFAULT one, named
-  "buttonGroup", so something calls `__set__group` again afterwards.
-- That instance has `name` set and `children` unset, two adjacent statements in
-  `ButtonGroup`'s own constructor. Its body stops between them, which is the
-  thing to find; `__get__length` returns `this.children.length`, hence the
-  `undefined`.
-- Two earlier stops of the same shape turned out to be the interpreter running a
-  `try`'s catch block as well as its body (fixed), so look for another construct
-  whose inline layout the machine walks straight through.
+- **The tab strip still reads "BUTTON TEXT".** The clips have their labels
+  ($QUESTS / $GENERAL STATS / $SYSTEM, from the authored `labelID`), and each
+  tab's widget carries a group per state, but only two of a tab's three copies
+  of `textField` are written. `Bind` walks a clip's OWN members, so a component
+  that keeps its field somewhere other than an own slot is invisible to it.
+- **The journal's QUIT row does not draw.** Its clip has the text and its widget
+  is written, but the row ends at zero opacity while the seven above it are
+  fine.
+- **State groups under a clip nothing drives** keep whatever state they are
+  showing, so a couple of tab chevrons overlap.
 
 ## 2. Retire the hand-written drivers
 
@@ -71,8 +65,8 @@ still own the live menus; the interpreter path runs instead of them under
 
 - Pause menu: the option list is live and navigable, but SAVE, LOAD, CONTROLS,
   HELP and INSTALLED CONTENT select without opening anything, and the QUEST and
-  STATS tabs do not switch. The widgets for those states are translated now, so
-  what is left is §1.
+  STATS tabs do not switch. The widgets for those states are translated and the
+  movie switches to them; what is left is the binder reaching them (§1).
 - Start menu: LOAD, CREATIONS and CREDITS likewise.
 - "Main Menu" from the quit list reopens the front screen with the world still
   loaded behind it, rather than tearing it down.
@@ -125,7 +119,21 @@ but it caps how long a session can be play-tested.
   interpreter; the two had drifted, and the interpreter's copy was dropping the
   colour transform off a move, which left every fade on its first frame.
 - Clip-event handlers off a PlaceObject (306 across the corpus, almost all
-  `construct`), behind `set_authored_state` until §1 is done.
+  `construct`), and a frame's own actions on arrival. On by default now that the
+  translation carries the states they move a clip into; `RX_VANILLA_AUTHORED=0`
+  turns them off, which is how to tell a problem in them from one elsewhere.
+- `super()` climbing the chain. `Extends` writes the SUPERCLASS onto the
+  subclass's prototype, so the constructor to call is the one recorded at the
+  level whose body is running, and the next level up is where that class's own
+  `super` starts. Resolving it from the instance gave every class in a chain the
+  same answer, so a base constructor called itself until the depth limit stopped
+  it: 387 calls cut out of one menu's start-up, among them the one that gives a
+  button group the array it counts. Frames now size their registers to what a
+  function declared rather than to the format's maximum, which is what made a
+  deep chain expensive enough to need a tight limit in the first place.
+- `SetPlatform`, sent on open. A screen that has not been told what it is
+  running on lays its lists out for a controller and leaves most of the rows at
+  zero alpha.
 - Every state a clip can be in, translated as a sibling group per labelled frame
   that puts something different on the display list, which a host shows by
   matching `_currentframe`. Both halves of that rule earn their keep: counting
