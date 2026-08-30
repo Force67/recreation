@@ -71,6 +71,10 @@ class Stage {
   bool Remove(const AsValue& clip);
   // An empty clip, for the scripts that build their own containers.
   AsValue CreateEmpty(const AsValue& parent, base::StringRef name, i32 depth);
+  // A copy of a clip beside it, as duplicateMovieClip makes.
+  AsValue Duplicate(const AsValue& clip, base::StringRef name, i32 depth);
+  // play() / stop(): a playing clip steps a frame per tick and wraps.
+  void SetPlaying(const AsValue& clip, bool playing);
   // One past the highest depth in use under `clip`, which is what a script asks
   // for before attaching something.
   i32 NextDepth(const AsValue& clip) const;
@@ -97,6 +101,9 @@ class Stage {
     // Highest depth handed out, so getNextHighestDepth keeps climbing past both
     // the authored placements and anything attached since.
     i32 high_depth = 0;
+    // Set by play(), cleared by stop(). A playing clip advances one frame per
+    // tick and wraps, which is what a spinner or a fade is.
+    bool playing = false;
     // depth -> instance name, so a frame change can tell which children to keep
     // and which to drop.
     base::Vector<base::Pair<u16, base::String>> placed;

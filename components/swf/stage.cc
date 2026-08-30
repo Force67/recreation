@@ -300,6 +300,40 @@ AsValue Stage::CreateEmpty(const AsValue& parent, base::StringRef name, i32 dept
   return self;
 }
 
+AsValue Stage::Duplicate(const AsValue& clip, base::StringRef name, i32 depth) {
+  const u32 index = StateIndexOf(clip);
+  if (index == 0 || index > clips_.size())
+    return AsValue::Undefined();
+  const Timeline* timeline = clips_[index - 1].timeline;
+  const AsValue parent = vm_.GetMember(clip, "_parent");
+  const u32 parent_index = StateIndexOf(parent);
+  if (!timeline || parent_index == 0 || parent_index > clips_.size())
+    return AsValue::Undefined();
+  const u32 owner = clips_[parent_index - 1].object;
+
+  // The character the original came from, so the copy gets the same class.
+  u16 character = 0;
+  for (const auto& entry : movie_.characters) {
+    if (entry.value.kind == CharacterKind::kSprite &&
+        &movie_.sprites[entry.value.index] == timeline) {
+      character = entry.key;
+      break;
+    }
+  }
+  const u32 copy = BuildClip(*timeline, owner, name, character, 1);
+  vm_.SetMember(AsValue::Obj(owner), name, AsValue::Obj(copy));
+  clips_[parent_index - 1].high_depth = base::Max(clips_[parent_index - 1].high_depth, depth);
+  clips_[parent_index - 1].placed.push_back(
+      base::Pair<u16, base::String>{static_cast<u16>(depth), base::String(name)});
+  return AsValue::Obj(copy);
+}
+
+void Stage::SetPlaying(const AsValue& clip, bool playing) {
+  const u32 index = StateIndexOf(clip);
+  if (index != 0 && index <= clips_.size())
+    clips_[index - 1].playing = playing;
+}
+
 i32 Stage::NextDepth(const AsValue& clip) const {
   const u32 index = StateIndexOf(clip);
   if (index == 0 || index > clips_.size())
@@ -344,6 +378,13 @@ AsValue ClipGoto(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args)
   }
   const f64 frame = vm.ToNumber(args[0]);
   stage->Goto(self, frame < 1 ? 0 : static_cast<u32>(frame) - 1);
+  return AsValue::Undefined();
+}
+
+AsValue ClipGotoAndPlay(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  ClipGoto(vm, self, args);
+  if (Stage* stage = static_cast<Stage*>(vm.host()))
+    stage->SetPlaying(self, true);
   return AsValue::Undefined();
 }
 
@@ -407,11 +448,24 @@ AsValue ClipCreateEmpty(Vm& vm, const AsValue& self, const base::Vector<AsValue>
   return stage->CreateEmpty(self, vm.ToString(args[0]), depth);
 }
 
-AsValue ClipNoOp(Vm&, const AsValue&, const base::Vector<AsValue>&) {
-  // play() and stop() without a clock. Every state a menu shows is reached by
-  // an explicit goto; what is left is the tween between them, which a
-  // translated screen does not show anyway.
+AsValue ClipPlay(Vm& vm, const AsValue& self, const base::Vector<AsValue>&) {
+  if (Stage* stage = static_cast<Stage*>(vm.host()))
+    stage->SetPlaying(self, true);
   return AsValue::Undefined();
+}
+
+AsValue ClipStop(Vm& vm, const AsValue& self, const base::Vector<AsValue>&) {
+  if (Stage* stage = static_cast<Stage*>(vm.host()))
+    stage->SetPlaying(self, false);
+  return AsValue::Undefined();
+}
+
+AsValue ClipDuplicate(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  Stage* stage = static_cast<Stage*>(vm.host());
+  if (!stage || args.empty())
+    return AsValue::Undefined();
+  const i32 depth = args.size() > 1 ? static_cast<i32>(vm.ToNumber(args[1])) : 0;
+  return stage->Duplicate(self, vm.ToString(args[0]), depth);
 }
 
 }  // namespace
@@ -419,11 +473,12 @@ AsValue ClipNoOp(Vm&, const AsValue&, const base::Vector<AsValue>&) {
 void Stage::InstallClipApi() {
   const AsValue proto = AsValue::Obj(vm_.movie_clip_prototype());
   vm_.SetMember(proto, "gotoAndStop", AsValue::Obj(vm_.NewNative(ClipGoto)));
-  vm_.SetMember(proto, "gotoAndPlay", AsValue::Obj(vm_.NewNative(ClipGoto)));
+  vm_.SetMember(proto, "gotoAndPlay", AsValue::Obj(vm_.NewNative(ClipGotoAndPlay)));
   vm_.SetMember(proto, "nextFrame", AsValue::Obj(vm_.NewNative(ClipNextFrame)));
   vm_.SetMember(proto, "prevFrame", AsValue::Obj(vm_.NewNative(ClipPrevFrame)));
-  vm_.SetMember(proto, "play", AsValue::Obj(vm_.NewNative(ClipNoOp)));
-  vm_.SetMember(proto, "stop", AsValue::Obj(vm_.NewNative(ClipNoOp)));
+  vm_.SetMember(proto, "play", AsValue::Obj(vm_.NewNative(ClipPlay)));
+  vm_.SetMember(proto, "stop", AsValue::Obj(vm_.NewNative(ClipStop)));
+  vm_.SetMember(proto, "duplicateMovieClip", AsValue::Obj(vm_.NewNative(ClipDuplicate)));
   vm_.SetMember(proto, "attachMovie", AsValue::Obj(vm_.NewNative(ClipAttachMovie)));
   vm_.SetMember(proto, "getNextHighestDepth",
                 AsValue::Obj(vm_.NewNative(ClipGetNextHighestDepth)));
@@ -493,7 +548,23 @@ u32 Stage::Broadcast(base::StringRef handler) {
 
 u32 Stage::Tick(f64 elapsed_ms) {
   const u32 timers = vm_.Tick(elapsed_ms);
-  return timers + Broadcast("onEnterFrame");
+
+  // Advance whatever is playing, one frame and wrapping. Collected first
+  // because applying a frame can build clips and move the table.
+  base::Vector<u32> playing;
+  for (mem_size i = 0; i < clips_.size(); ++i)
+    if (clips_[i].playing && clips_[i].timeline && clips_[i].timeline->frames.size() > 1)
+      playing.push_back(static_cast<u32>(i));
+  for (u32 index : playing) {
+    if (index >= clips_.size())
+      continue;
+    const mem_size frames = clips_[index].timeline->frames.size();
+    const u32 next = static_cast<u32>((clips_[index].frame + 1) % frames);
+    ++goto_count_;
+    ApplyFrame(index, next, 0);
+  }
+
+  return timers + static_cast<u32>(playing.size()) + Broadcast("onEnterFrame");
 }
 
 base::Vector<AsValue> Stage::StatefulClips() const {

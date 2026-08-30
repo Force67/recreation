@@ -594,6 +594,19 @@ int main() {
           "and the second frame's is dropped");
     Check(!stage.GotoLabel(root, "NoSuchLabel"),
           "an unknown label leaves the clip where it is");
+
+    // play() steps a frame per tick and wraps, which is what a spinner is.
+    stage.SetPlaying(root, true);
+    stage.Tick(16.0);
+    Check(vm.ToNumber(vm.GetMember(root, "_currentframe")) == 2,
+          "a playing clip advances on a tick");
+    stage.Tick(16.0);
+    Check(vm.ToNumber(vm.GetMember(root, "_currentframe")) == 1,
+          "and wraps at the end");
+    stage.SetPlaying(root, false);
+    stage.Tick(16.0);
+    Check(vm.ToNumber(vm.GetMember(root, "_currentframe")) == 1,
+          "a stopped clip stays put");
   }
 
 
@@ -672,6 +685,14 @@ int main() {
     const swf::AsValue holder = stage.CreateEmpty(root, "Holder", 9);
     Check(holder.is_object() && vm.GetMember(root, "Holder").is_object(),
           "an empty clip can be created to hold things");
+
+    const swf::AsValue again =
+        stage.Attach(root, "RowSymbol", "Entry1", stage.NextDepth(root));
+    const swf::AsValue copy = stage.Duplicate(again, "Entry2", stage.NextDepth(root));
+    Check(copy.is_object() && vm.GetMember(root, "Entry2").is_object(),
+          "a clip can be duplicated beside itself");
+    Check(vm.ToString(vm.GetMember(copy, "_name")) == "Entry2",
+          "and the copy takes the new name");
   }
 
 
