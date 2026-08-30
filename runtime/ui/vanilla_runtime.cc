@@ -196,10 +196,10 @@ struct VanillaRuntime::Impl {
     u32 object = 0;
     ugui::wid widget;
     bool is_text = false;
-    // The clip's own timeline, when the placement named one. A panel is faded
-    // in and out by its own frames rather than by `visible`, so this is what
-    // says whether the frame it has been sent to is a visible one.
+    // The clip's own timeline, when the placement named one, and how opaque
+    // the placement left it.
     const swf::Timeline* timeline = nullptr;
+    f32 placed_alpha = 1.0f;
   };
   base::Vector<As3Bound> as3_bound;
   // The instance RunAbc built for each class. Binding has to reuse these rather
@@ -227,7 +227,9 @@ struct VanillaRuntime::Impl {
       ChildrenNamed(world, root_widget, place.name, widgets);
       for (ugui::wid widget : widgets)
         BindAbcInto(ui, instance, widget,
-                    ChildRef{SpriteOf(place.character_id), place.character_id}, 0);
+                    ChildRef{SpriteOf(place.character_id), place.character_id,
+                             place.has_color_transform ? place.color_transform.mul_a : 1.0f},
+                    0);
     }
   }
 
@@ -245,13 +247,19 @@ struct VanillaRuntime::Impl {
   struct ChildRef {
     const swf::Timeline* timeline = nullptr;
     u16 character = 0;
+    // How opaque the placement left the clip. A Scaleform menu ships parts of
+    // itself transparent and fades them in, so this is where a clip starts
+    // rather than where it stays: code that sets `alpha` replaces it.
+    f32 alpha = 1.0f;
   };
   ChildRef ChildOf(const swf::Timeline* parent, base::StringRef name) const {
     if (parent == nullptr)
       return ChildRef();
     for (const swf::Place& place : swf::DisplayListAt(*parent, 0)) {
-      if (place.has_character && place.name == name)
-        return ChildRef{SpriteOf(place.character_id), place.character_id};
+      if (place.has_character && place.name == name) {
+        return ChildRef{SpriteOf(place.character_id), place.character_id,
+                        place.has_color_transform ? place.color_transform.mul_a : 1.0f};
+      }
     }
     return ChildRef();
   }
@@ -270,6 +278,7 @@ struct VanillaRuntime::Impl {
     entry.object = object.object();
     entry.widget = widget;
     entry.timeline = placed.timeline;
+    entry.placed_alpha = placed.alpha;
     const ugui::WidgetNode* node = world.Get<ugui::WidgetNode>(widget);
     entry.is_text = node && node->kind == ugui::WidgetKind::kText;
     as3_bound.push_back(entry);
@@ -332,6 +341,55 @@ struct VanillaRuntime::Impl {
     }
   }
 
+  // A list's own entries onto the rows the translation stamped for it. An AS3
+  // list builds its rows at runtime out of the symbol its bytecode names, so
+  // the export stamps that many `Entry<n>` clips (see StampListRows) and this
+  // is the other half: what the code put in `entryList` goes into them, and the
+  // rows past the end are not drawn.
+  void FillRows(ugui::WidgetRegistry& world, const swf::As3Value& object,
+                ugui::wid widget) {
+    const swf::As3Value list = avm2->GetProperty(object, "entryList");
+    if (!list.is_object())
+      return;
+    const i32 count = static_cast<i32>(avm2->ToNumber(avm2->GetProperty(list, "length")));
+    if (count <= 0)
+      return;
+    for (i32 row = 0;; ++row) {
+      base::Vector<ugui::wid> widgets;
+      ChildrenNamed(world, widget, base::Format("Entry{}", row), widgets);
+      if (widgets.empty())
+        break;
+      if (row >= count) {
+        SetOpacity(world, widgets[0], 0.0f);
+        continue;
+      }
+      SetOpacity(world, widgets[0], 1.0f);
+      const swf::As3Value item = avm2->GetProperty(list, base::Format("{}", row));
+      const swf::As3Value text = avm2->GetProperty(item, "text");
+      if (text.is_undefined())
+        continue;
+      const base::String label = Localise(avm2->ToString(text));
+      WriteRow(world, widgets[0], label);
+    }
+  }
+
+  // The one text widget a row holds. A stamped row is a whole clip - border,
+  // spinner, icons - and only its field carries the entry's words.
+  bool WriteRow(ugui::WidgetRegistry& world, ugui::wid widget, const base::String& text) {
+    const ugui::WidgetNode* node = world.Get<ugui::WidgetNode>(widget);
+    if (node && node->kind == ugui::WidgetKind::kText) {
+      Write(world, widget, text);
+      return true;
+    }
+    const ugui::Hierarchy* h = world.Get<ugui::Hierarchy>(widget);
+    if (!h)
+      return false;
+    for (ugui::wid child : h->children)
+      if (WriteRow(world, child, text))
+        return true;
+    return false;
+  }
+
   // What the AS3 objects say about themselves, onto the widgets. The names
   // differ from AS2's: `visible` rather than `_visible`, and `alpha` runs 0..1.
   void SyncAbc(ugui::UIContext& ui) {
@@ -341,21 +399,19 @@ struct VanillaRuntime::Impl {
         continue;
       const swf::As3Value object = swf::As3Value::Obj(entry.object);
       const swf::As3Value visible = avm2->GetProperty(object, "visible");
-      f32 opacity = 1.0f;
-      if (!visible.is_undefined() && !avm2->ToBool(visible))
-        opacity = 0.0f;
+      // Where the placement left the clip, unless its own code has set an alpha
+      // since. The two are the same property in the player: the authored value
+      // is what `alpha` starts at, not a second factor on top of it.
+      f32 opacity = entry.placed_alpha;
       const swf::As3Value alpha = avm2->GetProperty(object, "alpha");
       if (!alpha.is_undefined()) {
         const f32 own = static_cast<f32>(avm2->ToNumber(alpha));
         if (own >= 0 && own <= 1)
-          opacity *= own;
+          opacity = own;
       }
-      // The frame the clip has been sent to. A panel is not taken down with
-      // `visible`: it is a five-frame clip labelled start / shown / end, and
-      // the game plays it to "end", where everything it places is transparent.
+      if (!visible.is_undefined() && !avm2->ToBool(visible))
+        opacity = 0.0f;
       const i32 at = CurrentFrame(entry);
-      if (entry.timeline != nullptr)
-        opacity *= FrameAlpha(*entry.timeline, static_cast<u32>(at));
       SetOpacity(world, entry.widget, opacity);
       // The rest of a timeline's states, the way the AS2 side does them: only
       // the group for the frame the clip is on is drawn.
@@ -373,6 +429,7 @@ struct VanillaRuntime::Impl {
         if (!text.is_undefined())
           Write(world, entry.widget, Localise(avm2->ToString(text)));
       }
+      FillRows(world, object, entry.widget);
     }
   }
 
@@ -413,6 +470,15 @@ struct VanillaRuntime::Impl {
         version.push_back(swf::As3Value::Str("recreation"));
         version.push_back(swf::As3Value::Number(0));
         avm2->Invoke(instance, "SetVersionText", version);
+        // The state the game opens this screen in. Fallout 4's main menu waits
+        // on a splash, and it is the game that puts it there and the game that
+        // takes it off again; the movie makes neither decision for itself.
+        avm2->Invoke(instance, "SetToSplashScreen", base::Vector<swf::As3Value>());
+        // ... and that the player may skip it, which is what puts the prompt up.
+        base::Vector<swf::As3Value> skip;
+        skip.push_back(swf::As3Value::Bool(true));
+        skip.push_back(swf::As3Value::Bool(true));
+        avm2->Invoke(instance, "SetAllowSkip", skip);
       }
     }
     for (u32 i = 1; i < avm2->object_count(); ++i) {

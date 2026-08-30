@@ -86,20 +86,25 @@ UI at all.
 
 What is left on that screen:
 
-- **The main state is not finished.** `ReturnToMainState` reaches the screen and
-  it moves: the splash text goes, the Bethesda logo and CREATIONS LOADED come
-  up. But `GuideText_tf` under `OptionsPanel_mc` still draws, and the option
-  list does not, so the state the button leads to is not yet the one the player
-  sees. `RX_VANILLA_SEND=ReturnToMainState` puts a screen there at load, which
-  is how to look at it.
-- **It drives the rows from the timeline.** The AS3 list component is not
-  executed, so the rows stay the ones `StampListRows` stamped. The entries in
-  them come from the movie; the layout does not.
-- **No playhead.** `Tick` writes the objects back to the widgets now, but
-  nothing advances a timeline, so a fade holds on whichever frame it was sent
-  to rather than playing through.
-- Its sub-panels, the message-of-the-day body and the background art are
-  unfilled.
+The screen opens on its splash (PIP-BOY and "Press any button to start", both
+its own), and a key takes it to NEW / LOAD / SETTINGS / CREW / QUIT, which its
+own `InitList` built. `RX_VANILLA_SEND=ReturnToMainState` puts a screen in the
+second state at load, which is how to look at it without an input path.
+
+What is left on that screen:
+
+- **The rows are stamped, not built.** An AS3 list makes its rows at runtime out
+  of the symbol its bytecode names; the export stamps that many `Entry<n>`
+  clips and the host writes `entryList` into them. So the entries and how many
+  show are the movie's, and the layout is the translation's. A list that scrolls
+  or re-orders will not.
+- **No playhead.** `Tick` writes the objects back to the widgets, but nothing
+  advances a timeline, so a fade holds on whichever frame it was sent to rather
+  than playing through.
+- **Only the two states are reached.** Everything behind a row (settings, load,
+  the sub-panels) needs the host to send what the game sends, the same way
+  `SetToSplashScreen` and `ReturnToMainState` are sent now.
+- The message-of-the-day body and the background art are unfilled.
 
 ## 4. ActionScript 3
 
@@ -177,6 +182,16 @@ but it caps how long a session can be play-tested.
   `round`, `abs`, `sqrt`, `pow`, `min`, `max`). `length` is the one that decides
   branches: `SetVersionText` prints a blank corner rather than the build when
   the string it was handed cannot say how long it is.
+- Fallout 4's main menu, end to end, out of its own bytecode: the splash it
+  opens on, the list behind it, the version in the corner, and the questions it
+  asks the host on the way (`GetHasSavedGames`, `GetHasInstalledContent`,
+  `GetShowBethesdaNetOption`, `GetShowCreationClubOption`).
+- Getters and setters. `SplashScreenText_tf` is a `get` on a field three clips
+  down, so reading the name has to run the accessor rather than hand back the
+  function; a getter with no setter is read-only rather than overwritten. Two
+  guards keep that from looping: the same getter already running on the same
+  object, and a chain more than 16 deep, which is the shape the stand-in model
+  allows when `get Width()` reads an `inner` that is invented on the spot.
 - Localising the labels the translation baked into the markup. A movie ships
   them as the game's own string keys, because the player resolves them when it
   draws the field rather than when the field is authored.
