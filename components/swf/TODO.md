@@ -38,9 +38,10 @@ hand-written Skyrim drivers are gone.
   class setter rather than a missing path. SystemTab is worse: its clip holds
   the placeholder even in `swfdump --run`, because the frame it is selected on
   rebuilds its text field after the label was applied.
-- **The journal's QUIT row does not draw.** Its clip has the text and its widget
-  is written, but the row ends at zero opacity while the seven above it are
-  fine.
+- **The journal's QUIT row does not draw.** The clip holds `$QUIT`, is visible,
+  sits at y=348 inside a 418-tall list, and its widget is written every frame.
+  It is not `OnStage` hiding it (turning that off changes nothing) and there is
+  no clipping mask around the list. The seven rows above it draw.
 - **State groups under a clip nothing drives** keep whatever state they are
   showing, so a couple of tab chevrons overlap.
 - **Runtime-attached rows.** A list that builds its rows with `attachMovie` has
@@ -57,9 +58,14 @@ missing is the host having anything to answer with.
   `onSaveLoadBatchComplete` and friends). recreation reads real .ess files
   already; nothing is wired to these.
 - CONTROLS asks for the input map (`RequestInputMappings`, `SetButtonMapping`).
-- The settings lists come up with their categories but no values behind them.
+- The settings lists come up with their categories (Gameplay / Display / Audio
+  render) but no values behind them.
 - "Main Menu" from the quit list reopens the front screen with the world still
-  loaded behind it, rather than tearing it down.
+  loaded behind it. That one is not the UI's to fix: `SetupMainMenu` resolves
+  universes and regenerates the menu backdrops on the GPU, which is init-time
+  work that segfaults called from inside a frame, so the front screen is
+  reopened rather than rebuilt. Tearing the world down needs a deferred
+  teardown in the engine.
 - No Skyrim wordmark. It is a 3D object in the main-menu scene
   (`meshes/interface/logo/logo01ae.nif`) and its texture is a UV atlas for that
   mesh, so it needs the NIF path, not the UI path.
