@@ -247,16 +247,6 @@ void RunScripts(const swf::Movie& movie) {
                 (int)vm.GetMember(c, "onLoad").type(),
                 vm.ToString(vm.GetMember(c, "currentState")).c_str());
   }
-  for (u32 i = 1; i < vm.object_count(); ++i) {
-    if (!vm.Valid(i) || !vm.Get(i).is_movie_clip) continue;
-    const swf::AsValue c = swf::AsValue::Obj(i);
-    const base::String n = vm.ToString(vm.GetMember(c, "_name"));
-    if (n != "QuestsTab" && n != "SystemTab") continue;
-    base::String own;
-    for (const base::String& k : vm.Get(i).order) { own += k; own += " "; }
-    std::printf("DBG %s frame=%s own=[%s]\n", n.c_str(),
-                vm.ToString(vm.GetMember(c, "_currentframe")).c_str(), own.c_str());
-  }
   // A navigation key through the movie's own components, which is how a host
   // drives every screen's selection without knowing any of them: build the
   // `details` the game builds and hand it to whatever is listening.
@@ -289,6 +279,37 @@ void RunScripts(const swf::Movie& movie) {
                     static_cast<int>(before), static_cast<int>(after));
     }
     std::printf("%u list(s) took a navigation key\n", took);
+
+    // And then activating it, which is how a menu's decision reaches the host:
+    // a screen does not report which row was picked, it asks for the thing that
+    // row means.
+    bridge.ClearPending();
+    vm.SetMember(details, "navEquivalent", swf::AsValue::Str("enter"));
+    for (u32 i = 1; i < objects; ++i) {
+      if (!vm.Valid(i) || !vm.Get(i).is_movie_clip)
+        continue;
+      const swf::AsValue clip = swf::AsValue::Obj(i);
+      const swf::AsValue entries = vm.GetMember(clip, "entryList");
+      if (!entries.is_object() || vm.ToNumber(vm.GetMember(entries, "length")) <= 0)
+        continue;
+      base::Vector<swf::AsValue> args;
+      args.push_back(details);
+      args.push_back(path);
+      stage.Dispatch(clip, "handleInput", args);
+    }
+    if (!bridge.pending().empty()) {
+      std::printf("activating asked the host for:\n");
+      base::Vector<base::String> seen;
+      for (const swf::GameBridge::Call& call : bridge.pending()) {
+        bool known = false;
+        for (const base::String& had : seen)
+          known = known || had == call.name;
+        if (known || call.name == "PlaySound" || call.name == "myLog")
+          continue;
+        seen.push_back(call.name);
+        std::printf("  %s\n", call.name.c_str());
+      }
+    }
   }
 
   // Every list the run left with entries in it. A shipped menu ships its lists

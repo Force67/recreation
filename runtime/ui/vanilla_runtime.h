@@ -19,20 +19,21 @@ namespace rx::ui {
 
 // Runs a translated screen's own ActionScript against its widgets.
 //
-// The rest of the vanilla path is static: swfdump turns a movie into markup and
-// the host fills it in by hand (see vanilla_start_menu, vanilla_pause_menu).
-// That works but it means reimplementing each menu's logic in C++. This is the
-// other way round - load the movie beside the markup, run its code on the
-// interpreter in components/swf, and let what the code does to its clips reach
-// the widgets the same names were translated into.
+// The translation is static: swfdump turns a movie into markup, and for a while
+// the host filled that in by hand, which meant reimplementing each menu's logic
+// in C++. This is the other way round - load the movie beside the markup, run
+// its code on the interpreter in components/swf, and let what the code does to
+// its clips reach the widgets the same names were translated into.
 //
 // The two trees line up because they come from the same movie: a clip's
 // instance name is the widget's name and the hierarchy matches, so binding is a
 // walk of both at once. What the script then changes - visibility, position,
 // text, which frame a state clip is on - is written through to the widget.
 //
-// Off by default (RX_VANILLA_VM). The hand-written drivers still own the live
-// menus; this runs beside them until it is proven on every screen.
+// This is how a Skyrim menu runs now (RX_VANILLA_VM=0 turns it off, which
+// leaves the screen as the translation drew it). Fallout 4 and Starfield are
+// ActionScript 3, which the interpreter does not execute, so those screens are
+// still filled by hand - see GameUi::BuildFalloutMainMenu.
 class VanillaRuntime {
  public:
   VanillaRuntime();

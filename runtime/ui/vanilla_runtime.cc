@@ -29,7 +29,7 @@ namespace fs = std::filesystem;
 constexpr u32 kNoBinding = 0xffffffffu;
 
 // Namespace scope so it registers before base::InitOptionsFromEnv runs.
-base::Option<bool> VanillaVm{"ui.vanilla.vm", false, "RX_VANILLA_VM"};
+base::Option<bool> VanillaVm{"ui.vanilla.vm", true, "RX_VANILLA_VM"};
 // The parameters a placement authored and the actions on the frames a clip
 // arrives at: a tab's label, a list's centring, the `stop()` that ends a fade.
 // On, now that the translation carries the states these move a clip into. The
