@@ -75,16 +75,23 @@ missing is the host having anything to answer with.
 
 ## 3. Fallout 4 on the interpreter
 
-`GameUi::BuildFalloutMainMenu` is the last hand-written driver. The interpreter
-that would replace it now exists (§4) and produces the same option list from
-Fallout 4's own code, so what is left is the wiring the Skyrim path already has:
+`VanillaRuntime` picks its machine from what the movie carries, so Fallout 4's
+main menu now builds NEW / LOAD / SETTINGS / CREW / QUIT out of its own
+`MainMenu.InitList` instead of the array `BuildFalloutMainMenu` used to hold.
+InitList's arguments are what the build offers, positionally: of the ten, three
+matter - 0 adds QUIT, 1 adds ADD-ONS, 7 adds the PlayStation save transfer.
 
-- `VanillaRuntime` runs AVM1 only. It needs to pick the machine by what the
-  movie carries, and bind AS3 display objects to widgets the way it binds clips.
-- The host conversation is different. An AS3 menu takes the game's messages as
-  plain methods on the instance (`Avm2::Invoke`) rather than through a delegate,
-  and reaches back out through `Shared.BGSExternalInterface` rather than
-  `gfx.io.GameDelegate`. Neither end is wired.
+What that driver still does, and why it is not gone yet:
+
+- **It hides the sixteen state panels.** An AS3 screen keeps its states on
+  frames the same way an AS2 one does, and nothing yet reads `_currentframe`
+  off an AVM2 display object to pick the state group the translation emitted.
+- **It drives the rows.** The AS3 list component is not executed, so the rows
+  stay the ones `StampListRows` stamped and `VanillaList` writes into them. The
+  entries in them are the movie's; the layout is not.
+- **The host conversation is unconnected either way.** An AS3 menu reaches out
+  through `Shared.BGSExternalInterface` rather than `gfx.io.GameDelegate`, so
+  none of the bridge work applies, and activating a row does nothing.
 - Its sub-panels, the message-of-the-day body and the background art are
   unfilled.
 
