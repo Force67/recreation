@@ -10,43 +10,50 @@ The static half is done: the container, shapes, bitmaps, text, fonts and
 timelines translate, and 49 Skyrim screens and 217 Fallout 4 screens come out as
 markup plus assets. See `README.md` for how that works.
 
-The dynamic half runs. `vm.{h,cc}` is an ActionScript 2 interpreter and
-`stage.{h,cc}` builds a movie's display list as live objects, applies the classes
-it binds with `Object.registerClass`, runs their constructors, plays their
-timelines and dispatches their events. All 41 shipped Skyrim movies run without
-crashing, hanging or exhausting the step budget. Skyrim's own
-`StartMenu::setupMainMenu` executes and produces its option list from the game's
-bytecode. `swfdump <movie> --run` reports what a movie built.
+The dynamic half runs, and reaches the screen. `vm.{h,cc}` is an ActionScript 2
+interpreter, `stage.{h,cc}` builds a movie's display list as live objects and
+plays their timelines, and `bridge.{h,cc}` is the two-way channel a Bethesda
+menu talks to its host through. All 49 shipped Skyrim movies run without
+crashing, hanging or exhausting the step budget. `swfdump <movie> --run` opens a
+movie the way the game does and reports what the player would have been shown.
 
-`runtime/ui/vanilla_runtime` binds that to the screen: 543 of the journal's 558
+`runtime/ui/vanilla_runtime` binds that to the widgets: 543 of the journal's 558
 clips find the widget the same movie was translated into, and what the script
-changes is written back to them. It is behind `RX_VANILLA_VM` and the
-hand-written drivers still own the live menus.
+does to a clip (its text, its visibility, where it sits) is written back.
+
+With `RX_VANILLA_VM=1` the Skyrim pause menu builds its own option list
+(QUICKSAVE / SAVE / LOAD / INSTALLED CONTENT / SETTINGS / CONTROLS / HELP /
+QUIT) out of its own bytecode, and the start menu builds NEW / LOAD / CREATIONS
+/ CREDITS / QUIT out of `sendMenuProperties`. Neither goes through a driver.
 
 ## 1. Retire the hand-written drivers
 
-The remaining arc. `vanilla_start_menu`, `vanilla_pause_menu` and
-`GameUi::BuildFalloutMainMenu` reimplement in C++ what the movies' own code
-already does, including panel-hiding that the timeline now resolves by itself.
-They can go once the interpreter path is trusted on every screen, which needs:
+`vanilla_start_menu`, `vanilla_pause_menu` and `GameUi::BuildFalloutMainMenu`
+still own the live menus; the interpreter path runs instead of them under
+`RX_VANILLA_VM`, not beside them. What the interpreter path still needs before
+the drivers can go:
 
-- **Input into the movie.** `VanillaRuntime::Click` sends `onPress`/`onRelease`
-  to the clip under the pointer; keyboard and pad still go to the drivers. The
-  CLIK components listen through `gfx.ui.NavigationCode`, so a host that pushes
-  those reaches every menu's navigation at once rather than per screen.
-- **The host bridge answered.** `Vm::set_external_handler` is wired and nothing
-  is installed on it. ~142 distinct native functions are called across the
-  corpus; a menu asks for save lists, player info, settings values and platform
-  through them, and returns nothing until they are answered.
-- **A screen-by-screen check** that the interpreter path renders what the
-  driver does, before the driver is deleted.
+- **Input.** `VanillaRuntime::Click` sends `onPress`/`onRelease` to the clip
+  under the pointer; keyboard and pad still go to the drivers. The CLIK
+  components listen through `gfx.ui.NavigationCode`, so a host that pushes those
+  reaches every menu's navigation at once rather than per screen.
+- **The rest of the opening conversation.** `GameUi::OpenVanillaScreen` sends
+  what makes each screen appear (`sendMenuProperties`, `RestoreSavedSettings`)
+  and nothing else, so the tab labels still read "BUTTON TEXT" and the bottom
+  bar still reads "Time, Date, Year". Those come from further host calls.
+  `GameBridge::pending()` lists what a screen asked for and nobody answered,
+  which is the work list.
+- **Runtime-attached rows.** A list that builds its rows with `attachMovie` has
+  no widget to bind them to; only the rows the timeline authored appear. The
+  start menu's list is spaced by its script rather than by its markup, and comes
+  out tighter than the original because of it.
+- **A screen-by-screen check** before each driver is deleted.
 
 ## 2. The menus themselves
 
-Unchanged by the interpreter work, because nothing stands behind them yet.
-
-- Pause menu: SAVE, LOAD, CONTROLS, HELP and INSTALLED CONTENT select but open
-  nothing; the QUEST and STATS tabs do not switch.
+- Pause menu: the option list is live, but SAVE, LOAD, CONTROLS, HELP and
+  INSTALLED CONTENT select without opening anything, and the QUEST and STATS
+  tabs do not switch.
 - Start menu: LOAD, CREATIONS and CREDITS likewise.
 - "Main Menu" from the quit list reopens the front screen with the world still
   loaded behind it, rather than tearing it down.
@@ -74,19 +81,42 @@ but it caps how long a session can be play-tested.
 
 - The interpreter: values, objects, prototypes, closures, the DefineFunction2
   preloads, and the instruction set the menus use.
-- The display list as live objects, with `Object.registerClass` applied.
+- `Array`: the constructor's own arguments (`new Array(a, b, c)` was building an
+  empty object, so every fixed table a menu keeps came out empty), plus `slice`
+  (230 uses), `splice` (195), `indexOf` (132), `concat` (31), `shift` (20) and
+  `sort` (17).
+- `InitArray` element order. It was reversed, which swapped every pair the
+  scripts build, including GameDelegate's `[scope, method]`, so no message the
+  game sent ever reached its handler.
+- The display list as live objects, with `Object.registerClass` applied, and
+  each clip carrying the box the frame gave it (`_x`, `_y`, `_width`,
+  `_height`). A list divides its border's height by a row's to decide how many
+  rows fit, so without those it showed nothing.
+- Load events after the frame's own actions rather than during the build, which
+  is the order the player uses. The root's actions install the helpers a menu's
+  `onLoad` calls (`TextField.prototype.SetText` among them), so the other way
+  round left every list filled with its placeholders.
 - The timeline: `gotoAndStop` re-applies the frame, labels resolve,
-  `_currentframe` / `_totalframes` follow, `play` steps and wraps.
+  `_currentframe` / `_totalframes` follow, `play` steps and wraps. One shared
+  display-list walk (`DisplayListAt`) now serves both the translation and the
+  interpreter; the two had drifted, and the interpreter's copy was dropping the
+  colour transform off a move, which left every fade on its first frame.
 - `addProperty` (1688 uses), the accessor the components are built on.
 - Runtime clip creation: `attachMovie` (414), `getNextHighestDepth` (416),
   `removeMovieClip` (108), `createEmptyMovieClip`, `duplicateMovieClip`.
 - Text fields with a real prototype, so the scripts' own `SetText` (659 uses)
   reaches them, plus `Stage.visibleRect` / `safeRect` and the listener globals.
-- Events: `onLoad` after the constructor, `onEnterFrame` per tick, and dispatch
-  by name for the rest.
+- Events: `onLoad`, `onEnterFrame` per tick, and dispatch by name for the rest.
 - Timers: `setInterval` / `setTimeout` / `clearInterval`, drained by `Tick`.
-- The host bridge, through `flash.external.ExternalInterface.call`.
+- The host bridge, both ways: `GameDelegate.call` out through
+  `ExternalInterface`, and `receiveCall` / `receiveResponse` in. `Open()` runs
+  the `InitExtensions` the game runs, which is where a menu registers most of
+  its callbacks (19 for the journal and the start menu, 27 for the HUD).
 - The Scaleform container tags. Of the twelve codes only `ExporterInfo` and
   `DefineSubImage` occur in any shipped movie; the sub-image layout was verified
   byte for byte, and the rest stay named and unparsed rather than guessed at.
-- Binding the interpreter's clips to the translated widgets.
+- Binding the interpreter's clips to the translated widgets, and writing back
+  what the script changes: text (resolved through the interface's own "$KEY"
+  table), visibility as opacity down the whole subtree (ugui does not inherit
+  it), the timeline's own fades, and position when a script moves a clip off
+  where its frame put it.
