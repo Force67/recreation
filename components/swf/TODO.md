@@ -84,11 +84,17 @@ matter - 0 adds QUIT, 1 adds ADD-ONS, 7 adds the PlayStation save transfer.
 What that driver still does, and why it is not gone yet:
 
 - **It hides the sixteen state panels.** An AS3 screen keeps its states on
-  frames the same way an AS2 one does, and nothing yet reads `_currentframe`
-  off an AVM2 display object to pick the state group the translation emitted.
+  frames the same way an AS2 one does. The objects are bound to their widgets
+  now (26 of them on the main menu, walking the root display list and
+  constructing the class SymbolClass names for each placement), and
+  `gotoAndStop` records a `currentFrame`, but nothing puts a screen on its
+  opening frame at load, so every panel still reads as shown. That is the last
+  thing between here and deleting the driver.
 - **It drives the rows.** The AS3 list component is not executed, so the rows
   stay the ones `StampListRows` stamped and `VanillaList` writes into them. The
   entries in them are the movie's; the layout is not.
+- **Nothing ticks an AS3 screen.** `Tick` returns early without a stage, so a
+  fade or an enter-frame handler never runs.
 - **The host conversation is unconnected either way.** An AS3 menu reaches out
   through `Shared.BGSExternalInterface` rather than `gfx.io.GameDelegate`, so
   none of the bridge work applies, and activating a row does nothing.
