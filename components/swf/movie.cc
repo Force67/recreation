@@ -241,6 +241,13 @@ const Font* Movie::FindFont(u16 id) const {
   return &fonts[ref->index];
 }
 
+const ExternalImage* Movie::FindExternalImage(u16 id) const {
+  const CharacterRef* ref = characters.find(id);
+  if (!ref || ref->kind != CharacterKind::kExternalImage)
+    return nullptr;
+  return &external_images[ref->index];
+}
+
 const Timeline* Movie::FindSprite(u16 id) const {
   const CharacterRef* ref = characters.find(id);
   if (!ref || ref->kind != CharacterKind::kSprite)
@@ -303,6 +310,28 @@ base::Optional<Movie> LoadMovie(const SwfFile& file, bool want_font_outlines) {
         movie.characters[bitmap.id] =
             CharacterRef{CharacterKind::kBitmap, static_cast<u32>(movie.bitmaps.size())};
         movie.bitmaps.push_back(base::move(bitmap));
+        break;
+      }
+      // Scaleform's own tag, in the .gfx export only: the character's pixels
+      // are a file beside the movie rather than bytes in it. Layout verified
+      // against Skyrim's exported menus; the other GFX tag codes are named in
+      // swf.h but do not occur in any shipped movie, so nothing parses them.
+      case TagCode::kGfxDefineSubImage: {
+        Reader r(tag.body);
+        ExternalImage image;
+        image.id = r.U16();
+        r.U16();  // the containing image; zero in every shipped tag
+        r.U16();  // bitmap format
+        image.width = r.U16();
+        image.height = r.U16();
+        image.name = r.Str8();
+        image.file = r.Str8();
+        if (!r.ok() || image.file.empty())
+          break;
+        movie.characters[image.id] =
+            CharacterRef{CharacterKind::kExternalImage,
+                         static_cast<u32>(movie.external_images.size())};
+        movie.external_images.push_back(base::move(image));
         break;
       }
       case TagCode::kDefineEditText: {

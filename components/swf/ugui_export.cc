@@ -465,6 +465,12 @@ Rect Exporter::CharacterBounds(u16 character_id, u32 depth) {
     r.y_max = static_cast<i32>(bitmap->height * kTwipsPerPixel);
     return r;
   }
+  if (const ExternalImage* image = current_->FindExternalImage(character_id)) {
+    Rect r;
+    r.x_max = static_cast<i32>(image->width * kTwipsPerPixel);
+    r.y_max = static_cast<i32>(image->height * kTwipsPerPixel);
+    return r;
+  }
   if (const Button* button = current_->FindButton(character_id)) {
     Rect out;
     bool first = true;
@@ -800,6 +806,29 @@ void Exporter::EmitPlace(const Place& place,
       return;
     }
     const base::String name = NameFor(place, base::Format("image{}", bitmap->id));
+    Line(indent, base::Format("image {} {{ {} }}", name, Placement(box, &color)));
+    Bind(name, file);
+    ++out_.widget_count;
+    return;
+  }
+
+  // The .gfx export's bitmaps: the pixels are a file beside the movie, so the
+  // asset is recorded by source name and the caller fetches it. Without this a
+  // .gfx-only movie loses all of its raster art.
+  if (const ExternalImage* image = current_->FindExternalImage(place.character_id)) {
+    const base::String name = NameFor(place, base::Format("image{}", image->id));
+    const base::String file =
+        base::Format("{}/{}.png", options_.name, Sanitize(image->name, "image"));
+    bool have = false;
+    for (const ExportedAsset& asset : out_.assets)
+      have = have || asset.file == file;
+    if (!have) {
+      ExportedAsset asset;
+      asset.file = file;
+      asset.widget = name;
+      asset.source = image->file;
+      out_.assets.push_back(base::move(asset));
+    }
     Line(indent, base::Format("image {} {{ {} }}", name, Placement(box, &color)));
     Bind(name, file);
     ++out_.widget_count;

@@ -99,6 +99,10 @@ void PrintSummary(const swf::SwfFile& file, const swf::Movie& movie) {
               static_cast<size_t>(movie.bitmaps.size()),
               static_cast<size_t>(movie.edit_texts.size()),
               static_cast<size_t>(movie.static_texts.size()));
+  if (!movie.external_images.empty())
+    std::printf("  external images %zu (the .gfx export keeps its bitmaps in files"
+                " beside the movie)\n",
+                static_cast<size_t>(movie.external_images.size()));
   std::printf("  fonts %zu  sprites %zu  buttons %zu  exports %zu  scripts %zu\n",
               static_cast<size_t>(movie.fonts.size()),
               static_cast<size_t>(movie.sprites.size()),

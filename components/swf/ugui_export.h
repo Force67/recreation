@@ -61,6 +61,10 @@ struct ExportedAsset {
   base::String file;      // relative path, e.g. "hudmenu/shape_142.svg"
   base::String widget;    // the ugui widget that binds it
   base::Vector<u8> bytes;
+  // Set when the pixels are not in the movie: the .gfx export moves every
+  // bitmap out to a file beside it (see swf::ExternalImage), so `bytes` is empty
+  // and the caller has to fetch this name from wherever it found the movie.
+  base::String source;
 };
 
 struct UguiScreen {

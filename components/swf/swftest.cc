@@ -810,6 +810,46 @@ int main() {
           "dispatching a handler a clip does not carry does nothing");
   }
 
+
+  {
+    // Scaleform's .gfx export moves every bitmap out to a file beside the movie
+    // and leaves a tag naming it. Skyrim's quest_journal.gfx carries 163 of
+    // these where the .swf twin carries 163 bitmaps, so a reader that ignores
+    // them loses all of that movie's raster art.
+    swf::Movie movie;
+    swf::ExternalImage image;
+    image.id = 5;
+    image.width = 88;
+    image.height = 64;
+    image.name = "360_Start.png";
+    image.file = "360_Start.png.dds";
+    movie.external_images.push_back(base::move(image));
+    movie.characters[5] = swf::CharacterRef{swf::CharacterKind::kExternalImage, 0};
+    swf::Frame frame;
+    swf::Place place;
+    place.depth = 1;
+    place.character_id = 5;
+    place.has_character = true;
+    place.name = "glyph";
+    frame.places.push_back(base::move(place));
+    movie.root.frames.push_back(base::move(frame));
+
+    Check(movie.FindExternalImage(5) != nullptr, "an external image resolves by id");
+
+    swf::UguiExportOptions options;
+    options.name = "hud";
+    const swf::UguiScreen screen = swf::ExportUgui(movie, options);
+    Check(Contains(screen.markup, "image glyph"),
+          "a placed external image becomes an image widget");
+    Check(Contains(screen.markup, "width: 88px"),
+          "sized from the tag, since there are no pixels to measure");
+    bool recorded = false;
+    for (const swf::ExportedAsset& asset : screen.assets)
+      if (asset.source == "360_Start.png.dds")
+        recorded = true;
+    Check(recorded, "and the asset records the file to fetch beside the movie");
+  }
+
   std::printf("swftest: %d failure(s)\n", failures);
   return failures == 0 ? 0 : 1;
 }

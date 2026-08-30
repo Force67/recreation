@@ -24,6 +24,7 @@ enum class CharacterKind : u8 {
   kFont,
   kSprite,
   kButton,
+  kExternalImage,
 };
 
 // Where a character id lives: which of the Movie's typed arrays, and at what
@@ -60,6 +61,21 @@ struct Frame {
   base::String label;
   base::Vector<Place> places;
   base::Vector<u16> removes;  // depths cleared this frame
+};
+
+// A character whose pixels live outside the movie.
+//
+// The .gfx export replaces every embedded bitmap with one of these: the art
+// moves to a texture file beside the movie and the tag keeps only its size and
+// the file to load. Skyrim's quest_journal.gfx carries 163 of them where the
+// .swf twin carries 163 bitmaps. `file` is relative to the movie, so the host
+// resolves it the same way it found the movie itself.
+struct ExternalImage {
+  u16 id = 0;
+  u16 width = 0;
+  u16 height = 0;
+  base::String name;  // the export name, e.g. "360_Start.png"
+  base::String file;  // what to load, e.g. "360_Start.png.dds"
 };
 
 // A timeline: the movie root (id 0) or a DefineSprite.
@@ -109,6 +125,7 @@ struct Movie {
 
   base::Vector<Shape> shapes;
   base::Vector<Bitmap> bitmaps;
+  base::Vector<ExternalImage> external_images;
   base::Vector<EditText> edit_texts;
   base::Vector<StaticText> static_texts;
   base::Vector<Font> fonts;
@@ -134,6 +151,7 @@ struct Movie {
   const EditText* FindEditText(u16 id) const;
   const StaticText* FindStaticText(u16 id) const;
   const Font* FindFont(u16 id) const;
+  const ExternalImage* FindExternalImage(u16 id) const;
   const Timeline* FindSprite(u16 id) const;
   const Button* FindButton(u16 id) const;
   // The export name of a character, empty when it was never exported.

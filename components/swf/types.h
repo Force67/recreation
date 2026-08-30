@@ -176,6 +176,16 @@ class Reader {
     return out;
   }
 
+  // Length-prefixed by one byte, which is how Scaleform's own tags carry the
+  // export and file names.
+  base::String Str8() {
+    Align();
+    const u8 length = U8();
+    if (!ok_)
+      return {};
+    return StrN(length);
+  }
+
   base::String StrN(mem_size n) {
     Align();
     base::String out;
