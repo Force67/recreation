@@ -46,7 +46,8 @@ hand-written Skyrim drivers are gone.
   showing, so a couple of tab chevrons overlap.
 - **Runtime-attached rows.** A list that builds its rows with `attachMovie` has
   no widget to bind them to. Skyrim's lists place theirs on the timeline, so
-  this has not bitten yet.
+  this has not bitten yet; Fallout 4's do not, which is what StampListRows
+  stands in for.
 
 ## 2. Everything behind a row
 
@@ -72,20 +73,49 @@ missing is the host having anything to answer with.
 
 `GameBridge::pending()` is the work list, and `swfdump --run` prints it.
 
-## 3. Fallout 4
+## 3. Fallout 4 on the interpreter
 
-`GameUi::BuildFalloutMainMenu` is the last hand-written driver, and it stays
-until §4: Fallout 4's menus are ActionScript 3, which the interpreter does not
-execute. Its option list renders, but nothing stands behind the entries, and the
-sub-panels, the message-of-the-day body and the background art are unfilled.
+`GameUi::BuildFalloutMainMenu` is the last hand-written driver. The interpreter
+that would replace it now exists (§4) and produces the same option list from
+Fallout 4's own code, so what is left is the wiring the Skyrim path already has:
+
+- `VanillaRuntime` runs AVM1 only. It needs to pick the machine by what the
+  movie carries, and bind AS3 display objects to widgets the way it binds clips.
+- The host conversation is different. An AS3 menu takes the game's messages as
+  plain methods on the instance (`Avm2::Invoke`) rather than through a delegate,
+  and reaches back out through `Shared.BGSExternalInterface` rather than
+  `gfx.io.GameDelegate`. Neither end is wired.
+- Its sub-panels, the message-of-the-day body and the background art are
+  unfilled.
 
 ## 4. ActionScript 3
 
-Fallout 4 and Starfield are AVM2, which `abc.cc` disassembles but does not
-execute, so none of the interpreter work reaches them. Their lists are filled
-statically instead, by reading `listEntryClass` / `numListItems` out of the
-bytecode (`ParseListBindings`). A real AVM2 interpreter is a second build of
-comparable size to the AVM1 one.
+The machine is in `avm2.{h,cc}`, with the structured decoder beside the
+disassembler in `abc.{h,cc}`. It runs both AS3 corpora clean:
+
+- **Fallout 4**: 2287 of 2287 classes construct, 218 movies fill a list, no
+  opcode goes unimplemented and nothing hits the step budget. `mainmenu` builds
+  $NEW / $LOAD / $SETTINGS / $CREW out of its own `InitList`, which is what
+  `BuildFalloutMainMenu` hand-codes.
+- **Starfield**: 18073 of 18278 classes construct on the same terms.
+
+What it does not do yet:
+
+- **205 Starfield classes do not construct.** They are the ones whose class
+  object or constructor body does not resolve; nothing has looked at why.
+- **No standard library beyond `Array.push`.** A menu that calls `String.split`
+  or `Math.floor` gets undefined, which is silent. The opcode side is covered;
+  the runtime side is not.
+- **Types are not checked.** `coerce`, `astype` and `istype` pass values
+  through, and `instanceof` answers false. Nothing in the menus turned out to
+  branch on one, but a screen that does will take the wrong path quietly.
+- **Exceptions.** `throw` ends the method and `newcatch` yields a bare object;
+  there is no unwinding to a handler.
+- **Display objects are stand-ins.** Reading a member a display object does not
+  have yields another stand-in, because the player would have put one there.
+  That is what lets `MainPanel_mc.List_mc.entryList` resolve before anything
+  built it, and it means a genuinely absent member reads as an object rather
+  than undefined.
 
 ## Not ours
 
