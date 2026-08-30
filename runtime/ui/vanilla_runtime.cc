@@ -66,22 +66,85 @@ bool NameMatches(base::StringRef want, base::StringRef actual) {
   return true;
 }
 
-ugui::wid ChildNamed(ugui::WidgetRegistry& world, ugui::wid parent, base::StringRef name) {
-  const ugui::Hierarchy* h = world.Get<ugui::Hierarchy>(parent);
+// The frame a state group stands for, or -1 when the widget is not one. The
+// exporter names them "<clip>__state<frame>", with the usual "_2" on a clash.
+i32 StateFrameOf(base::StringRef name) {
+  const char* marker = "__state";
+  const mem_size len = 7;
+  for (mem_size i = 0; i + len < name.size(); ++i) {
+    bool hit = true;
+    for (mem_size c = 0; c < len; ++c)
+      hit = hit && name[i + c] == marker[c];
+    if (!hit)
+      continue;
+    mem_size digit = i + len;
+    if (digit >= name.size() || name[digit] < '0' || name[digit] > '9')
+      return -1;
+    i32 frame = 0;
+    for (; digit < name.size() && name[digit] >= '0' && name[digit] <= '9'; ++digit)
+      frame = frame * 10 + (name[digit] - '0');
+    return frame;
+  }
+  return -1;
+}
+
+bool IsStateGroup(ugui::WidgetRegistry& world, ugui::wid widget) {
+  const ugui::WidgetNode* node = world.Get<ugui::WidgetNode>(widget);
+  return node && StateFrameOf(base::StringRef(node->name.c_str())) >= 0;
+}
+
+// The group a clip on `frame` is showing: the last one at or before it, since a
+// state holds until the next one starts. Null when the widget has no groups,
+// which is every clip whose timeline never changed what it placed.
+ugui::wid ActiveState(ugui::WidgetRegistry& world, ugui::wid widget, i32 frame) {
+  const ugui::Hierarchy* h = world.Get<ugui::Hierarchy>(widget);
   if (!h)
     return ugui::kNullWidget;
+  ugui::wid best = ugui::kNullWidget;
+  i32 best_frame = -1;
+  for (ugui::wid child : h->children) {
+    const ugui::WidgetNode* node = world.Get<ugui::WidgetNode>(child);
+    if (!node)
+      continue;
+    const i32 at = StateFrameOf(base::StringRef(node->name.c_str()));
+    if (at < 0 || at > frame || at <= best_frame)
+      continue;
+    best = child;
+    best_frame = at;
+  }
+  return best;
+}
+
+// Every widget under `parent` that stands for the instance `name`. There is
+// more than one when the clip has states: the translation emits a group per
+// state and each carries its own copy, so a clip drives all of them and the
+// inactive groups are simply not drawn.
+void ChildrenNamed(ugui::WidgetRegistry& world, ugui::wid parent, base::StringRef name,
+                   base::Vector<ugui::wid>& out) {
+  const ugui::Hierarchy* h = world.Get<ugui::Hierarchy>(parent);
+  if (!h)
+    return;
   ugui::wid fallback = ugui::kNullWidget;
   for (ugui::wid child : h->children) {
     const ugui::WidgetNode* node = world.Get<ugui::WidgetNode>(child);
     if (!node)
       continue;
     const base::StringRef actual(node->name.c_str());
-    if (name == actual)
-      return child;  // an exact match always wins
+    // A state group is the translation's own scaffolding, not an instance the
+    // movie ever named, so a lookup passes straight through it.
+    if (StateFrameOf(actual) >= 0) {
+      ChildrenNamed(world, child, name, out);
+      continue;
+    }
+    if (name == actual) {
+      out.push_back(child);  // an exact match always wins
+      return;
+    }
     if (!fallback.valid() && NameMatches(name, actual))
       fallback = child;
   }
-  return fallback;
+  if (fallback.valid())
+    out.push_back(fallback);
 }
 
 }  // namespace
@@ -165,12 +228,13 @@ struct VanillaRuntime::Impl {
       const swf::AsObject& object = vm.Get(child.object());
       if (!object.is_movie_clip && object.props.find(base::String("text")) == nullptr)
         continue;
-      const ugui::wid child_widget = ChildNamed(world, widget, key);
-      if (!child_widget.valid())
-        continue;
-      const u32 child_index = Bind(ui, child, child_widget, depth + 1);
-      if (child_index != kNoBinding)
-        bound[index].children.push_back(child_index);
+      base::Vector<ugui::wid> child_widgets;
+      ChildrenNamed(world, widget, key, child_widgets);
+      for (ugui::wid child_widget : child_widgets) {
+        const u32 child_index = Bind(ui, child, child_widget, depth + 1);
+        if (child_index != kNoBinding)
+          bound[index].children.push_back(child_index);
+      }
     }
     return index;
   }
@@ -219,10 +283,15 @@ struct VanillaRuntime::Impl {
     base::Vector<base::String> current;
     base::Vector<base::String> ever;
     stage->PlacedNames(clip, current, ever);
+    // Only the group for the frame the clip is on is drawn; the rest are the
+    // states it is not in, which the translation carries so that it can be.
+    const ugui::wid active =
+        ActiveState(ui.world(), entry.widget,
+                    static_cast<i32>(vm.ToNumber(vm.GetMember(clip, "_currentframe"))) - 1);
     Move(ui.world(), entry,
          static_cast<f32>(vm.ToNumber(vm.GetMember(clip, "_x"))) - placed.x,
          static_cast<f32>(vm.ToNumber(vm.GetMember(clip, "_y"))) - placed.y);
-    Paint(ui.world(), entry.widget, opacity, entry, current, ever);
+    Paint(ui.world(), entry.widget, opacity, entry, current, ever, active);
     if (entry.is_text) {
       const swf::AsValue text = vm.GetMember(clip, "text");
       if (!text.is_undefined())
@@ -268,7 +337,7 @@ struct VanillaRuntime::Impl {
   // clip resolves its own and paints its own subtree.
   void Paint(ugui::WidgetRegistry& world, ugui::wid widget, f32 opacity,
              const Bound& owner, const base::Vector<base::String>& current,
-             const base::Vector<base::String>& ever) {
+             const base::Vector<base::String>& ever, ugui::wid active) {
     if (!widget.valid())
       return;
     if (ugui::StyleC* sc = world.Get<ugui::StyleC>(widget); sc && sc->style.opacity != opacity) {
@@ -285,8 +354,16 @@ struct VanillaRuntime::Impl {
         owned = owned || Same(bound[index].widget, child);
       if (owned)
         continue;  // that clip resolves its own state
+      if (IsStateGroup(world, child)) {
+        Paint(world, child, Same(child, active) ? opacity : 0.0f, owner, current, ever,
+              ugui::kNullWidget);
+        continue;
+      }
+      // Anything below a state group keeps whatever state it is showing: only
+      // the clip that owns a group knows which frame it is on, and a widget
+      // reached without one has no clip to ask.
       Paint(world, child, OnStage(world, child, current, ever) ? opacity : 0.0f, owner,
-            current, ever);
+            current, ever, active);
     }
   }
 
@@ -365,6 +442,10 @@ bool VanillaRuntime::Load(ugui::UIContext& ui, base::StringRef dir, base::String
   impl_->bridge = base::MakeUnique<swf::GameBridge>(impl_->vm);
   impl_->bridge->set_answerer(answerer_, answer_user_);
   impl_->stage = base::MakeUnique<swf::Stage>(impl_->vm, impl_->movie);
+  // Not the authored state yet: the translation carries a group per state now,
+  // but a CLIK component still does not finish wiring itself up, and the
+  // journal's tab strip comes back empty and takes the page with it. See
+  // components/swf/TODO.md.
   impl_->stage->Run();
   // What the game does once a menu's code object is up. Most of a menu's
   // callbacks are registered in there, so without it the screen is listening

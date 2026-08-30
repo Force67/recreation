@@ -39,6 +39,21 @@ struct UguiExportOptions {
   // Sprite instances nested deeper than this are placed as empty panels. The
   // shipped menus reach about 8.
   u32 max_depth = 16;
+  // How many of a sprite's states to translate. A menu keeps each state on its
+  // own frame and switches with `gotoAndStop`, so a clip needs one group per
+  // state for a host to be able to show the one it is on; without them a screen
+  // can only ever draw the frame it was snapshotted at. A CLIK button has nine
+  // (up/over/down/disabled and their selected twins) and most clips have one,
+  // so the cap is what keeps a screen's widget count in hand. 1 emits only
+  // `frame`, which is the old single-frame translation.
+  u32 max_states = 12;
+  // How deep to expand those states. They multiply: a clip with S states
+  // holding a clip with S states is S*S leaf subtrees, and the journal's chain
+  // of page, panel, list, row and art takes it from 1.4k widgets to 60k. The
+  // states worth having are near the top, where a menu switches its pages,
+  // panels and tabs; the art states deep inside a component matter less to a
+  // screen than being able to draw it at all.
+  u32 max_state_depth = 16;
   // The interface's "$KEY" table (bethesda::InterfaceStrings::entries). A menu
   // stores keys in its text fields and Scaleform substitutes at runtime, so
   // without this every screen reads "$LEVEL" and "$Saving...". Null leaves the

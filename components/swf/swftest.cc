@@ -829,6 +829,81 @@ int main() {
   }
 
   {
+    // A clip's states come out as sibling groups, one per labelled frame that
+    // puts something different on the display list. Without them the widgets
+    // only ever stand for the frame the export was taken at, and a menu that
+    // switches state with gotoAndStop has nothing to show.
+    swf::Movie movie;
+    swf::Shape normal;
+    normal.id = 1;
+    normal.bounds = swf::Rect{0, 400, 0, 200};
+    movie.shapes.push_back(base::move(normal));
+    swf::Shape selected;
+    selected.id = 2;
+    selected.bounds = swf::Rect{0, 400, 0, 400};
+    movie.shapes.push_back(base::move(selected));
+    movie.characters[1] = swf::CharacterRef{swf::CharacterKind::kShape, 0};
+    movie.characters[2] = swf::CharacterRef{swf::CharacterKind::kShape, 1};
+
+    swf::Timeline row;
+    row.id = 3;
+    swf::Frame plain;
+    plain.label = "Normal";
+    swf::Place art;
+    art.depth = 1;
+    art.character_id = 1;
+    art.has_character = true;
+    art.name = "art";
+    plain.places.push_back(base::move(art));
+    row.frames.push_back(base::move(plain));
+    // A tween: labelled, but placing the same thing. Faders are made of these,
+    // and counting them would triple the whole menu underneath one.
+    swf::Frame fading;
+    fading.label = "fadeIn";
+    swf::Place moved;
+    moved.depth = 1;
+    moved.move = true;
+    moved.has_color_transform = true;
+    moved.color_transform.mul_a = 0.5f;
+    fading.places.push_back(base::move(moved));
+    row.frames.push_back(base::move(fading));
+    swf::Frame highlit;
+    highlit.label = "Selected";
+    swf::Place bigger;
+    bigger.depth = 1;
+    bigger.character_id = 2;
+    bigger.has_character = true;
+    bigger.name = "art";
+    highlit.places.push_back(base::move(bigger));
+    row.frames.push_back(base::move(highlit));
+    movie.sprites.push_back(base::move(row));
+    movie.characters[3] = swf::CharacterRef{swf::CharacterKind::kSprite, 0};
+
+    swf::Frame stage;
+    swf::Place placed;
+    placed.depth = 1;
+    placed.character_id = 3;
+    placed.has_character = true;
+    placed.name = "Entry0";
+    stage.places.push_back(base::move(placed));
+    movie.root.frames.push_back(base::move(stage));
+
+    swf::UguiExportOptions options;
+    options.name = "states";
+    const swf::UguiScreen screen = swf::ExportUgui(movie, options);
+    Check(Contains(screen.markup, "Entry0__state0"), "the first state is a group");
+    Check(Contains(screen.markup, "Entry0__state2"),
+          "and so is the frame that places something else");
+    Check(!Contains(screen.markup, "Entry0__state1"),
+          "but a tween is not a state: it places the same thing");
+
+    options.max_states = 1;
+    const swf::UguiScreen flat = swf::ExportUgui(movie, options);
+    Check(!Contains(flat.markup, "__state"),
+          "and one state per clip is the old single-frame translation");
+  }
+
+  {
     // A bare assignment on a timeline names that timeline's own property, not a
     // global. That is how a component's authored parameters reach the clip they
     // were placed on: a tab's label is a `construct` handler doing `labelID =

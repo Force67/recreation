@@ -456,6 +456,25 @@ AsValue Vm::CallInternal(const AsValue& function, const AsValue& self,
   ++depth_;
   Execute(body.script, body.first, body.count, frame);
   --depth_;
+
+  // `SomeClass(value)` is a cast in ActionScript 2, not a construction: it
+  // yields the value when it is already of that class and null otherwise. The
+  // compiler emits it as a plain call on the class, so without this the class's
+  // constructor body runs against nothing and the cast comes back undefined.
+  // The menus lean on it - `ButtonGroup(this.QuestsTab.group)` is how the
+  // journal gets its tab strip, and a NaN there took the whole page with it.
+  if (frame.result.is_undefined() && self.is_undefined() && args.size() == 1 &&
+      args[0].is_object() && Valid(args[0].object())) {
+    const AsValue prototype = GetMember(function, "prototype");
+    if (prototype.is_object()) {
+      for (u32 current = objects_[args[0].object()].prototype, guard = 0;
+           guard < 64 && Valid(current); ++guard) {
+        if (current == prototype.object())
+          return args[0];
+        current = objects_[current].prototype;
+      }
+    }
+  }
   return frame.result;
 }
 

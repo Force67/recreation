@@ -133,6 +133,39 @@ struct Box {
   f32 left = 0, top = 0, width = 0, height = 0, rotation = 0;
 };
 
+// The states of a timeline a host has to be able to draw: frame 0, plus every
+// LABELLED frame that puts something different on the display list.
+//
+// Both halves matter. A menu switches state with `gotoAndStop("Normal")` and
+// names what it wants, so a label is the designer saying "this is a state
+// someone asks for"; counting unlabelled keyframes as well multiplies down the
+// tree and takes the journal from 1.4k widgets to 61k. And a fader labels the
+// start of each tween ("hide", "fadeIn", "forceFade") while placing the same
+// thing throughout, so without the second half every fader triples the whole
+// menu underneath it. What a tween does to the transform the interpreter reads
+// off the movie; it needs no widgets of its own.
+base::Vector<u32> StateFrames(const Timeline& timeline) {
+  base::Vector<u32> out;
+  base::Vector<u32> shown;
+  for (mem_size f = 0; f < timeline.frames.size(); ++f) {
+    if (!out.empty() && timeline.frames[f].label.empty())
+      continue;
+    base::Vector<u32> signature;
+    for (const Place& place : DisplayListAt(timeline, static_cast<u32>(f))) {
+      if (place.has_character)
+        signature.push_back((static_cast<u32>(place.depth) << 16) | place.character_id);
+    }
+    bool same = signature.size() == shown.size();
+    for (mem_size i = 0; same && i < signature.size(); ++i)
+      same = signature[i] == shown[i];
+    if (same && !out.empty())
+      continue;
+    out.push_back(static_cast<u32>(f));
+    shown = base::move(signature);
+  }
+  return out;
+}
+
 Box PlaceBox(const Matrix& m, const Rect& local) {
   const f32 sx = std::sqrt(m.scale_x * m.scale_x + m.rotate_skew0 * m.rotate_skew0);
   const f32 sy = std::sqrt(m.rotate_skew1 * m.rotate_skew1 + m.scale_y * m.scale_y);
@@ -171,7 +204,18 @@ class Exporter {
                     bool parent_revealed,
                     const Box& parent_box,
                     u32 indent,
-                    u32 depth);
+                    u32 depth,
+                    u32 frame);
+  // A sprite's states as sibling groups, one per frame where what it places
+  // changes. A host shows the group matching the clip's current frame.
+  void EmitStates(const Timeline& sprite,
+                  base::StringRef clip,
+                  const Matrix& absolute,
+                  const ColorTransform& color,
+                  bool revealed,
+                  const Box& box,
+                  u32 indent,
+                  u32 depth);
   void EmitPlace(const Place& place,
                  const Matrix& absolute,
                  const ColorTransform& color,
@@ -842,8 +886,8 @@ void Exporter::EmitPlace(const Place& place,
     base::String previous_owner = current_owner_;
     if (const base::String* symbol = current_->exports.find(sprite->id))
       current_owner_ = *symbol;
-    EmitTimeline(*sprite, absolute, color, revealed, absolute_box, indent + 1,
-                 depth + 1);
+    EmitStates(*sprite, name, absolute, color, revealed, absolute_box, indent + 1,
+               depth + 1);
     // A list the code fills: stamp the rows the bytecode asks for, so the
     // translation carries the same clips an AS2 movie would have on its
     // timeline and a host can drive it the same way.
@@ -938,14 +982,55 @@ void Exporter::StampListRows(base::StringRef owner,
   }
 }
 
+void Exporter::EmitStates(const Timeline& sprite,
+                         base::StringRef clip,
+                         const Matrix& absolute,
+                         const ColorTransform& color,
+                         bool revealed,
+                         const Box& box,
+                         u32 indent,
+                         u32 depth) {
+  const base::Vector<u32> states = StateFrames(sprite);
+  if (states.size() < 2 || options_.max_states < 2 || depth > options_.max_state_depth) {
+    EmitTimeline(sprite, absolute, color, revealed, box, indent, depth, options_.frame);
+    return;
+  }
+  // A group per state, at the clip's own origin so everything inside keeps the
+  // coordinates it would have had on its own. The frame the group stands for is
+  // in its name, which is how a host matches one to `_currentframe`.
+  Box origin;
+  origin.width = box.width;
+  origin.height = box.height;
+  const mem_size emitted = base::Min<mem_size>(states.size(), options_.max_states);
+  if (emitted < states.size())
+    Line(indent, base::Format("// {} further state(s) not translated", states.size() - emitted));
+  for (mem_size i = 0; i < emitted; ++i) {
+    const u32 frame = states[i];
+    const base::String label = frame < sprite.frames.size() ? sprite.frames[frame].label
+                                                            : base::String();
+    const base::String name =
+        UniqueName(base::Format("{}__state{}", clip, frame),
+                   base::Format("state{}", frame));
+    if (label.empty())
+      Line(indent, base::Format("panel {} {{ {}", name, ContainerPlacement(origin)));
+    else
+      Line(indent, base::Format("panel {} {{ {}  // frame \"{}\"", name,
+                                ContainerPlacement(origin), label));
+    EmitTimeline(sprite, absolute, color, revealed, box, indent + 1, depth, frame);
+    Line(indent, "}");
+    ++out_.widget_count;
+  }
+}
+
 void Exporter::EmitTimeline(const Timeline& timeline,
                             const Matrix& parent_matrix,
                             const ColorTransform& parent_color,
                             bool parent_revealed,
                             const Box& parent_box,
                             u32 indent,
-                            u32 depth) {
-  const base::Vector<Place> list = DisplayListAt(timeline, options_.frame);
+                            u32 depth,
+                            u32 frame) {
+  const base::Vector<Place> list = DisplayListAt(timeline, frame);
   mem_size i = 0;
   while (i < list.size()) {
     const Place& place = list[i];
@@ -1048,7 +1133,8 @@ UguiScreen Exporter::Run() {
   Box stage;
   stage.width = ToPixels(current_->frame_size.width());
   stage.height = ToPixels(current_->frame_size.height());
-  EmitTimeline(current_->root, identity, ColorTransform{}, false, stage, 1, 0);
+  EmitTimeline(current_->root, identity, ColorTransform{}, false, stage, 1, 0,
+               options_.frame);
   Line(0, "}");
 
   // The host has to scale the stage to its viewport the way Scaleform does, so
