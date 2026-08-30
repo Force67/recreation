@@ -283,6 +283,23 @@ void RunScripts(const swf::Movie& movie) {
     // And then activating it, which is how a menu's decision reaches the host:
     // a screen does not report which row was picked, it asks for the thing that
     // row means.
+    // Walk further down first when asked, so a row that opens a sub-panel can
+    // be exercised: RX_ACTIVATE=4 picks the fifth entry.
+    const int extra = getenv("RX_ACTIVATE") ? atoi(getenv("RX_ACTIVATE")) : 0;
+    for (int step = 0; step < extra; ++step) {
+      for (u32 i = 1; i < objects; ++i) {
+        if (!vm.Valid(i) || !vm.Get(i).is_movie_clip)
+          continue;
+        const swf::AsValue clip = swf::AsValue::Obj(i);
+        const swf::AsValue entries = vm.GetMember(clip, "entryList");
+        if (!entries.is_object() || vm.ToNumber(vm.GetMember(entries, "length")) <= 0)
+          continue;
+        base::Vector<swf::AsValue> down;
+        down.push_back(details);
+        down.push_back(path);
+        stage.Dispatch(clip, "handleInput", down);
+      }
+    }
     bridge.ClearPending();
     vm.SetMember(details, "navEquivalent", swf::AsValue::Str("enter"));
     for (u32 i = 1; i < objects; ++i) {
@@ -296,6 +313,15 @@ void RunScripts(const swf::Movie& movie) {
       args.push_back(details);
       args.push_back(path);
       stage.Dispatch(clip, "handleInput", args);
+    }
+    for (u32 i = 1; i < objects; ++i) {
+      if (!vm.Valid(i) || !vm.Get(i).is_movie_clip)
+        continue;
+      const swf::AsValue page = swf::AsValue::Obj(i);
+      if (!vm.GetMember(page, "CategoryList").is_object())
+        continue;
+      std::printf("  a page moved to state %s\n",
+                  vm.ToString(vm.GetMember(page, "currentState")).c_str());
     }
     if (!bridge.pending().empty()) {
       std::printf("activating asked the host for:\n");
