@@ -196,6 +196,8 @@ void RunAbc(const swf::Movie& movie) {
     vm.AddAbc(abc);
     classes += static_cast<u32>(abc.classes.size());
   }
+  if (!movie.document_class.empty())
+    std::printf("the movie's own class is %s\n", movie.document_class.c_str());
   std::printf("actionscript 3: %zu block(s), %u class(es)\n",
               static_cast<size_t>(files.size()), classes);
 

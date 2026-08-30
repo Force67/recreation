@@ -171,6 +171,93 @@ struct VanillaRuntime::Impl {
   base::UniquePointer<swf::Avm2> avm2;
   base::Vector<base::String> entries;
 
+  // The ActionScript 3 objects that stand for widgets, and what each drives.
+  struct As3Bound {
+    u32 object = 0;
+    ugui::wid widget;
+    bool is_text = false;
+  };
+  base::Vector<As3Bound> as3_bound;
+
+  // Walks the movie's root display list beside the widget tree. A placed sprite
+  // whose character the movie bound a class to becomes an instance of it, the
+  // way SymbolClass says, and that instance drives the widget the placement's
+  // own name was translated into.
+  void BindAbc(ugui::UIContext& ui, ugui::wid root_widget) {
+    ugui::WidgetRegistry& world = ui.world();
+    for (const swf::Place& place : swf::DisplayListAt(movie.root, 0)) {
+      if (!place.has_character || place.name.empty())
+        continue;
+      const base::String* klass = movie.exports.find(place.character_id);
+      if (klass == nullptr)
+        continue;
+      const swf::As3Value instance = avm2->Construct(*klass);
+      if (!instance.is_object())
+        continue;
+      base::Vector<ugui::wid> widgets;
+      ChildrenNamed(world, root_widget, place.name, widgets);
+      for (ugui::wid widget : widgets)
+        BindAbcInto(ui, instance, widget, 0);
+    }
+  }
+
+  void BindAbcInto(ugui::UIContext& ui, const swf::As3Value& object, ugui::wid widget,
+                   u32 depth) {
+    if (depth > 16 || !object.is_object() || !widget.valid())
+      return;
+    ugui::WidgetRegistry& world = ui.world();
+    As3Bound entry;
+    entry.object = object.object();
+    entry.widget = widget;
+    const ugui::WidgetNode* node = world.Get<ugui::WidgetNode>(widget);
+    entry.is_text = node && node->kind == ugui::WidgetKind::kText;
+    as3_bound.push_back(entry);
+
+    for (const base::String& key : avm2->Get(object.object()).order) {
+      if (key.empty() || key[0] == '_')
+        continue;
+      const swf::As3Value child = avm2->GetProperty(object, key);
+      if (!child.is_object())
+        continue;
+      base::Vector<ugui::wid> widgets;
+      ChildrenNamed(world, widget, key, widgets);
+      for (ugui::wid found : widgets)
+        BindAbcInto(ui, child, found, depth + 1);
+    }
+  }
+
+  // What the AS3 objects say about themselves, onto the widgets. The names
+  // differ from AS2's: `visible` rather than `_visible`, and `alpha` runs 0..1.
+  void SyncAbc(ugui::UIContext& ui) {
+    ugui::WidgetRegistry& world = ui.world();
+    for (const As3Bound& entry : as3_bound) {
+      if (!avm2->Valid(entry.object) || !entry.widget.valid())
+        continue;
+      const swf::As3Value object = swf::As3Value::Obj(entry.object);
+      const swf::As3Value visible = avm2->GetProperty(object, "visible");
+      f32 opacity = 1.0f;
+      if (!visible.is_undefined() && !avm2->ToBool(visible))
+        opacity = 0.0f;
+      const swf::As3Value alpha = avm2->GetProperty(object, "alpha");
+      if (!alpha.is_undefined()) {
+        const f32 own = static_cast<f32>(avm2->ToNumber(alpha));
+        if (own >= 0 && own <= 1)
+          opacity *= own;
+      }
+      if (ugui::StyleC* sc = world.Get<ugui::StyleC>(entry.widget);
+          sc && sc->style.opacity != opacity) {
+        ugui::Style style = sc->style;
+        style.opacity = opacity;
+        ugui::SetStyle(world, entry.widget, style);
+      }
+      if (entry.is_text) {
+        const swf::As3Value text = avm2->GetProperty(object, "text");
+        if (!text.is_undefined())
+          Write(world, entry.widget, Localise(avm2->ToString(text)));
+      }
+    }
+  }
+
   // Runs an AS3 movie's classes the way the player does, and keeps whatever
   // ended up in the longest list.
   void RunAbc() {
@@ -516,9 +603,17 @@ bool VanillaRuntime::Load(ugui::UIContext& ui, base::StringRef dir, base::String
         impl_->abc.push_back(base::move(file));
     }
     impl_->RunAbc();
+    const ugui::wid as3_root = ui.FindWidget(base::String(root).c_str());
+    if (as3_root.valid()) {
+      impl_->root = as3_root;
+      impl_->BindAbc(ui, as3_root);
+      impl_->SyncAbc(ui);
+    }
     impl_->ready = true;
-    RX_INFO("vanilla vm: {} is actionscript 3, {} entr{} from its own code", screen,
-            impl_->entries.size(), impl_->entries.size() == 1 ? "y" : "ies");
+    RX_INFO("vanilla vm: {} is actionscript 3, {} entr{} from its own code, "
+            "{} object(s) bound to widgets",
+            screen, impl_->entries.size(), impl_->entries.size() == 1 ? "y" : "ies",
+            impl_->as3_bound.size());
     return true;
   }
 

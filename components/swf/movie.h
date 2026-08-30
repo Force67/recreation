@@ -135,6 +135,9 @@ struct Movie {
 
   base::UnorderedMap<u16, CharacterRef> characters;
   base::UnorderedMap<u16, base::String> exports;  // character id -> symbol name
+  // ActionScript 3's SymbolClass binds character 0 to the class that drives the
+  // whole movie. That is the class a host constructs to run the screen.
+  base::String document_class;
   base::UnorderedMap<u16, Rect> scaling_grids;    // character id -> 9-slice splits
   base::Vector<base::String> imports;             // "url#symbol" of ImportAssets2
   // Local character id -> the "url#symbol" an ImportAssets2 bound to it. A menu

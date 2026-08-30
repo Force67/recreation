@@ -549,6 +549,8 @@ base::Optional<Movie> LoadMovie(const SwfFile& file, bool want_font_outlines) {
           base::String name = r.Str();
           if (id != 0)
             movie.exports[id] = base::move(name);
+          else
+            movie.document_class = base::move(name);
         }
         break;
       }
