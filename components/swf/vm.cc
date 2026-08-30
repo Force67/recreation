@@ -791,6 +791,33 @@ void Vm::Execute(u32 script_index, u32 first, u32 count, Frame& frame) {
         break;
       }
 
+      // Try/Catch/Finally. The three blocks sit inline after the action, so a
+      // machine that just falls through runs all three: the catch block starts
+      // by storing an exception nobody threw, and the stack is out of step for
+      // the rest of the function. That is what silently stopped a CLIK button
+      // from joining its group and a list row from getting its label.
+      //
+      // Nothing in these menus throws, so the catch block is skipped and the
+      // finally block runs after the body, which is what happens when a try
+      // completes.
+      case op::kTry: {
+        const AsScript& code = scripts_[script_index];
+        const u32 body_first = IndexOfOffset(code, i + 1, last - (i + 1), action.end);
+        const u32 catch_at = action.end + action.body_size;
+        const u32 finally_at = catch_at + action.word_arg;
+        const u32 end_at = finally_at + action.param_count;
+        const u32 catch_first = IndexOfOffset(code, body_first, last - body_first, catch_at);
+        const u32 finally_first =
+            IndexOfOffset(code, body_first, last - body_first, finally_at);
+        const u32 end_first = IndexOfOffset(code, body_first, last - body_first, end_at);
+        if (catch_first > body_first)
+          Execute(script_index, body_first, catch_first - body_first, frame);
+        if (action.param_count != 0 && end_first > finally_first)
+          Execute(script_index, finally_first, end_first - finally_first, frame);
+        next = end_first;
+        break;
+      }
+
       case op::kJump:
         next = IndexOfOffset(scripts_[script_index], first, count,
                              static_cast<u32>(static_cast<i32>(action.end) + action.jump));

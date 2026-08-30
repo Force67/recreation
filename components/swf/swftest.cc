@@ -829,6 +829,75 @@ int main() {
   }
 
   {
+    // Try/Catch/Finally. The three blocks sit inline after the action, so a
+    // machine that falls through runs all three: the catch block stores an
+    // exception nobody threw and the stack is out of step for everything after
+    // it, which is how a constructor stopped halfway through its own body.
+    base::Vector<rx::u8> code;
+    auto literal = [&code](const char* text) {
+      code.push_back(0x96);
+      const rx::u16 len = static_cast<rx::u16>(std::strlen(text) + 2);
+      code.push_back(static_cast<rx::u8>(len & 0xff));
+      code.push_back(static_cast<rx::u8>(len >> 8));
+      code.push_back(0);
+      for (const char* c = text; *c; ++c)
+        code.push_back(static_cast<rx::u8>(*c));
+      code.push_back(0);
+    };
+    // The three bodies, assembled first so their sizes are known.
+    base::Vector<rx::u8> body;
+    base::Vector<rx::u8> katch;
+    base::Vector<rx::u8> after;
+    {
+      base::Vector<rx::u8>* into = &body;
+      auto trace_into = [&into](const char* text) {
+        into->push_back(0x96);
+        into->push_back(static_cast<rx::u8>(std::strlen(text) + 2));
+        into->push_back(0);
+        into->push_back(0);
+        for (const char* c = text; *c; ++c)
+          into->push_back(static_cast<rx::u8>(*c));
+        into->push_back(0);
+        into->push_back(0x26);
+      };
+      trace_into("tried");
+      into = &katch;
+      trace_into("caught");
+      into = &after;
+      trace_into("after");
+    }
+
+    code.push_back(0x8f);  // Try
+    const rx::u16 payload = 1 + 2 + 2 + 2 + 1;
+    code.push_back(static_cast<rx::u8>(payload & 0xff));
+    code.push_back(static_cast<rx::u8>(payload >> 8));
+    code.push_back(0x04);  // catch stores to a register rather than a name
+    code.push_back(static_cast<rx::u8>(body.size() & 0xff));
+    code.push_back(static_cast<rx::u8>(body.size() >> 8));
+    code.push_back(static_cast<rx::u8>(katch.size() & 0xff));
+    code.push_back(static_cast<rx::u8>(katch.size() >> 8));
+    code.push_back(0);  // no finally block
+    code.push_back(0);
+    code.push_back(1);  // the register the exception would land in
+    for (rx::u8 byte : body)
+      code.push_back(byte);
+    for (rx::u8 byte : katch)
+      code.push_back(byte);
+    for (rx::u8 byte : after)
+      code.push_back(byte);
+    code.push_back(0x00);
+    (void)literal;
+
+    swf::Vm vm;
+    const rx::u32 script = vm.AddScript(ByteSpan{code.data(), code.size()});
+    vm.Run(script, swf::AsValue::Undefined());
+    Check(vm.traces().size() == 2, "a try that completes runs its body and moves on");
+    Check(vm.traces().size() == 2 && vm.traces()[0] == "tried" &&
+              vm.traces()[1] == "after",
+          "and the catch block is not run when nothing threw");
+  }
+
+  {
     // A clip's states come out as sibling groups, one per labelled frame that
     // puts something different on the display list. Without them the widgets
     // only ever stand for the frame the export was taken at, and a menu that
