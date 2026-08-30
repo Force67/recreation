@@ -231,8 +231,22 @@ void RunAbc(const swf::Movie& movie) {
     for (const swf::AbcClass& klass : abc.classes) {
       if (klass.name.empty() || klass.is_interface)
         continue;
+      const bool was = vm.exhausted();
       if (vm.Construct(klass.name).is_object())
         ++built;
+      if (!was && vm.exhausted()) {
+        const u32 spun = static_cast<u32>(vm.exhausted_method());
+        base::String where;
+        for (const swf::AbcClass& owner : abc.classes) {
+          for (const swf::AbcTrait& trait : owner.instance_traits) {
+            if (trait.method == spun && !trait.name.empty())
+              where = base::Format("{}.{}", owner.name, trait.name);
+          }
+        }
+        std::printf("  the step budget ran out constructing %s, spinning in %s\n",
+                    klass.name.c_str(),
+                    where.empty() ? base::Format("method {}", spun).c_str() : where.c_str());
+      }
     }
   }
   std::printf("  %u of %u class(es) constructed\n", built, classes);
@@ -276,6 +290,18 @@ void RunAbc(const swf::Movie& movie) {
       vm.Invoke(instance, "InitMenu", flags);
       vm.Invoke(instance, "InitList", flags);
     }
+  }
+
+  // A message the game sends after the screen is open, so the state it moves
+  // to can be reported the same way as the one it opened on. Fallout 4's main
+  // menu waits on its splash until "ReturnToMainState".
+  if (const char* after = getenv("RX_AS3_CALL")) {
+    u32 took = 0;
+    for (const auto& entry : instances) {
+      if (vm.Invoke(swf::As3Value::Obj(entry.value), after, base::Vector<swf::As3Value>()))
+        ++took;
+    }
+    std::printf("%u class(es) took %s\n", took, after);
   }
 
   // What the screen hid of itself, along the path a host binding walks. A menu

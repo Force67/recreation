@@ -41,6 +41,10 @@ base::Option<bool> VanillaAuthored{"ui.vanilla.authored", true, "RX_VANILLA_AUTH
 // The screens are large and the state is spread over three trees, so this is
 // how a panel that should be down and is not gets found.
 base::Option<bool> VanillaReport{"ui.vanilla.report", false, "RX_VANILLA_REPORT"};
+// A message to send an ActionScript 3 screen once it is up, for looking at a
+// state the host has no input path to yet ("ReturnToMainState" is Fallout 4's
+// way past its splash).
+base::Option<const char*> VanillaSend{"ui.vanilla.send", nullptr, "RX_VANILLA_SEND"};
 
 base::Vector<u8> ReadFile(const fs::path& path) {
   base::Vector<u8> out;
@@ -154,8 +158,20 @@ void ChildrenNamed(ugui::WidgetRegistry& world, ugui::wid parent, base::StringRe
     if (!fallback.valid() && NameMatches(name, actual))
       fallback = child;
   }
-  if (fallback.valid())
+  if (fallback.valid()) {
     out.push_back(fallback);
+    return;
+  }
+  // Nothing at this level. A name can still stand for something further down:
+  // an AS3 getter hands back a field several clips deep under the flat name the
+  // class declares it as (`SplashScreenText_tf` lives inside
+  // `SplashScreenHolder_mc`). Only reached when the level itself has no match,
+  // so a name a parent does own always wins.
+  for (ugui::wid child : h->children) {
+    ChildrenNamed(world, child, name, out);
+    if (!out.empty())
+      return;
+  }
 }
 
 }  // namespace
@@ -744,6 +760,12 @@ bool VanillaRuntime::Load(ugui::UIContext& ui, base::StringRef dir, base::String
       impl_->root = as3_root;
       impl_->LocaliseTree(ui.world(), as3_root, 0);
       impl_->BindAbc(ui, as3_root);
+      if (const char* send = VanillaSend) {
+        for (const auto& entry : impl_->as3_instances) {
+          impl_->avm2->Invoke(swf::As3Value::Obj(entry.value), send,
+                              base::Vector<swf::As3Value>());
+        }
+      }
       impl_->SyncAbc(ui);
     }
     impl_->ready = true;
@@ -802,6 +824,23 @@ void VanillaRuntime::SetAnswerer(swf::GameBridge::Answerer answerer, void* user)
   answer_user_ = user;
   if (impl_ && impl_->bridge)
     impl_->bridge->set_answerer(answerer, user);
+}
+
+bool VanillaRuntime::CallAs3(ugui::UIContext& ui, base::StringRef name,
+                             const base::Vector<swf::As3Value>& args) {
+  if (!impl_ || !impl_->ready || !impl_->avm2)
+    return false;
+  bool any = false;
+  // Every class the movie placed. The game addresses a screen as one object,
+  // but which class that is differs per movie, and a name only one of them has
+  // reaches only that one.
+  for (const auto& entry : impl_->as3_instances) {
+    if (impl_->avm2->Invoke(swf::As3Value::Obj(entry.value), name, args))
+      any = true;
+  }
+  if (any)
+    impl_->SyncAbc(ui);
+  return any;
 }
 
 bool VanillaRuntime::CallRoot(ugui::UIContext& ui, base::StringRef name,
@@ -894,10 +933,16 @@ swf::Vm* VanillaRuntime::vm() {
 }
 
 void VanillaRuntime::Tick(ugui::UIContext& ui, f32 delta_seconds) {
-  // An ActionScript 3 screen has no stage to step: its list is built once, by
-  // the class code that ran at load.
-  if (!impl_ || !impl_->ready || !impl_->stage)
+  if (!impl_ || !impl_->ready)
     return;
+  // An ActionScript 3 screen has no timeline to step here - the class code that
+  // built it ran at load - but what the host says to it afterwards changes it,
+  // and the widgets only agree once that is written through.
+  if (!impl_->stage) {
+    if (impl_->avm2)
+      impl_->SyncAbc(ui);
+    return;
+  }
   impl_->stage->Tick(static_cast<f64>(delta_seconds) * 1000.0);
   if (impl_->stage->clip_count() != impl_->bound_clips)
     impl_->Rebind(ui);
@@ -972,6 +1017,10 @@ bool VanillaRuntime::Navigate(ugui::UIContext&, base::StringRef) {
 }
 bool VanillaRuntime::CallRoot(ugui::UIContext&, base::StringRef,
                               const base::Vector<swf::AsValue>&) {
+  return false;
+}
+bool VanillaRuntime::CallAs3(ugui::UIContext&, base::StringRef,
+                             const base::Vector<swf::As3Value>&) {
   return false;
 }
 bool VanillaRuntime::Send(ugui::UIContext&, base::StringRef,

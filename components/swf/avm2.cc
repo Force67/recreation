@@ -12,6 +12,8 @@ namespace {
 // screens settle in a few hundred thousand instructions.
 constexpr u64 kMaxSteps = 8'000'000;
 constexpr u32 kMaxDepth = 64;
+// How deep a chain of getters may go before it is treated as a loop.
+constexpr mem_size kMaxGetterDepth = 16;
 // Stand-ins are made on demand, so a loop that walks a display tree can ask for
 // them forever. A screen's tree is thousands of objects, not millions.
 constexpr u32 kMaxObjects = 400'000;
@@ -615,8 +617,27 @@ As3Value Avm2::GetProperty(const As3Value& target, base::StringRef name) {
   if (!target.is_object() || !Valid(target.object()))
     return As3Value::Undefined();
   for (u32 current = target.object(), guard = 0; guard < 64 && Valid(current); ++guard) {
-    if (const As3Value* found = objects_[current].props.find(key))
-      return *found;
+    if (const As3Value* found = objects_[current].props.find(key)) {
+      const As3Value value = *found;
+    if (value.is_object() && Valid(value.object()) && objects_[value.object()].is_getter) {
+        // A getter that reads its own name back is a loop, not a value. The
+        // identity check catches one that comes round to the same object; the
+        // depth cap catches the shape the stand-in model makes possible, where
+        // `get width() { return this.inner.width; }` meets an `inner` that is
+        // invented on the spot and so is a different object every time.
+        const u64 running = (static_cast<u64>(target.object()) << 32) | value.object();
+        if (getters_.size() >= kMaxGetterDepth)
+          return As3Value::Undefined();
+        for (mem_size i = 0; i < getters_.size(); ++i)
+          if (getters_[i] == running)
+            return As3Value::Undefined();
+        getters_.push_back(running);
+        const As3Value got = Call(value, target, base::Vector<As3Value>());
+        getters_.pop_back();
+        return got;
+      }
+      return value;
+    }
     current = objects_[current].prototype;
   }
   // A stand-in's missing member is another stand-in: the player would have put
@@ -642,6 +663,26 @@ void Avm2::SetProperty(const As3Value& target, base::StringRef name,
   if (!target.is_object() || !Valid(target.object()))
     return;
   const base::String key(LastSegment(name));
+  // A declared setter is the assignment. Its own name is prefixed, so this
+  // never finds the setter the trait install is putting in place.
+  const base::String setter_key = base::Format("__set_{}", key);
+  for (u32 current = target.object(), guard = 0; guard < 64 && Valid(current); ++guard) {
+    if (const As3Value* found = objects_[current].props.find(setter_key)) {
+      base::Vector<As3Value> args;
+      args.push_back(value);
+      Call(*found, target, args);
+      return;
+    }
+    // A getter with no setter is read-only, and writing over it would leave the
+    // property answering with whatever was written instead of running.
+    if (const As3Value* found = objects_[current].props.find(key)) {
+      if (found->is_object() && Valid(found->object()) &&
+          objects_[found->object()].is_getter)
+        return;
+      break;
+    }
+    current = objects_[current].prototype;
+  }
   As3Object& object = objects_[target.object()];
   if (object.props.find(key) == nullptr)
     object.order.push_back(key);
@@ -670,15 +711,21 @@ void Avm2::InstallClass(u32 unit, u32 class_index) {
   // them: `Shared.GlobalFunc.MaintainTextFormat` and its neighbours are how a
   // screen formats its own text.
   for (const AbcTrait& trait : klass.static_traits) {
-    if (trait.kind != TraitKind::kMethod && trait.kind != TraitKind::kGetter)
+    if (trait.kind != TraitKind::kMethod && trait.kind != TraitKind::kGetter &&
+        trait.kind != TraitKind::kSetter)
       continue;
     if (trait.method >= abc.methods.size())
       continue;
     const u32 fn = NewObject();
     objects_[fn].is_function = true;
+    objects_[fn].is_getter = trait.kind == TraitKind::kGetter;
+    objects_[fn].is_setter = trait.kind == TraitKind::kSetter;
     objects_[fn].method = trait.method;
     objects_[fn].unit = unit;
-    SetProperty(As3Value::Obj(object), trait.name, As3Value::Obj(fn));
+    const base::String slot = trait.kind == TraitKind::kSetter
+                                  ? base::Format("__set_{}", LastSegment(trait.name))
+                                  : base::String(trait.name);
+    SetProperty(As3Value::Obj(object), slot, As3Value::Obj(fn));
   }
   classes_[klass.name] = object;
   // Reachable by qualified name and by the bare class name, since a script
@@ -743,15 +790,21 @@ u32 Avm2::MethodsOf(base::StringRef class_name, u32 depth) {
   const u32 object = NewObject(MethodsOf(definition.super, depth + 1));
   methods_[key] = object;  // recorded before filling, so a cycle stops here
   for (const AbcTrait& trait : definition.instance_traits) {
-    if (trait.kind != TraitKind::kMethod && trait.kind != TraitKind::kGetter)
+    if (trait.kind != TraitKind::kMethod && trait.kind != TraitKind::kGetter &&
+        trait.kind != TraitKind::kSetter)
       continue;
     if (trait.method >= abc.methods.size())
       continue;
     const u32 fn = NewObject();
     objects_[fn].is_function = true;
+    objects_[fn].is_getter = trait.kind == TraitKind::kGetter;
+    objects_[fn].is_setter = trait.kind == TraitKind::kSetter;
     objects_[fn].method = trait.method;
     objects_[fn].unit = unit;
-    SetProperty(As3Value::Obj(object), trait.name, As3Value::Obj(fn));
+    const base::String slot = trait.kind == TraitKind::kSetter
+                                  ? base::Format("__set_{}", LastSegment(trait.name))
+                                  : base::String(trait.name);
+    SetProperty(As3Value::Obj(object), slot, As3Value::Obj(fn));
   }
   return object;
 }
@@ -767,12 +820,20 @@ void Avm2::InstallTraits(u32 unit, const AbcClass& definition,
   SetProperty(instance, "visible", As3Value::Bool(true));
   for (const AbcTrait& trait : definition.instance_traits) {
     // A method is callable by name, which is how the host reaches a screen.
-    if (trait.kind == TraitKind::kMethod || trait.kind == TraitKind::kGetter) {
+    if (trait.kind == TraitKind::kMethod || trait.kind == TraitKind::kGetter ||
+        trait.kind == TraitKind::kSetter) {
       const u32 fn = NewObject();
       objects_[fn].is_function = true;
+      objects_[fn].is_getter = trait.kind == TraitKind::kGetter;
+      objects_[fn].is_setter = trait.kind == TraitKind::kSetter;
       objects_[fn].method = trait.method;
       objects_[fn].unit = unit;
-      SetProperty(instance, trait.name, As3Value::Obj(fn));
+      // A getter and a setter share a name; keeping both means the reader can
+      // find the one it needs rather than whichever came last.
+      const base::String slot = trait.kind == TraitKind::kSetter
+                                    ? base::Format("__set_{}", LastSegment(trait.name))
+                                    : base::String(trait.name);
+      SetProperty(instance, slot, As3Value::Obj(fn));
       continue;
     }
     if (trait.kind != TraitKind::kSlot && trait.kind != TraitKind::kConst)
@@ -969,6 +1030,8 @@ As3Value Avm2::Run(u32 unit, u32 method_index, const As3Value& self,
 
   for (u32 i = 0; i < code.size();) {
     if (++steps_ > kMaxSteps) {
+      if (!exhausted_)
+        exhausted_at_ = key;
       exhausted_ = true;
       return As3Value::Undefined();
     }

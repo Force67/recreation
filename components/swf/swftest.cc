@@ -464,6 +464,92 @@ int main() {
   }
 
   {
+    // Getters and setters. A screen reaches a field it does not hold a slot for
+    // through a declared `get`, and reading that name has to run it: Fallout
+    // 4's main menu takes its splash text down with
+    // `SplashScreenText_tf.visible = false`, where the field is three clips
+    // deep and only the getter knows where.
+    swf::AbcFile abc;
+    abc.strings.push_back("");
+    abc.names.push_back("");        // 0
+    abc.names.push_back("Inner");   // 1
+    abc.names.push_back("Field");   // 2
+    abc.names.push_back("Kept");    // 3
+
+    static const rx::u8 kCtor[] = {0xd0, 0x30, 0x47};
+    // function get Field() { return this.Inner; }
+    static const rx::u8 kGet[] = {
+        0xd0,        // getlocal_0
+        0x30,        // pushscope
+        0xd0,        // getlocal_0
+        0x66, 0x01,  // getproperty Inner
+        0x48,        // returnvalue
+    };
+    // function set Field(v) { this.Kept = v; }
+    static const rx::u8 kSet[] = {
+        0xd0,        // getlocal_0
+        0x30,        // pushscope
+        0xd0,        // getlocal_0
+        0xd1,        // getlocal_1
+        0x61, 0x03,  // setproperty Kept
+        0x47,        // returnvoid
+    };
+
+    for (rx::u32 i = 0; i < 3; ++i) {
+      swf::AbcMethod method;
+      method.body = i;
+      abc.methods.push_back(base::move(method));
+    }
+    const ByteSpan bodies[] = {ByteSpan{kCtor, sizeof(kCtor)},
+                               ByteSpan{kGet, sizeof(kGet)},
+                               ByteSpan{kSet, sizeof(kSet)}};
+    for (rx::u32 i = 0; i < 3; ++i) {
+      swf::AbcMethodBody body;
+      body.method = i;
+      body.local_count = 2;
+      body.code = bodies[i];
+      abc.bodies.push_back(base::move(body));
+    }
+
+    swf::AbcClass holder;
+    holder.name = "Holder";
+    holder.constructor = 0;
+    swf::AbcTrait inner;
+    inner.kind = swf::TraitKind::kSlot;
+    inner.name = "Inner";
+    inner.type = "flash.display.MovieClip";
+    holder.instance_traits.push_back(base::move(inner));
+    swf::AbcTrait getter;
+    getter.kind = swf::TraitKind::kGetter;
+    getter.name = "Field";
+    getter.method = 1;
+    holder.instance_traits.push_back(base::move(getter));
+    swf::AbcTrait setter;
+    setter.kind = swf::TraitKind::kSetter;
+    setter.name = "Field";
+    setter.method = 2;
+    holder.instance_traits.push_back(base::move(setter));
+    abc.classes.push_back(base::move(holder));
+
+    swf::Avm2 vm;
+    vm.AddAbc(abc);
+    const swf::As3Value held = vm.Construct("Holder");
+    Check(held.is_object(), "the class constructs");
+    const swf::As3Value inner_clip = vm.GetProperty(held, "Inner");
+    const swf::As3Value through = vm.GetProperty(held, "Field");
+    Check(through.is_object() && through.object() == inner_clip.object(),
+          "reading a getter's name runs it rather than handing back the function");
+
+    vm.SetProperty(held, "Field", swf::As3Value::Number(7));
+    Check(vm.ToNumber(vm.GetProperty(held, "Kept")) == 7,
+          "and writing it runs the setter");
+    Check(vm.GetProperty(held, "Field").is_object(),
+          "which leaves the getter in place rather than overwriting it");
+    Check(vm.unhandled().empty(), "with no opcode the machine had to step over");
+    Check(!vm.exhausted(), "and inside the step budget");
+  }
+
+  {
     // The standard library an AS3 menu leans on. Each of these decides a
     // branch: a screen asks whether the string it was handed is empty before it
     // prints it, and unanswered `length` is undefined, which reads as empty.

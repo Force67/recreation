@@ -80,6 +80,12 @@ struct As3Object {
   base::String external;
   bool is_code_object = false;
   bool is_function = false;
+  // A `get`/`set` trait rather than a plain method: reading the name runs the
+  // getter and writing it runs the setter, which is what the code assumes when
+  // it does `SplashScreenText_tf.visible = false` on a class that declares no
+  // such slot.
+  bool is_getter = false;
+  bool is_setter = false;
   bool is_class = false;
   bool is_array = false;
   // A stand-in for something the player would have put there: a display object
@@ -162,6 +168,10 @@ class Avm2 {
   const base::Vector<base::String>& traces() const { return traces_; }
   u64 steps() const { return steps_; }
   bool exhausted() const { return exhausted_; }
+  // The method the budget ran out in, as (unit << 32 | method index). A screen
+  // that spins does it in one place, and naming that place is the difference
+  // between a number to look at and a lead to follow.
+  u64 exhausted_method() const { return exhausted_at_; }
   // Opcodes the machine met and does not implement, by name and count. This is
   // the list of what to write next, rather than a guess at it.
   const base::UnorderedMap<base::String, u32>& unhandled() const { return unhandled_; }
@@ -211,7 +221,11 @@ class Avm2 {
   u32 global_ = 0;
   u32 object_prototype_ = 0;
   u32 string_members_ = 0;
+  // The getters running right now, as (object << 32 | function). A getter that
+  // reads its own name back is a loop, not a value.
+  base::Vector<u64> getters_;
   u64 steps_ = 0;
+  u64 exhausted_at_ = 0;
   u32 depth_ = 0;
   bool exhausted_ = false;
 };

@@ -86,18 +86,18 @@ UI at all.
 
 What is left on that screen:
 
-- **Nothing ticks an AS3 screen.** `Tick` returns early without a stage, so a
-  fade or an enter-frame handler never runs, and the splash never gives way to
-  the option list. The list is built (`InitList` fills it with $NEW / $LOAD /
-  $SETTINGS / $CREW / $QUIT) and hidden behind the splash; what is missing is a
-  playhead and the button press that moves it on.
+- **The main state is not finished.** `ReturnToMainState` reaches the screen and
+  it moves: the splash text goes, the Bethesda logo and CREATIONS LOADED come
+  up. But `GuideText_tf` under `OptionsPanel_mc` still draws, and the option
+  list does not, so the state the button leads to is not yet the one the player
+  sees. `RX_VANILLA_SEND=ReturnToMainState` puts a screen there at load, which
+  is how to look at it.
 - **It drives the rows from the timeline.** The AS3 list component is not
   executed, so the rows stay the ones `StampListRows` stamped. The entries in
   them come from the movie; the layout does not.
-- **The host conversation is one-way.** The screen asks and is answered
-  (`GetHasSavedGames`, `GetHasInstalledContent`, `GetShowBethesdaNetOption`,
-  `GetShowCreationClubOption`), but nothing sends it input, so `StartNewGame`
-  and the rest are wired and unreachable.
+- **No playhead.** `Tick` writes the objects back to the widgets now, but
+  nothing advances a timeline, so a fade holds on whichever frame it was sent
+  to rather than playing through.
 - Its sub-panels, the message-of-the-day body and the background art are
   unfilled.
 
@@ -116,6 +116,14 @@ What it does not do yet:
 
 - **205 Starfield classes do not construct.** They are the ones whose class
   object or constructor body does not resolve; nothing has looked at why.
+- **Two Starfield movies spin until the step budget stops them**
+  (`missionmenu`, `missionmenu_lrg`). `swfdump --run` names the method:
+  `BSTabbedSelection.GetNewListEntry`, inside `for (i = 0; i < numTabs; ++i)`.
+  `numTabs` reads `EntriesA.length` and returns 0 when `EntriesA` is null, which
+  it is until the game fills it; here `EntriesA` is a stand-in, so the null
+  guard passes and the loop runs. That is the cost of the stand-in model stated
+  exactly, and it is the case for making a stand-in answer `null` to a null
+  test.
 - **Nothing enumerates what a call returned.** `swfdump --run` reports the calls
   that resolved to nothing, which is the list to work down, but a call that
   resolves and returns the wrong thing is still silent.

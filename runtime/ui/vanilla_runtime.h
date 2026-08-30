@@ -81,6 +81,13 @@ class VanillaRuntime {
   bool CallRoot(ugui::UIContext& ui, base::StringRef name,
                 const base::Vector<swf::AsValue>& args);
 
+  // The same for an ActionScript 3 screen, which the game addresses as plain
+  // methods rather than through a delegate: `InitList`, `SetPlatform`,
+  // `ReturnToMainState`. Sent to every class the movie placed, since which one
+  // is the screen differs per movie. False when none of them has that method.
+  bool CallAs3(ugui::UIContext& ui, base::StringRef name,
+               const base::Vector<swf::As3Value>& args);
+
   // A navigation key or pad press, as gfx.ui.NavigationCode names it: "up",
   // "down", "left", "right", "enter", "escape". Reaches the components through
   // the movie's own `handleInput`, so it drives every screen's navigation

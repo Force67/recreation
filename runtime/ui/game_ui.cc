@@ -3275,6 +3275,12 @@ void GameUi::Build(Window& window,
     if (navigation != nullptr) {
       for (ui::VanillaRuntime& runtime : impl->vanilla_vms)
         runtime.Navigate(impl->ui, navigation);
+      // "Press any button to start": a Fallout 4 screen waits on its splash
+      // until the game moves it on, which is the game's decision and not one
+      // the movie makes for itself. Any of the keys above is that button.
+      const base::Vector<swf::As3Value> none;
+      for (ui::VanillaRuntime& runtime : impl->vanilla_vms)
+        runtime.CallAs3(impl->ui, "ReturnToMainState", none);
     }
   }
 
