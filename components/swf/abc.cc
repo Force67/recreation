@@ -571,6 +571,83 @@ base::String Render(const AbcFile& abc, bool with_bodies) {
 
 }  // namespace
 
+base::StringRef AbcOpName(u8 op) {
+  const AbcOp* found = FindOp(op);
+  return found ? base::StringRef(found->name) : base::StringRef();
+}
+
+base::Vector<AbcInstruction> DisassembleMethod(const AbcMethodBody& body) {
+  base::Vector<AbcInstruction> out;
+  AbcReader r(body.code);
+  while (r.ok() && !r.eof()) {
+    AbcInstruction insn;
+    insn.offset = static_cast<u32>(r.pos());
+    insn.op = r.U8();
+    const AbcOp* op = FindOp(insn.op);
+    if (!op)
+      break;  // an unknown opcode desynchronises the stream
+    u32 filled = 0;
+    for (const char* operand = op->operands; *operand && r.ok(); ++operand) {
+      switch (*operand) {
+        case 'j': {
+          const u32 lo = r.U8();
+          const u32 mid = r.U8();
+          const u32 hi = r.U8();
+          i32 value = static_cast<i32>(lo | (mid << 8) | (hi << 16));
+          if (value & 0x00800000)
+            value |= static_cast<i32>(0xff000000u);
+          insn.jump = value;
+          break;
+        }
+        case 'b':
+          insn.a = r.U8();
+          break;
+        case 'L': {
+          const u32 lo = r.U8();
+          const u32 mid = r.U8();
+          const u32 hi = r.U8();
+          i32 fallback = static_cast<i32>(lo | (mid << 8) | (hi << 16));
+          if (fallback & 0x00800000)
+            fallback |= static_cast<i32>(0xff000000u);
+          const u32 count = r.U30();
+          for (u32 i = 0; i <= count && r.ok(); ++i) {
+            const u32 a0 = r.U8();
+            const u32 a1 = r.U8();
+            const u32 a2 = r.U8();
+            i32 target = static_cast<i32>(a0 | (a1 << 8) | (a2 << 16));
+            if (target & 0x00800000)
+              target |= static_cast<i32>(0xff000000u);
+            insn.cases.push_back(target);
+          }
+          insn.cases.push_back(fallback);  // the default comes last
+          break;
+        }
+        case 'D':
+          r.U8();
+          r.U30();
+          r.U8();
+          r.U30();
+          break;
+        default: {
+          const u32 value = r.U30();
+          if (filled == 0)
+            insn.a = value;
+          else
+            insn.b = value;
+          ++filled;
+          break;
+        }
+      }
+    }
+    if (!r.ok())
+      break;
+    insn.end = static_cast<u32>(r.pos());
+    out.push_back(base::move(insn));
+  }
+  return out;
+}
+
+
 base::Vector<ListBinding> ParseListBindings(const AbcFile& abc) {
   base::Vector<ListBinding> out;
   // Flash puts each instance's component-property setter in the class that owns

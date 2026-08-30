@@ -79,6 +79,26 @@ struct AbcFile {
   base::Vector<AbcClass> classes;
 };
 
+// One decoded AVM2 instruction. The operands the menus use are all a pair of
+// u30s at most (a multiname or register, then an argument count), plus a signed
+// branch displacement measured from the end of the instruction.
+struct AbcInstruction {
+  u8 op = 0;
+  u32 offset = 0;  // from the start of the method body
+  u32 end = 0;     // one past its last byte, which is where a branch counts from
+  u32 a = 0;
+  u32 b = 0;
+  i32 jump = 0;
+  base::Vector<i32> cases;  // lookupswitch, default last
+};
+
+// Decodes a method body into instructions. An opcode the table does not know
+// desynchronises the stream, so the decode stops there rather than guessing.
+base::Vector<AbcInstruction> DisassembleMethod(const AbcMethodBody& body);
+
+// The name an opcode goes by, for diagnostics. Empty when it is unknown.
+base::StringRef AbcOpName(u8 op);
+
 // Reads a DoABC tag body (flags + name + the abcFile that follows). Returns
 // false on a truncated or malformed pool; `out` then holds whatever was read
 // before the damage, which is still worth printing.

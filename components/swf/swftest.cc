@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "components/swf/abc.h"
+#include "components/swf/avm2.h"
 #include "components/swf/bridge.h"
 #include "components/swf/stage.h"
 #include "components/swf/vm.h"
@@ -382,6 +383,109 @@ int main() {
     klass.constructor = 0;
     abc.classes.push_back(base::move(klass));
     Check(swf::ParseListBindings(abc).empty(), "an undecodable body yields no bindings");
+  }
+
+  {
+    // The AVM2 machine. A class whose generated `__setProp` method assigns a
+    // component's parameters is exactly the shape a Fallout 4 panel takes, and
+    // running it is how those reach the list rather than being pattern-matched
+    // out of the literals.
+    swf::AbcFile abc;
+    abc.strings.push_back("");                    // 0: the empty string
+    abc.strings.push_back("MainMenuListEntry");   // 1
+    abc.names.push_back("");                      // 0
+    abc.names.push_back("List_mc");               // 1
+    abc.names.push_back("listEntryClass");        // 2
+    abc.names.push_back("numListItems");          // 3
+
+    // function __setProp_x() { this.List_mc.listEntryClass = "MainMenuListEntry";
+    //                          this.List_mc.numListItems = 9; }
+    static const rx::u8 kSetProp[] = {
+        0xd0,              // getlocal_0
+        0x30,              // pushscope
+        0xd0,              // getlocal_0
+        0x66, 0x01,        // getproperty List_mc
+        0x2c, 0x01,        // pushstring "MainMenuListEntry"
+        0x61, 0x02,        // setproperty listEntryClass
+        0xd0,              // getlocal_0
+        0x66, 0x01,        // getproperty List_mc
+        0x24, 0x09,        // pushbyte 9
+        0x61, 0x03,        // setproperty numListItems
+        0x47,              // returnvoid
+    };
+    static const rx::u8 kCtor[] = {0xd0, 0x30, 0x47};  // getlocal_0/pushscope/returnvoid
+
+    swf::AbcMethod ctor;
+    ctor.body = 0;
+    abc.methods.push_back(base::move(ctor));
+    swf::AbcMethod setter;
+    setter.body = 1;
+    abc.methods.push_back(base::move(setter));
+
+    swf::AbcMethodBody ctor_body;
+    ctor_body.method = 0;
+    ctor_body.local_count = 1;
+    ctor_body.code = ByteSpan{kCtor, sizeof(kCtor)};
+    abc.bodies.push_back(base::move(ctor_body));
+    swf::AbcMethodBody setter_body;
+    setter_body.method = 1;
+    setter_body.local_count = 1;
+    setter_body.code = ByteSpan{kSetProp, sizeof(kSetProp)};
+    abc.bodies.push_back(base::move(setter_body));
+
+    swf::AbcClass panel;
+    panel.name = "MainMenu_fla.MainListPanel";
+    panel.constructor = 0;
+    swf::AbcTrait child;
+    child.kind = swf::TraitKind::kSlot;
+    child.name = "List_mc";
+    child.type = "MainMenuList";  // a display object the timeline placed
+    panel.instance_traits.push_back(base::move(child));
+    swf::AbcTrait props;
+    props.kind = swf::TraitKind::kMethod;
+    props.name = "__setProp_List_mc_MainListPanel_List_0";
+    props.method = 1;
+    panel.instance_traits.push_back(base::move(props));
+    abc.classes.push_back(base::move(panel));
+
+    swf::Avm2 vm;
+    vm.AddAbc(abc);
+    const swf::As3Value instance = vm.Construct("MainMenu_fla.MainListPanel");
+    Check(instance.is_object(), "the class constructs");
+    const swf::As3Value list = vm.GetProperty(instance, "List_mc");
+    Check(list.is_object(),
+          "a declared display member is there before the code runs, as the player has it");
+    Check(vm.ToString(vm.GetProperty(list, "listEntryClass")) == "MainMenuListEntry",
+          "and the generated property setter runs, so the row class reaches the list");
+    Check(vm.ToNumber(vm.GetProperty(list, "numListItems")) == 9,
+          "along with how many rows it asks for");
+    Check(vm.unhandled().empty(), "with no opcode the machine had to step over");
+    Check(!vm.exhausted(), "and inside the step budget");
+  }
+
+  {
+    // The decoder. A branch is measured from the END of its instruction, and an
+    // opcode the table does not know desynchronises the stream, so decoding
+    // stops there rather than reading operands out of the next instruction.
+    static const rx::u8 kCode[] = {
+        0x24, 0x05,              // pushbyte 5
+        0x10, 0x02, 0x00, 0x00,  // jump +2
+        0x29,                    // pop
+        0x47,                    // returnvoid
+    };
+    swf::AbcMethodBody body;
+    body.code = ByteSpan{kCode, sizeof(kCode)};
+    const base::Vector<swf::AbcInstruction> code = swf::DisassembleMethod(body);
+    Check(code.size() == 4, "every instruction decodes");
+    Check(code.size() == 4 && code[1].jump == 2 && code[1].end == 6,
+          "a branch carries its displacement and where it counts from");
+    Check(swf::AbcOpName(0x10) == "jump", "and an opcode can be named");
+
+    static const rx::u8 kBad[] = {0x24, 0x05, 0xfe, 0x24, 0x07};
+    swf::AbcMethodBody broken;
+    broken.code = ByteSpan{kBad, sizeof(kBad)};
+    Check(swf::DisassembleMethod(broken).size() == 1,
+          "an unknown opcode stops the decode rather than desynchronising it");
   }
 
 

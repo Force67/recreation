@@ -2,6 +2,7 @@ recreation_add_module(swf
   types.cc
   swf.cc
   vm.cc
+  avm2.cc
   stage.cc
   bridge.cc
   shape.cc

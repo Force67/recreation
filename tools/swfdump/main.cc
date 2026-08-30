@@ -15,6 +15,7 @@
 #include "components/bethesda/archive.h"
 #include "components/bethesda/strings.h"
 #include "components/swf/abc.h"
+#include "components/swf/avm2.h"
 #include "components/swf/bridge.h"
 #include "components/swf/stage.h"
 #include "components/swf/vm.h"
@@ -176,11 +177,80 @@ void MountData(asset::Vfs& vfs, const char* data_dir) {
 // Executes a movie's scripts and reports what they built. This is the direct
 // test of the interpreter: a shipped menu's init blocks define its classes on
 // _global, so the names that turn up there are the ones the game would have.
+// Executes an ActionScript 3 movie's own class code. The AS2 path below is the
+// same idea for Skyrim; this is what Fallout 4 and Starfield need, and it is
+// the direct check on the interpreter: a class's constructor is where a menu
+// assigns the things a static read can only pattern-match for.
+void RunAbc(const swf::Movie& movie) {
+  base::Vector<swf::AbcFile> files;
+  for (const ByteSpan& block : movie.abc_blocks) {
+    swf::AbcFile abc;
+    if (swf::ParseAbc(block, abc))
+      files.push_back(base::move(abc));
+  }
+  if (files.empty())
+    return;
+  swf::Avm2 vm;
+  u32 classes = 0;
+  for (const swf::AbcFile& abc : files) {
+    vm.AddAbc(abc);
+    classes += static_cast<u32>(abc.classes.size());
+  }
+  std::printf("actionscript 3: %zu block(s), %u class(es)\n",
+              static_cast<size_t>(files.size()), classes);
+
+  // Construct every class the movie defines. Nothing is asserted about most of
+  // them; running them is the coverage check, and whatever the machine does not
+  // implement is reported at the end rather than passed over.
+  u32 built = 0;
+  for (const swf::AbcFile& abc : files) {
+    for (const swf::AbcClass& klass : abc.classes) {
+      if (klass.name.empty() || klass.is_interface)
+        continue;
+      if (vm.Construct(klass.name).is_object())
+        ++built;
+    }
+  }
+  std::printf("  %u of %u class(es) constructed\n", built, classes);
+
+  // And what their own code put on the instances, which is the check that
+  // matters: a list's contents come out of execution rather than out of a
+  // peephole over the literals the bytecode happens to leave lying about.
+  u32 ran = 0;
+  for (const swf::AbcFile& abc : files) {
+    for (const swf::ListBinding& binding : swf::ParseListBindings(abc)) {
+      const swf::As3Value instance = vm.Construct(binding.owner);
+      if (!instance.is_object())
+        continue;
+      ++ran;
+      const swf::As3Value list = vm.GetProperty(instance, binding.instance);
+      std::printf("  %s ran: %s -> entry %s, %s row(s)\n", binding.owner.c_str(),
+                  binding.instance.c_str(),
+                  vm.ToString(vm.GetProperty(list, "listEntryClass")).c_str(),
+                  vm.ToString(vm.GetProperty(list, "numListItems")).c_str());
+    }
+  }
+  std::printf("%u list(s) filled by their own code, %llu instruction(s)%s\n", ran,
+              static_cast<unsigned long long>(vm.steps()),
+              vm.exhausted() ? "  [step budget exhausted]" : "");
+  if (!vm.unhandled().empty()) {
+    std::printf("opcodes the machine does not implement:\n");
+    u32 shown = 0;
+    for (const auto& entry : vm.unhandled()) {
+      if (++shown > 12)
+        break;
+      std::printf("  %-16s %u\n", entry.key.c_str(), entry.value);
+    }
+  }
+}
+
 void RunScripts(const swf::Movie& movie) {
   u32 inits = 0, frames = 0;
   for (const swf::Script& sc : movie.scripts)
     (sc.kind == swf::Script::Kind::kInit ? inits : frames)++;
   std::printf("scripts: %u init, %u frame\n", inits, frames);
+
+  RunAbc(movie);
 
   swf::Vm vm;
   swf::GameBridge bridge(vm);
