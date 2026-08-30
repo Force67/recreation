@@ -72,11 +72,17 @@ class Stage {
   void PlacedNames(const AsValue& clip, base::Vector<base::String>& current,
                    base::Vector<base::String>& ever) const;
 
-  // The alpha the frame that placed this clip gives it, separate from the
-  // `_alpha` its script owns (the two multiply, as they do in the player). A
-  // fader is a timeline that ramps this and nothing else, so a host reading
-  // only the script's side sees a page that never fades.
-  f32 PlacedAlpha(const AsValue& clip) const;
+  // Where the frame put a clip and how transparent it made it, as distinct
+  // from what the clip's script has done since. A host drawing a translation of
+  // one frame needs the difference: the alpha multiplies with `_alpha` (a fader
+  // is a timeline that ramps this and nothing else), and the position is the
+  // origin a script's `_x`/`_y` moved away from.
+  struct Placement {
+    f32 x = 0;
+    f32 y = 0;
+    f32 alpha = 1.0f;
+  };
+  Placement PlacedAt(const AsValue& clip) const;
 
   // Creates a clip from an exported symbol and puts it inside `parent` under
   // `name`, the way attachMovie does. Undefined when the movie exports no such
@@ -140,9 +146,7 @@ class Stage {
   AsValue root_;
   base::Vector<ClipState> clips_;
   base::Vector<base::String> unclassed_;
-  // object index -> the alpha its placement carries. Only the entries that are
-  // not fully opaque are kept.
-  base::UnorderedMap<u32, f32> place_alpha_;
+  base::UnorderedMap<u32, Placement> placements_;
   u32 clip_count_ = 0;
   u32 classed_count_ = 0;
   u32 goto_count_ = 0;

@@ -99,6 +99,11 @@ struct VanillaRuntime::Impl {
     u32 clip = 0;      // interpreter object
     ugui::wid widget;  // the translated widget it drives
     bool is_text = false;
+    // Where the translation drew this widget. A script that moves its clip is
+    // moved by the same amount from here, rather than to the clip's own
+    // coordinates: the two origins differ by the character's own bounds.
+    f32 left = 0;
+    f32 top = 0;
     base::Vector<u32> children;  // indices into `bound`, in tree order
   };
   base::Vector<Bound> bound;
@@ -131,6 +136,10 @@ struct VanillaRuntime::Impl {
       entry.widget = widget;
       const ugui::WidgetNode* node = world.Get<ugui::WidgetNode>(widget);
       entry.is_text = node && node->kind == ugui::WidgetKind::kText;
+      if (const ugui::StyleC* sc = world.Get<ugui::StyleC>(widget)) {
+        entry.left = sc->style.left_offset.value;
+        entry.top = sc->style.top.value;
+      }
       bound.push_back(base::move(entry));
     }
 
@@ -183,7 +192,8 @@ struct VanillaRuntime::Impl {
       return;
     const swf::AsValue clip = swf::AsValue::Obj(entry.clip);
 
-    f32 opacity = inherited * stage->PlacedAlpha(clip);
+    const swf::Stage::Placement placed = stage->PlacedAt(clip);
+    f32 opacity = inherited * placed.alpha;
     const swf::AsValue visible = vm.GetMember(clip, "_visible");
     if (!visible.is_undefined() && !vm.ToBool(visible))
       opacity = 0.0f;
@@ -199,6 +209,9 @@ struct VanillaRuntime::Impl {
     base::Vector<base::String> current;
     base::Vector<base::String> ever;
     stage->PlacedNames(clip, current, ever);
+    Move(ui.world(), entry,
+         static_cast<f32>(vm.ToNumber(vm.GetMember(clip, "_x"))) - placed.x,
+         static_cast<f32>(vm.ToNumber(vm.GetMember(clip, "_y"))) - placed.y);
     Paint(ui.world(), entry.widget, opacity, entry, current, ever);
     if (entry.is_text) {
       const swf::AsValue text = vm.GetMember(clip, "text");
@@ -207,6 +220,22 @@ struct VanillaRuntime::Impl {
     }
     for (u32 child : entry.children)
       SyncNode(ui, child, opacity);
+  }
+
+  // A clip its script has moved off where the frame put it. A list lays its
+  // rows out this way, so without this they all sit on top of each other.
+  void Move(ugui::WidgetRegistry& world, const Bound& entry, f32 dx, f32 dy) {
+    ugui::StyleC* sc = world.Get<ugui::StyleC>(entry.widget);
+    if (!sc)
+      return;
+    const f32 left = entry.left + (dx == dx ? dx : 0.0f);
+    const f32 top = entry.top + (dy == dy ? dy : 0.0f);
+    if (sc->style.left_offset.value == left && sc->style.top.value == top)
+      return;
+    ugui::Style style = sc->style;
+    style.left_offset.value = left;
+    style.top.value = top;
+    ugui::SetStyle(world, entry.widget, style);
   }
 
   // A field the movie fills. Its authored colour is often fully transparent:

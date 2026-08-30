@@ -48,18 +48,19 @@ void Stage::PlaceGeometry(const AsValue& self, const Place& place) {
   vm_.SetMember(self, "_y", AsValue::Number(ToPixels(place.matrix.translate_y)));
   vm_.SetMember(self, "_width", AsValue::Number(ToPixels(bounds.width())));
   vm_.SetMember(self, "_height", AsValue::Number(ToPixels(bounds.height())));
+  Placement placement;
+  placement.x = ToPixels(place.matrix.translate_x);
+  placement.y = ToPixels(place.matrix.translate_y);
   const f32 alpha = place.has_color_transform ? place.color_transform.mul_a : 1.0f;
-  if (alpha >= 1.0f)
-    place_alpha_.erase(self.object());
-  else
-    place_alpha_[self.object()] = alpha < 0 ? 0.0f : alpha;
+  placement.alpha = alpha < 0 ? 0.0f : (alpha > 1.0f ? 1.0f : alpha);
+  placements_[self.object()] = placement;
 }
 
-f32 Stage::PlacedAlpha(const AsValue& clip) const {
+Stage::Placement Stage::PlacedAt(const AsValue& clip) const {
   if (!clip.is_object())
-    return 1.0f;
-  const f32* alpha = place_alpha_.find(clip.object());
-  return alpha ? *alpha : 1.0f;
+    return Placement{};
+  const Placement* placement = placements_.find(clip.object());
+  return placement ? *placement : Placement{};
 }
 
 u32 Stage::BuildClip(const Timeline& timeline, u32 parent, base::StringRef name,
