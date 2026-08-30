@@ -674,6 +674,52 @@ int main() {
           "an empty clip can be created to hold things");
   }
 
+
+  {
+    // A placed text field has to inherit the TextField prototype, because the
+    // shipped scripts hang their own helpers on it (SetText is theirs, used 659
+    // times) and measure through getLineMetrics when they lay a bar out.
+    swf::Movie movie;
+    swf::EditText field;
+    field.id = 4;
+    field.initial_text = "hello";
+    movie.edit_texts.push_back(base::move(field));
+    movie.characters[4] = swf::CharacterRef{swf::CharacterKind::kEditText, 0};
+    swf::Frame frame;
+    swf::Place place;
+    place.depth = 1;
+    place.character_id = 4;
+    place.has_character = true;
+    place.name = "label";
+    frame.places.push_back(base::move(place));
+    movie.root.frames.push_back(base::move(frame));
+
+    swf::Vm vm;
+    swf::Stage stage(vm, movie);
+    stage.Run();
+    const swf::AsValue label = vm.GetMember(stage.root(), "label");
+    Check(label.is_object(), "the text field is placed and named");
+    Check(vm.ToString(vm.GetMember(label, "text")) == "hello",
+          "it carries the text the tag authored");
+
+    // Reached through the prototype, not set on the field itself.
+    const swf::AsValue metrics =
+        vm.Call(vm.GetMember(label, "getLineMetrics"), label, base::Vector<swf::AsValue>());
+    Check(metrics.is_object() && vm.ToNumber(vm.GetMember(metrics, "width")) > 0,
+          "a field measures itself through the TextField prototype");
+
+    // A script's own extension of the prototype reaches every field.
+    vm.SetMember(swf::AsValue::Obj(vm.text_field_prototype()), "Shout",
+                 swf::AsValue::Obj(vm.NewNative(
+                     [](swf::Vm& v, const swf::AsValue& self,
+                        const base::Vector<swf::AsValue>&) {
+                       return v.GetMember(self, "text");
+                     })));
+    Check(vm.ToString(vm.Call(vm.GetMember(label, "Shout"), label,
+                              base::Vector<swf::AsValue>())) == "hello",
+          "and a helper added to the prototype binds to the field");
+  }
+
   std::printf("swftest: %d failure(s)\n", failures);
   return failures == 0 ? 0 : 1;
 }

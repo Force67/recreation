@@ -195,7 +195,7 @@ void Stage::ApplyFrame(u32 state_index, u32 frame, u32 depth) {
     // A text field is the other thing a script addresses by name; give it
     // enough shape that reads and writes of its text land somewhere.
     if (const EditText* text = movie_.FindEditText(place.character_id)) {
-      const u32 field = vm_.NewObject(vm_.movie_clip_prototype());
+      const u32 field = vm_.NewObject(vm_.text_field_prototype());
       const AsValue field_value = AsValue::Obj(field);
       vm_.SetMember(field_value, "_name", AsValue::Str(name));
       vm_.SetMember(field_value, "text", AsValue::Str(text->initial_text));

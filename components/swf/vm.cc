@@ -1336,6 +1336,40 @@ AsValue ExternalCall(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) 
 
 // Object.prototype.addProperty(name, getter, setter): the shipped scripts use
 // this for nearly every public field of a component.
+// A text field's measurements. Without a text engine these are estimates from
+// the character count; the scripts feed them into layout (PositionButtons walks
+// getLineMetrics().width), so returning nothing would make those positions NaN.
+// A host that has laid the text out should overwrite textWidth on the field.
+AsValue TextFieldLineMetrics(Vm& vm, const AsValue& self,
+                             const base::Vector<AsValue>&) {
+  const base::String text = vm.ToString(vm.GetMember(self, "text"));
+  const u32 metrics = vm.NewObject();
+  const f64 width = static_cast<f64>(text.size()) * 8.0;
+  vm.SetMember(AsValue::Obj(metrics), "width", AsValue::Number(width));
+  vm.SetMember(AsValue::Obj(metrics), "height", AsValue::Number(16));
+  vm.SetMember(AsValue::Obj(metrics), "ascent", AsValue::Number(12));
+  vm.SetMember(AsValue::Obj(metrics), "descent", AsValue::Number(4));
+  vm.SetMember(AsValue::Obj(metrics), "leading", AsValue::Number(0));
+  return AsValue::Obj(metrics);
+}
+
+AsValue TextFieldGetFormat(Vm& vm, const AsValue& self, const base::Vector<AsValue>&) {
+  const AsValue stored = vm.GetMember(self, "__format");
+  if (stored.is_object())
+    return stored;
+  const u32 format = vm.NewObject();
+  vm.SetMember(AsValue::Obj(format), "letterSpacing", AsValue::Number(0));
+  vm.SetMember(AsValue::Obj(format), "kerning", AsValue::Bool(false));
+  vm.SetMember(AsValue::Obj(format), "align", AsValue::Str("left"));
+  return AsValue::Obj(format);
+}
+
+AsValue TextFieldSetFormat(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  if (!args.empty())
+    vm.SetMember(self, "__format", args[args.size() - 1]);
+  return AsValue::Undefined();
+}
+
 AsValue ObjectAddProperty(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
   if (args.size() < 2 || !self.is_object() || !vm.Valid(self.object()))
     return AsValue::Bool(false);
@@ -1452,6 +1486,60 @@ void Vm::InstallStandardLibrary() {
   const u32 flash_ns = NewObject(object_proto);
   SetMember(AsValue::Obj(flash_ns), "external", AsValue::Obj(external_ns));
   SetMember(g, "flash", AsValue::Obj(flash_ns));
+
+  // Text fields. `text` and `htmlText` are the same store, which is what the
+  // scripts assume when they write one and read the other.
+  text_field_prototype_ = NewObject(object_proto);
+  SetMember(AsValue::Obj(text_field_prototype_), "getLineMetrics",
+            AsValue::Obj(NewNative(TextFieldLineMetrics)));
+  SetMember(AsValue::Obj(text_field_prototype_), "getTextFormat",
+            AsValue::Obj(NewNative(TextFieldGetFormat)));
+  SetMember(AsValue::Obj(text_field_prototype_), "setTextFormat",
+            AsValue::Obj(NewNative(TextFieldSetFormat)));
+  SetMember(AsValue::Obj(text_field_prototype_), "setNewTextFormat",
+            AsValue::Obj(NewNative(TextFieldSetFormat)));
+  SetMember(AsValue::Obj(text_field_prototype_), "removeTextField",
+            AsValue::Obj(NewNative(NoOp)));
+  SetMember(AsValue::Obj(text_field_prototype_), "replaceSel",
+            AsValue::Obj(NewNative(NoOp)));
+  const u32 text_field_ctor = NewNative(NoOp);
+  SetMember(AsValue::Obj(text_field_ctor), "prototype",
+            AsValue::Obj(text_field_prototype_));
+  SetMember(g, "TextField", AsValue::Obj(text_field_ctor));
+
+  const u32 text_format_ctor = NewNative(NoOp);
+  SetMember(AsValue::Obj(text_format_ctor), "prototype",
+            AsValue::Obj(NewObject(object_proto)));
+  SetMember(g, "TextFormat", AsValue::Obj(text_format_ctor));
+
+  // The player globals a menu reads while laying itself out. Stage.safeRect is
+  // what the Lock helper insets a menu's chrome by.
+  const u32 visible_rect = NewObject(object_proto);
+  SetMember(AsValue::Obj(visible_rect), "x", AsValue::Number(0));
+  SetMember(AsValue::Obj(visible_rect), "y", AsValue::Number(0));
+  SetMember(AsValue::Obj(visible_rect), "width", AsValue::Number(1280));
+  SetMember(AsValue::Obj(visible_rect), "height", AsValue::Number(720));
+  const u32 safe_rect = NewObject(object_proto);
+  SetMember(AsValue::Obj(safe_rect), "x", AsValue::Number(0));
+  SetMember(AsValue::Obj(safe_rect), "y", AsValue::Number(0));
+  const u32 stage_object = NewObject(object_proto);
+  SetMember(AsValue::Obj(stage_object), "visibleRect", AsValue::Obj(visible_rect));
+  SetMember(AsValue::Obj(stage_object), "safeRect", AsValue::Obj(safe_rect));
+  SetMember(AsValue::Obj(stage_object), "width", AsValue::Number(1280));
+  SetMember(AsValue::Obj(stage_object), "height", AsValue::Number(720));
+  SetMember(AsValue::Obj(stage_object), "align", AsValue::Str("TL"));
+  SetMember(AsValue::Obj(stage_object), "scaleMode", AsValue::Str("noScale"));
+  SetMember(AsValue::Obj(stage_object), "addListener", AsValue::Obj(NewNative(NoOp)));
+  SetMember(g, "Stage", AsValue::Obj(stage_object));
+
+  for (const char* name : {"Mouse", "Key", "Selection"}) {
+    const u32 listener = NewObject(object_proto);
+    SetMember(AsValue::Obj(listener), "addListener", AsValue::Obj(NewNative(NoOp)));
+    SetMember(AsValue::Obj(listener), "removeListener", AsValue::Obj(NewNative(NoOp)));
+    SetMember(AsValue::Obj(listener), "setFocus", AsValue::Obj(NewNative(NoOp)));
+    SetMember(AsValue::Obj(listener), "isDown", AsValue::Obj(NewNative(NoOp)));
+    SetMember(g, name, AsValue::Obj(listener));
+  }
 
   // Every clip inherits from this; the host hangs the clip API on it.
   movie_clip_prototype_ = NewObject(object_proto);

@@ -165,6 +165,10 @@ class Vm {
   // The prototype every movie clip inherits from, so a host can hang the clip
   // API on it once and have every clip answer to it.
   u32 movie_clip_prototype() const { return movie_clip_prototype_; }
+  // The same for text fields. The scripts extend TextField.prototype with their
+  // own helpers (SetText is theirs, not the language's), so a field that
+  // inherits from here picks those up for free.
+  u32 text_field_prototype() const { return text_field_prototype_; }
 
   u32 global() const { return global_; }
   // The object every movie clip's script sees as `_root` / `_level0`.
@@ -204,6 +208,7 @@ class Vm {
   u32 string_prototype_ = 0;
   u32 movie_clip_prototype_ = 0;
   u32 function_prototype_ = 0;
+  u32 text_field_prototype_ = 0;
   ExternalHandler external_handler_ = nullptr;
   void* external_user_ = nullptr;
   void* host_ = nullptr;
