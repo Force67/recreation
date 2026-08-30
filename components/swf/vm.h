@@ -78,8 +78,17 @@ struct AsFunctionBody {
   base::Vector<base::String> pool;
 };
 
+// A property backed by functions rather than a slot. `addProperty` installs
+// these, and the shipped scripts lean on them heavily: a list's `entryList`,
+// `selectedIndex` and `disabled` are all accessors on a prototype.
+struct AsAccessor {
+  AsValue getter;
+  AsValue setter;
+};
+
 struct AsObject {
   base::UnorderedMap<base::String, AsValue> props;
+  base::UnorderedMap<base::String, AsAccessor> accessors;
   base::Vector<base::String> order;  // insertion order, for enumerate
   u32 prototype = 0;                 // 0 = none; object 0 is never a prototype
   bool is_function = false;

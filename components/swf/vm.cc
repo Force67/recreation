@@ -226,6 +226,14 @@ AsValue Vm::GetMember(const AsValue& target, base::StringRef name) {
   for (u32 guard = 0; guard < 64 && Valid(current); ++guard) {
     if (const AsValue* found = objects_[current].props.find(key))
       return *found;
+    // An accessor installed by addProperty runs with `this` bound to the object
+    // the read started from, not to the prototype that carries it.
+    if (const AsAccessor* accessor = objects_[current].accessors.find(key)) {
+      const AsValue getter = accessor->getter;
+      if (getter.is_object())
+        return CallInternal(getter, target, base::Vector<AsValue>(), depth_ + 1);
+      return AsValue::Undefined();
+    }
     current = objects_[current].prototype;
   }
   return AsValue::Undefined();
@@ -234,8 +242,23 @@ AsValue Vm::GetMember(const AsValue& target, base::StringRef name) {
 void Vm::SetMember(const AsValue& target, base::StringRef name, const AsValue& value) {
   if (!target.is_object() || !Valid(target.object()))
     return;
-  AsObject& object = objects_[target.object()];
   const base::String key(name);
+  for (u32 current = target.object(), guard = 0; guard < 64 && Valid(current); ++guard) {
+    if (objects_[current].props.find(key))
+      break;  // an own slot shadows an inherited accessor
+    if (const AsAccessor* accessor = objects_[current].accessors.find(key)) {
+      const AsValue setter = accessor->setter;
+      if (setter.is_object()) {
+        base::Vector<AsValue> args;
+        args.push_back(value);
+        CallInternal(setter, target, args, depth_ + 1);
+      }
+      return;
+    }
+    current = objects_[current].prototype;
+  }
+
+  AsObject& object = objects_[target.object()];
   if (!object.props.find(key))
     object.order.push_back(key);
   object.props[key] = value;
@@ -1311,6 +1334,18 @@ AsValue ExternalCall(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) 
   return vm.DispatchExternal(vm.ToString(args[0]), rest);
 }
 
+// Object.prototype.addProperty(name, getter, setter): the shipped scripts use
+// this for nearly every public field of a component.
+AsValue ObjectAddProperty(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  if (args.size() < 2 || !self.is_object() || !vm.Valid(self.object()))
+    return AsValue::Bool(false);
+  AsAccessor accessor;
+  accessor.getter = args[1];
+  accessor.setter = args.size() > 2 ? args[2] : AsValue::Undefined();
+  vm.Get(self.object()).accessors[vm.ToString(args[0])] = accessor;
+  return AsValue::Bool(true);
+}
+
 AsValue ObjectRegisterClass(Vm& vm, const AsValue&, const base::Vector<AsValue>& args) {
   if (args.size() < 2)
     return AsValue::Bool(false);
@@ -1345,6 +1380,8 @@ void Vm::InstallStandardLibrary() {
   const u32 object_ctor = NewNative(NoOp);
   const u32 object_proto = NewObject();
   SetMember(AsValue::Obj(object_ctor), "prototype", AsValue::Obj(object_proto));
+  SetMember(AsValue::Obj(object_proto), "addProperty",
+            AsValue::Obj(NewNative(ObjectAddProperty)));
   SetMember(AsValue::Obj(object_ctor), "registerClass",
             AsValue::Obj(NewNative(ObjectRegisterClass)));
   SetMember(g, "Object", AsValue::Obj(object_ctor));

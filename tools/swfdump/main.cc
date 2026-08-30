@@ -269,9 +269,9 @@ void RunScripts(const swf::Movie& movie) {
     vm.Call(setup, clip, args);
 
     const swf::AsValue list = vm.GetMember(clip, "MainList");
-    const swf::AsValue getter = vm.GetMember(list, "__get__entryList");
-    const swf::AsValue entries =
-        vm.Call(getter, list, base::Vector<swf::AsValue>());
+    // The property form, which is what the scripts actually write. It only
+    // resolves once addProperty is honoured on the prototype chain.
+    const swf::AsValue entries = vm.GetMember(list, "entryList");
     const int n = static_cast<int>(vm.ToNumber(vm.GetMember(entries, "length")));
     std::printf("setupMainMenu built %d entr%s:\n", n, n == 1 ? "y" : "ies");
     for (int e = 0; e < n; ++e) {

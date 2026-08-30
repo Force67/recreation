@@ -596,6 +596,44 @@ int main() {
           "an unknown label leaves the clip where it is");
   }
 
+
+  {
+    // addProperty backs a name with functions instead of a slot. The shipped
+    // components use it for nearly every public field, and the getter has to
+    // run against the object the read STARTED from, not the prototype that
+    // carries the accessor.
+    swf::Vm vm;
+    const swf::AsValue global = swf::AsValue::Obj(vm.global());
+    const swf::AsValue object_proto =
+        vm.GetMember(vm.GetMember(global, "Object"), "prototype");
+    const rx::u32 proto = vm.NewObject(object_proto.object());
+
+    const rx::u32 getter = vm.NewNative(
+        [](swf::Vm& v, const swf::AsValue& self, const base::Vector<swf::AsValue>&) {
+          return v.GetMember(self, "marker");
+        });
+    const rx::u32 setter = vm.NewNative(
+        [](swf::Vm& v, const swf::AsValue& self, const base::Vector<swf::AsValue>& a) {
+          v.SetMember(self, "marker", a.empty() ? swf::AsValue::Undefined() : a[0]);
+          return swf::AsValue::Undefined();
+        });
+
+    base::Vector<swf::AsValue> args;
+    args.push_back(swf::AsValue::Str("thing"));
+    args.push_back(swf::AsValue::Obj(getter));
+    args.push_back(swf::AsValue::Obj(setter));
+    vm.Call(vm.GetMember(swf::AsValue::Obj(proto), "addProperty"),
+            swf::AsValue::Obj(proto), args);
+
+    const swf::AsValue instance = swf::AsValue::Obj(vm.NewObject(proto));
+    vm.SetMember(instance, "marker", swf::AsValue::Str("mine"));
+    Check(vm.ToString(vm.GetMember(instance, "thing")) == "mine",
+          "an inherited accessor reads against the instance");
+    vm.SetMember(instance, "thing", swf::AsValue::Str("written"));
+    Check(vm.ToString(vm.GetMember(instance, "marker")) == "written",
+          "and writes through its setter");
+  }
+
   std::printf("swftest: %d failure(s)\n", failures);
   return failures == 0 ? 0 : 1;
 }
