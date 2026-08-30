@@ -228,6 +228,73 @@ As3Value ArrayPush(Avm2& vm, const As3Value& self, const base::Vector<As3Value>&
   return As3Value::Number(length);
 }
 
+// The player's own display API. None of it lives in the movie: a menu calls
+// `addFrameScript`, `gotoAndStop` and `addEventListener` on objects Flash
+// provides, and a machine without them watches a screen's whole state machine
+// resolve to undefined. This is the AVM2 twin of Stage::InstallClipApi.
+As3Value DisplayNoOp(Avm2&, const As3Value&, const base::Vector<As3Value>&) {
+  return As3Value::Undefined();
+}
+
+// addFrameScript(index, fn, ...): the frame handlers a timeline class registers
+// in its constructor. Kept by frame so gotoAndStop can run the right one.
+As3Value AddFrameScript(Avm2& vm, const As3Value& self,
+                        const base::Vector<As3Value>& args) {
+  for (mem_size i = 0; i + 1 < args.size(); i += 2) {
+    vm.SetProperty(self, base::Format("__frame{}", static_cast<i64>(vm.ToNumber(args[i]))),
+                   args[i + 1]);
+  }
+  return As3Value::Undefined();
+}
+
+// gotoAndStop / gotoAndPlay: move to a frame and run what was registered for
+// it, which is how an AS3 menu switches panels.
+As3Value GotoFrame(Avm2& vm, const As3Value& self, const base::Vector<As3Value>& args) {
+  if (args.empty())
+    return As3Value::Undefined();
+  const f64 frame = vm.ToNumber(args[0]);
+  vm.SetProperty(self, "currentFrame", args[0]);
+  if (std::isnan(frame))
+    return As3Value::Undefined();  // a label; nothing maps labels to frames here
+  const As3Value script =
+      vm.GetProperty(self, base::Format("__frame{}", static_cast<i64>(frame) - 1));
+  vm.Call(script, self, base::Vector<As3Value>());
+  return As3Value::Undefined();
+}
+
+// addEventListener(type, handler) and dispatchEvent(event), which is how a
+// menu's own components talk to each other.
+As3Value AddEventListener(Avm2& vm, const As3Value& self,
+                          const base::Vector<As3Value>& args) {
+  if (args.size() < 2)
+    return As3Value::Undefined();
+  vm.SetProperty(self, base::Format("__on_{}", vm.ToString(args[0])), args[1]);
+  return As3Value::Undefined();
+}
+
+As3Value DispatchEvent(Avm2& vm, const As3Value& self,
+                       const base::Vector<As3Value>& args) {
+  if (args.empty())
+    return As3Value::Bool(false);
+  const base::String type = vm.ToString(vm.GetProperty(args[0], "type"));
+  const As3Value handler = vm.GetProperty(self, base::Format("__on_{}", type));
+  base::Vector<As3Value> event;
+  event.push_back(args[0]);
+  vm.Call(handler, self, event);
+  return As3Value::Bool(true);
+}
+
+// addChild(child): the display list. A child a menu adds by hand is reachable
+// by its own `name`, the way the timeline's children are.
+As3Value AddChild(Avm2& vm, const As3Value& self, const base::Vector<As3Value>& args) {
+  if (args.empty())
+    return As3Value::Undefined();
+  const base::String name = vm.ToString(vm.GetProperty(args[0], "name"));
+  if (!name.empty() && name != "undefined")
+    vm.SetProperty(self, name, args[0]);
+  return args[0];
+}
+
 }  // namespace
 
 Avm2::Avm2() {
@@ -236,8 +303,25 @@ Avm2::Avm2() {
   // Everything inherits `push`: a list's entries arrive through it, and the
   // objects they arrive on are the stand-ins below rather than real arrays.
   object_prototype_ = NewObject();
-  SetProperty(As3Value::Obj(object_prototype_), "push",
-              As3Value::Obj(NewNative(&ArrayPush)));
+  const As3Value proto = As3Value::Obj(object_prototype_);
+  SetProperty(proto, "push", As3Value::Obj(NewNative(&ArrayPush)));
+  SetProperty(proto, "addFrameScript", As3Value::Obj(NewNative(&AddFrameScript)));
+  SetProperty(proto, "gotoAndStop", As3Value::Obj(NewNative(&GotoFrame)));
+  SetProperty(proto, "gotoAndPlay", As3Value::Obj(NewNative(&GotoFrame)));
+  SetProperty(proto, "addEventListener", As3Value::Obj(NewNative(&AddEventListener)));
+  SetProperty(proto, "dispatchEvent", As3Value::Obj(NewNative(&DispatchEvent)));
+  SetProperty(proto, "addChild", As3Value::Obj(NewNative(&AddChild)));
+  SetProperty(proto, "addChildAt", As3Value::Obj(NewNative(&AddChild)));
+  // Defined so a call does not vanish, but there is nothing here to draw into
+  // or to schedule: the translation owns the pixels and the host owns time.
+  for (const char* name :
+       {"stop", "play", "nextFrame", "prevFrame", "removeEventListener",
+        "removeChild", "beginFill", "endFill", "drawRect", "drawRoundRect",
+        "lineTo", "moveTo", "curveTo", "clear", "lineStyle", "start",
+        "getChildIndex", "setChildIndex", "setTextAutoSize", "setVerticalAlign",
+        "removeChildAt", "swapChildren", "hitTestObject"}) {
+    SetProperty(proto, name, As3Value::Obj(NewNative(&DisplayNoOp)));
+  }
 }
 
 u32 Avm2::NewObject(u32 prototype) {
@@ -373,6 +457,20 @@ void Avm2::InstallClass(u32 unit, u32 class_index) {
   objects_[object].is_class = true;
   objects_[object].klass = static_cast<i32>(class_index);
   objects_[object].unit = unit;
+  // A class's static methods live on the class itself, and the menus lean on
+  // them: `Shared.GlobalFunc.MaintainTextFormat` and its neighbours are how a
+  // screen formats its own text.
+  for (const AbcTrait& trait : klass.static_traits) {
+    if (trait.kind != TraitKind::kMethod && trait.kind != TraitKind::kGetter)
+      continue;
+    if (trait.method >= abc.methods.size())
+      continue;
+    const u32 fn = NewObject();
+    objects_[fn].is_function = true;
+    objects_[fn].method = trait.method;
+    objects_[fn].unit = unit;
+    SetProperty(As3Value::Obj(object), trait.name, As3Value::Obj(fn));
+  }
   classes_[klass.name] = object;
   // Reachable by qualified name and by the bare class name, since a script
   // names it either way depending on its imports.
@@ -398,8 +496,45 @@ u32 Avm2::ClassObject(u32 unit, base::StringRef name) {
 // instance first - a panel's `List_mc` is there because the frame placed it,
 // not because the code made it - so a machine that starts with a bare object
 // watches every assignment to one go nowhere.
+u32 Avm2::MethodsOf(base::StringRef class_name, u32 depth) {
+  const base::String key(class_name);
+  if (const u32* found = methods_.find(key))
+    return *found;
+  const u32 klass = ClassObject(0, class_name);
+  if (!Valid(klass) || depth > 16)
+    return 0;
+  const u32 unit = objects_[klass].unit;
+  const i32 index = objects_[klass].klass;
+  if (unit >= units_.size() || index < 0)
+    return 0;
+  const AbcFile& abc = *units_[unit].abc;
+  if (static_cast<u32>(index) >= abc.classes.size())
+    return 0;
+  const AbcClass& definition = abc.classes[index];
+
+  const u32 object = NewObject(MethodsOf(definition.super, depth + 1));
+  methods_[key] = object;  // recorded before filling, so a cycle stops here
+  for (const AbcTrait& trait : definition.instance_traits) {
+    if (trait.kind != TraitKind::kMethod && trait.kind != TraitKind::kGetter)
+      continue;
+    if (trait.method >= abc.methods.size())
+      continue;
+    const u32 fn = NewObject();
+    objects_[fn].is_function = true;
+    objects_[fn].method = trait.method;
+    objects_[fn].unit = unit;
+    SetProperty(As3Value::Obj(object), trait.name, As3Value::Obj(fn));
+  }
+  return object;
+}
+
 void Avm2::InstallTraits(u32 unit, const AbcClass& definition,
                         const As3Value& instance) {
+  // Every display object has one, and a menu draws its own backing plates
+  // through it. The drawing goes nowhere here, but the calls have to land.
+  const u32 graphics = NewObject();
+  objects_[graphics].is_display = true;
+  SetProperty(instance, "graphics", As3Value::Obj(graphics));
   for (const AbcTrait& trait : definition.instance_traits) {
     // A method is callable by name, which is how the host reaches a screen.
     if (trait.kind == TraitKind::kMethod || trait.kind == TraitKind::kGetter) {
@@ -418,7 +553,9 @@ void Avm2::InstallTraits(u32 unit, const AbcClass& definition,
     if (type == "Number" || type == "int" || type == "uint" || type == "String" ||
         type == "Boolean" || type == "*" || type.empty())
       continue;  // a value, which the constructor assigns for itself
-    const u32 child = NewObject();
+    // The stand-in stands for something of a declared type, so it answers to
+    // that type's methods: `List_mc:MainMenuList` has MainMenuList's.
+    const u32 child = NewObject(MethodsOf(trait.type, 0));
     objects_[child].is_display = true;
     SetProperty(instance, trait.name, As3Value::Obj(child));
   }
@@ -755,6 +892,14 @@ As3Value Avm2::Run(u32 unit, u32 method_index, const As3Value& self,
           call_args[k] = frame.Pop();
         const As3Value target = frame.Pop();
         const As3Value fn = GetProperty(target, name_of(insn.a));
+        if (!fn.is_object() || !Valid(fn.object()) ||
+            !objects_[fn.object()].is_function) {
+          const base::String key(LastSegment(name_of(insn.a)));
+          if (u32* seen = unresolved_.find(key))
+            ++*seen;
+          else
+            unresolved_[key] = 1;
+        }
         const As3Value result = Call(fn, target, call_args);
         if (insn.op != op::kCallPropVoid && insn.op != op::kCallSuperVoid)
           frame.Push(result);

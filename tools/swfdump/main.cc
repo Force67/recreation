@@ -280,6 +280,15 @@ void RunAbc(const swf::Movie& movie) {
   std::printf("%u list(s) filled by their own code, %llu instruction(s)%s\n", ran,
               static_cast<unsigned long long>(vm.steps()),
               vm.exhausted() ? "  [step budget exhausted]" : "");
+  if (!vm.unresolved().empty()) {
+    std::printf("methods the code called that resolved to nothing:\n");
+    u32 shown = 0;
+    for (const auto& entry : vm.unresolved()) {
+      if (++shown > 16)
+        break;
+      std::printf("  %-24s %u\n", entry.key.c_str(), entry.value);
+    }
+  }
   if (!vm.unhandled().empty()) {
     std::printf("opcodes the machine does not implement:\n");
     u32 shown = 0;

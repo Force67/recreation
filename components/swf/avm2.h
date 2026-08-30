@@ -135,6 +135,11 @@ class Avm2 {
   // Opcodes the machine met and does not implement, by name and count. This is
   // the list of what to write next, rather than a guess at it.
   const base::UnorderedMap<base::String, u32>& unhandled() const { return unhandled_; }
+  // Methods the code called that resolved to nothing, by name and count. A menu
+  // calling `Math.floor` or `String.split` gets undefined and carries on
+  // quietly, so this is what says the runtime is missing rather than the
+  // instruction set.
+  const base::UnorderedMap<base::String, u32>& unresolved() const { return unresolved_; }
 
  private:
   struct Frame;
@@ -149,6 +154,10 @@ class Avm2 {
   As3Value FindProperty(Frame& frame, base::StringRef name, bool strict);
   u32 ClassObject(u32 unit, base::StringRef name);
   void InstallTraits(u32 unit, const AbcClass& definition, const As3Value& instance);
+  // An object carrying a class's instance methods, and its base's behind it.
+  // A display stand-in whose declared type names a class gets this as its
+  // prototype, so the movie's own methods resolve on it.
+  u32 MethodsOf(base::StringRef class_name, u32 depth);
   void RunFrameScripts(u32 unit, const AbcClass& definition, const As3Value& instance);
   void InstallClass(u32 unit, u32 class_index);
 
@@ -156,8 +165,10 @@ class Avm2 {
   base::Vector<Unit> units_;
   base::Vector<base::String> traces_;
   base::UnorderedMap<base::String, u32> unhandled_;
+  base::UnorderedMap<base::String, u32> unresolved_;
   // Qualified class name -> the object that stands for it.
   base::UnorderedMap<base::String, u32> classes_;
+  base::UnorderedMap<base::String, u32> methods_;
   // (unit << 32 | method) -> the decoded body, so a method called in a loop is
   // decoded once. Held behind a pointer because a running method holds a
   // reference into this while it calls others, and the map rehashing under it

@@ -552,6 +552,76 @@ int main() {
           "a method resumes on its own instructions after calling another");
   }
 
+  {
+    // The player's own display API. None of it is in the movie: a timeline
+    // class registers its frame code with `addFrameScript` and the player runs
+    // the one for the frame it is shown on, so a machine without them watches a
+    // screen's whole state machine resolve to undefined.
+    swf::AbcFile abc;
+    abc.strings.push_back("");
+    abc.strings.push_back("frame2 ran");
+    abc.names.push_back("");
+    abc.names.push_back("addFrameScript");  // 1
+    abc.names.push_back("gotoAndStop");     // 2
+    abc.names.push_back("mark");            // 3
+
+    // ctor: this.addFrameScript(1, this.onFrame2)
+    static const rx::u8 kCtor[] = {
+        0xd0,              // getlocal_0
+        0x30,              // pushscope
+        0xd0,              // getlocal_0
+        0x24, 0x01,        // pushbyte 1
+        0xd0,              // getlocal_0
+        0x66, 0x04,        // getproperty onFrame2
+        0x4f, 0x01, 0x02,  // callpropvoid addFrameScript, 2 args
+        0x47,              // returnvoid
+    };
+    // onFrame2: this.mark = "frame2 ran"
+    static const rx::u8 kOnFrame2[] = {
+        0xd0, 0x30, 0xd0, 0x2c, 0x01, 0x61, 0x03, 0x47,
+    };
+    abc.names.push_back("onFrame2");  // 4
+
+    for (int m = 0; m < 2; ++m) {
+      swf::AbcMethod method;
+      method.body = static_cast<rx::u32>(m);
+      abc.methods.push_back(base::move(method));
+    }
+    swf::AbcMethodBody ctor_body;
+    ctor_body.method = 0;
+    ctor_body.local_count = 1;
+    ctor_body.code = ByteSpan{kCtor, sizeof(kCtor)};
+    abc.bodies.push_back(base::move(ctor_body));
+    swf::AbcMethodBody frame_body;
+    frame_body.method = 1;
+    frame_body.local_count = 1;
+    frame_body.code = ByteSpan{kOnFrame2, sizeof(kOnFrame2)};
+    abc.bodies.push_back(base::move(frame_body));
+
+    swf::AbcClass klass;
+    klass.name = "Panel";
+    klass.constructor = 0;
+    swf::AbcTrait handler;
+    handler.kind = swf::TraitKind::kMethod;
+    handler.name = "onFrame2";
+    handler.method = 1;
+    klass.instance_traits.push_back(base::move(handler));
+    abc.classes.push_back(base::move(klass));
+
+    swf::Avm2 vm;
+    vm.AddAbc(abc);
+    const swf::As3Value panel = vm.Construct("Panel");
+    Check(vm.GetProperty(panel, "mark").is_undefined(),
+          "a registered frame script does not run until the frame is shown");
+    base::Vector<swf::As3Value> frame;
+    frame.push_back(swf::As3Value::Number(2));
+    vm.Invoke(panel, "gotoAndStop", frame);
+    Check(vm.ToString(vm.GetProperty(panel, "mark")) == "frame2 ran",
+          "and runs when the clip arrives on it");
+    Check(vm.ToNumber(vm.GetProperty(panel, "currentFrame")) == 2,
+          "which is also where the clip now says it is");
+  }
+
 
   // --- the interpreter ------------------------------------------------------
   // Hand-assembled AVM1: the disassembler is exercised elsewhere, so these
