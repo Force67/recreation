@@ -1548,6 +1548,14 @@ struct GameUi::Impl {
   // be told what the build offers, and the arguments are positional (see
   // StartMenu::setupMainMenu in the decompiled script beside the screen).
   void OpenVanillaScreen(ui::VanillaRuntime& runtime, base::StringRef name) {
+    // Every screen is told what it is running on before anything else. A list
+    // that has not been told dims and re-lays itself for a controller, which
+    // leaves most of its rows at zero alpha on a PC.
+    base::Vector<swf::AsValue> platform;
+    platform.push_back(swf::AsValue::Number(0));  // PC
+    platform.push_back(swf::AsValue::Bool(false));
+    runtime.CallRoot(ui, "SetPlatform", platform);
+
     if (name == "quest_journal") {
       // What the game sends when the journal is opened with Escape rather than
       // the journal key: the System page, with the other tabs locked out. That

@@ -30,6 +30,11 @@ constexpr u32 kNoBinding = 0xffffffffu;
 
 // Namespace scope so it registers before base::InitOptionsFromEnv runs.
 base::Option<bool> VanillaVm{"ui.vanilla.vm", false, "RX_VANILLA_VM"};
+// The parameters a placement authored and the actions on the frames a clip
+// arrives at: a tab's label, a list's centring, the `stop()` that ends a fade.
+// On, now that the translation carries the states these move a clip into. The
+// switch is for telling a problem in them from one somewhere else.
+base::Option<bool> VanillaAuthored{"ui.vanilla.authored", true, "RX_VANILLA_AUTHORED"};
 
 base::Vector<u8> ReadFile(const fs::path& path) {
   base::Vector<u8> out;
@@ -442,11 +447,7 @@ bool VanillaRuntime::Load(ugui::UIContext& ui, base::StringRef dir, base::String
   impl_->bridge = base::MakeUnique<swf::GameBridge>(impl_->vm);
   impl_->bridge->set_answerer(answerer_, answer_user_);
   impl_->stage = base::MakeUnique<swf::Stage>(impl_->vm, impl_->movie);
-  // Not the authored state yet. The interpreter gets it right (swfdump --run
-  // reports the real tab labels and a centred, filled list), but the binder
-  // does not follow the movie there: only the row the list centres on ends up
-  // written, and the rest of the widgets keep their placeholders. See
-  // components/swf/TODO.md.
+  impl_->stage->set_authored_state(bool(VanillaAuthored));
   impl_->stage->Run();
   // What the game does once a menu's code object is up. Most of a menu's
   // callbacks are registered in there, so without it the screen is listening
@@ -474,6 +475,17 @@ void VanillaRuntime::SetAnswerer(swf::GameBridge::Answerer answerer, void* user)
   answer_user_ = user;
   if (impl_ && impl_->bridge)
     impl_->bridge->set_answerer(answerer, user);
+}
+
+bool VanillaRuntime::CallRoot(ugui::UIContext& ui, base::StringRef name,
+                              const base::Vector<swf::AsValue>& args) {
+  if (!impl_ || !impl_->ready)
+    return false;
+  if (!impl_->stage->Dispatch(impl_->stage->root(), name, args))
+    return false;
+  impl_->Rebind(ui);
+  impl_->Sync(ui);
+  return true;
 }
 
 bool VanillaRuntime::Navigate(ugui::UIContext& ui, base::StringRef navigation) {
@@ -618,6 +630,10 @@ bool VanillaRuntime::Click(ugui::UIContext&, u32) {
   return false;
 }
 bool VanillaRuntime::Navigate(ugui::UIContext&, base::StringRef) {
+  return false;
+}
+bool VanillaRuntime::CallRoot(ugui::UIContext&, base::StringRef,
+                              const base::Vector<swf::AsValue>&) {
   return false;
 }
 bool VanillaRuntime::Send(ugui::UIContext&, base::StringRef,

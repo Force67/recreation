@@ -62,6 +62,14 @@ class VanillaRuntime {
   // Returns whether the movie's own code handled it.
   bool Click(ugui::UIContext& ui, u32 widget);
 
+  // Calls a function the movie's root defines. The game reaches a menu two
+  // ways: through GameDelegate for anything it registered, and directly for
+  // the handful a screen exposes on its own timeline (`SetPlatform` is the one
+  // that matters - a list dims and re-lays itself for a controller until it is
+  // told it is on a PC). False when the root has no such function.
+  bool CallRoot(ugui::UIContext& ui, base::StringRef name,
+                const base::Vector<swf::AsValue>& args);
+
   // A navigation key or pad press, as gfx.ui.NavigationCode names it: "up",
   // "down", "left", "right", "enter", "escape". Reaches the components through
   // the movie's own `handleInput`, so it drives every screen's navigation
