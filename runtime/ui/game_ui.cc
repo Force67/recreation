@@ -38,6 +38,7 @@
 #include "runtime/ui/ugui_platform.h"
 #include "runtime/ui/vanilla_list.h"
 #include "runtime/ui/vanilla_pause_menu.h"
+#include "runtime/ui/vanilla_runtime.h"
 #include "runtime/ui/vanilla_start_menu.h"
 #include "runtime/ui/vanilla_ui.h"
 
@@ -1226,6 +1227,9 @@ struct GameUi::Impl {
   bool pause_menu_active = false;
   ui::VanillaPauseMenu pause_menu;
   ui::VanillaList fallout_list_;  // Fallout 4's main menu option list
+  // The screens' own ActionScript, running against the translated widgets.
+  // Opt-in (RX_VANILLA_VM); the hand-written drivers still own the live menus.
+  base::Vector<ui::VanillaRuntime> vanilla_vms;
   base::UnorderedMap<base::String, base::String> vanilla_strings;
   void ActOnStartMenu();
   void ActOnPauseMenu();
@@ -1534,6 +1538,20 @@ struct GameUi::Impl {
     }
   }
 
+  // Loads each screen's movie and runs its code against the widgets the
+  // translation produced. Additive: nothing here replaces a driver yet.
+  void StartVanillaVms() {
+    vanilla_vms.clear();
+    if (!ui::VanillaRuntime::Enabled())
+      return;
+    const base::String dir = ui::VanillaScreenDir();
+    for (const ui::VanillaScreen& screen : VanillaScreens()) {
+      ui::VanillaRuntime runtime;
+      if (runtime.Load(ui, dir, screen.name, VanillaRootName(screen.name)))
+        vanilla_vms.push_back(base::move(runtime));
+    }
+  }
+
   void ReloadUi() {
     const base::String doc = BuildUi();
     ui.LoadUiString(doc.c_str(), "hud");
@@ -1545,6 +1563,7 @@ struct GameUi::Impl {
     // property anyway). Both have to be re-applied, and the notice has to go
     // back to whatever state it was actually in.
     BuildVanillaMenus();
+    StartVanillaVms();
     SetVisible("legal", legal_open);
     const bool hud = !editor.active && !UsingVanillaUi();
     SetVisible("topbar", hud);
@@ -2592,6 +2611,7 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   if (UsingVanillaUi())
     impl_->vanilla_strings = ui::LoadVanillaStrings(ui::VanillaScreenDir());
   impl_->BuildVanillaMenus();
+  impl_->StartVanillaVms();
   if (UsingVanillaUi()) {
     for (const char* fragment : {"topbar", "crosshair", "vitals", "readout", "quest"})
       impl_->SetVisible(fragment, false);
@@ -2616,6 +2636,10 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
       impl->start_menu.Apply(impl->ui);
       impl->ActOnStartMenu();
       return;  // the vanilla start menu owns this click
+    }
+    for (ui::VanillaRuntime& runtime : impl->vanilla_vms) {
+      if (runtime.Click(impl->ui, w.index))
+        return;  // the movie's own code took this click
     }
     if (impl->pause_menu_active && impl->menu_open &&
         impl->pause_menu.HandleClick(impl->ui, w.index)) {
@@ -3084,6 +3108,8 @@ void GameUi::Build(Window& window,
   // line up with the widgets.
   const InputState& in = window.input();
   impl->ui_time += frame_delta;
+  for (ui::VanillaRuntime& runtime : impl->vanilla_vms)
+    runtime.Tick(impl->ui, frame_delta);
   if (const float at = PauseAt.get(); at > 0.0f) {
     const auto crossed = [&](float t) {
       return impl->ui_time >= t && impl->ui_time - frame_delta < t;

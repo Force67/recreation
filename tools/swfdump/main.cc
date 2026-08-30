@@ -515,6 +515,12 @@ int TranslateAll(const char* data_dir, const char* out_dir, f32 scale,
     WriteText(dir / (stem + ".manifest"), screen.manifest);
     for (const swf::ExportedAsset& asset : screen.assets)
       WriteFile(dir / asset.file.c_str(), asset.bytes.data(), asset.bytes.size());
+    // The movie itself goes beside its translation, so a host can run the
+    // screen's own code without reaching back into the game's archives.
+    if (auto bytes = vfs.Read(path)) {
+      const base::Vector<u8>& raw = bytes.value();
+      WriteFile(dir / (stem + ".swf"), raw.data(), raw.size());
+    }
     std::printf("  %-34s %u widgets, %zu assets\n", stem.c_str(), screen.widget_count,
                 static_cast<size_t>(screen.assets.size()));
     ++translated;

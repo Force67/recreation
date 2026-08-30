@@ -1,5 +1,7 @@
 #include "components/swf/stage.h"
 
+#include "components/swf/text.h"
+
 #include <base/algorithm.h>
 #include <base/memory/move.h>
 #include <base/strings/format.h>
@@ -201,7 +203,11 @@ void Stage::ApplyFrame(u32 state_index, u32 frame, u32 depth) {
       const u32 field = vm_.NewObject(vm_.text_field_prototype());
       const AsValue field_value = AsValue::Obj(field);
       vm_.SetMember(field_value, "_name", AsValue::Str(name));
-      vm_.SetMember(field_value, "text", AsValue::Str(text->initial_text));
+      // `text` is the plain string and `htmlText` the markup, as the language
+      // splits them. A DefineEditText carries the markup, so the plain form has
+      // to be stripped out or every script that reads `.text` gets a tag soup.
+      vm_.SetMember(field_value, "text", AsValue::Str(StripHtml(text->initial_text)));
+      vm_.SetMember(field_value, "htmlText", AsValue::Str(text->initial_text));
       vm_.SetMember(field_value, "_parent", self);
       vm_.SetMember(self, name, field_value);
     }
