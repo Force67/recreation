@@ -15,61 +15,6 @@ constexpr u32 kMaxDepth = 24;
 
 // The display list as it stands on `frame`, applying every frame up to it in
 // order: a later frame moves, replaces or clears what an earlier one placed.
-base::Vector<Place> DisplayListAt(const Timeline& timeline, u32 frame) {
-  base::Vector<Place> list;
-  const mem_size last =
-      timeline.frames.empty()
-          ? 0
-          : base::Min<mem_size>(static_cast<mem_size>(frame) + 1, timeline.frames.size());
-  for (mem_size f = 0; f < last; ++f) {
-    const Frame& source = timeline.frames[f];
-    for (u16 depth : source.removes) {
-      for (mem_size i = 0; i < list.size(); ++i) {
-        if (list[i].depth == depth) {
-          list.erase(i);
-          break;
-        }
-      }
-    }
-    for (const Place& place : source.places) {
-      mem_size existing = list.size();
-      for (mem_size i = 0; i < list.size(); ++i) {
-        if (list[i].depth == place.depth) {
-          existing = i;
-          break;
-        }
-      }
-      if (existing == list.size()) {
-        list.push_back(place);
-        continue;
-      }
-      if (!place.move && place.has_character) {
-        list[existing] = place;
-        continue;
-      }
-      // A move updates only the fields it carries.
-      Place& target = list[existing];
-      if (place.has_character)
-        target.character_id = place.character_id;
-      if (place.has_matrix) {
-        target.matrix = place.matrix;
-        target.has_matrix = true;
-      }
-      if (!place.name.empty())
-        target.name = place.name;
-    }
-  }
-  for (mem_size i = 1; i < list.size(); ++i) {
-    Place key = base::move(list[i]);
-    mem_size j = i;
-    while (j > 0 && list[j - 1].depth > key.depth) {
-      list[j] = base::move(list[j - 1]);
-      --j;
-    }
-    list[j] = base::move(key);
-  }
-  return list;
-}
 
 base::String NameFor(const Place& place) {
   return place.name.empty() ? base::Format("instance{}", place.depth) : place.name;
@@ -97,12 +42,24 @@ u32 Stage::StateIndexOf(const AsValue& clip) const {
 // itself out from these: a scrolling list measures its border to decide how
 // many rows fit and reads each row's height to step down the column, so a clip
 // without them computes NaN and hides every row it was about to show.
-void Stage::PlaceGeometry(const AsValue& self, const Matrix& matrix, u16 character) {
-  const Rect bounds = Transform(matrix, CharacterBounds(movie_, character));
-  vm_.SetMember(self, "_x", AsValue::Number(ToPixels(matrix.translate_x)));
-  vm_.SetMember(self, "_y", AsValue::Number(ToPixels(matrix.translate_y)));
+void Stage::PlaceGeometry(const AsValue& self, const Place& place) {
+  const Rect bounds = Transform(place.matrix, CharacterBounds(movie_, place.character_id));
+  vm_.SetMember(self, "_x", AsValue::Number(ToPixels(place.matrix.translate_x)));
+  vm_.SetMember(self, "_y", AsValue::Number(ToPixels(place.matrix.translate_y)));
   vm_.SetMember(self, "_width", AsValue::Number(ToPixels(bounds.width())));
   vm_.SetMember(self, "_height", AsValue::Number(ToPixels(bounds.height())));
+  const f32 alpha = place.has_color_transform ? place.color_transform.mul_a : 1.0f;
+  if (alpha >= 1.0f)
+    place_alpha_.erase(self.object());
+  else
+    place_alpha_[self.object()] = alpha < 0 ? 0.0f : alpha;
+}
+
+f32 Stage::PlacedAlpha(const AsValue& clip) const {
+  if (!clip.is_object())
+    return 1.0f;
+  const f32* alpha = place_alpha_.find(clip.object());
+  return alpha ? *alpha : 1.0f;
 }
 
 u32 Stage::BuildClip(const Timeline& timeline, u32 parent, base::StringRef name,
@@ -205,14 +162,22 @@ void Stage::ApplyFrame(u32 state_index, u32 frame, u32 depth) {
       if (had.first == place.depth && had.second == name)
         kept = true;
     }
-    if (kept && vm_.GetMember(self, name).is_object())
-      continue;
+    if (kept) {
+      // Kept, but the frame can still have moved it or faded it: a fader is a
+      // timeline that does nothing else. So the placement is re-read even
+      // though the object stays.
+      const AsValue existing = vm_.GetMember(self, name);
+      if (existing.is_object()) {
+        PlaceGeometry(existing, place);
+        continue;
+      }
+    }
 
     if (const Timeline* sprite = movie_.FindSprite(place.character_id)) {
       if (depth >= kMaxDepth)
         continue;
       const u32 child = BuildClip(*sprite, object, name, place.character_id, depth + 1);
-      PlaceGeometry(AsValue::Obj(child), place.matrix, place.character_id);
+      PlaceGeometry(AsValue::Obj(child), place);
       vm_.SetMember(self, name, AsValue::Obj(child));
       continue;
     }
@@ -228,7 +193,7 @@ void Stage::ApplyFrame(u32 state_index, u32 frame, u32 depth) {
       vm_.SetMember(field_value, "text", AsValue::Str(StripHtml(text->initial_text)));
       vm_.SetMember(field_value, "htmlText", AsValue::Str(text->initial_text));
       vm_.SetMember(field_value, "_parent", self);
-      PlaceGeometry(field_value, place.matrix, place.character_id);
+      PlaceGeometry(field_value, place);
       vm_.SetMember(self, name, field_value);
     }
   }
@@ -239,6 +204,30 @@ void Stage::ApplyFrame(u32 state_index, u32 frame, u32 depth) {
   clips_[state_index].placed = base::move(now);
   clips_[state_index].frame = frame;
   vm_.SetMember(self, "_currentframe", AsValue::Number(static_cast<f64>(frame + 1)));
+}
+
+void Stage::PlacedNames(const AsValue& clip, base::Vector<base::String>& current,
+                        base::Vector<base::String>& ever) const {
+  const u32 index = StateIndexOf(clip);
+  if (index == 0 || index > clips_.size())
+    return;
+  const ClipState& state = clips_[index - 1];
+  for (const auto& entry : state.placed)
+    current.push_back(entry.second);
+  if (!state.timeline)
+    return;
+  for (const Frame& frame : state.timeline->frames) {
+    for (const Place& place : frame.places) {
+      if (!place.has_character)
+        continue;
+      const base::String name = NameFor(place);
+      bool known = false;
+      for (const base::String& had : ever)
+        known = known || had == name;
+      if (!known)
+        ever.push_back(name);
+    }
+  }
 }
 
 bool Stage::Goto(const AsValue& clip, u32 frame) {

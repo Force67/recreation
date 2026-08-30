@@ -1548,6 +1548,16 @@ struct GameUi::Impl {
   // be told what the build offers, and the arguments are positional (see
   // StartMenu::setupMainMenu in the decompiled script beside the screen).
   void OpenVanillaScreen(ui::VanillaRuntime& runtime, base::StringRef name) {
+    if (name == "quest_journal") {
+      // What the game sends when the journal is opened with Escape rather than
+      // the journal key: the System page, with the other tabs locked out. That
+      // is the pause menu.
+      base::Vector<swf::AsValue> tab;
+      tab.push_back(swf::AsValue::Number(2));  // Quest_Journal.PAGE_SYSTEM
+      tab.push_back(swf::AsValue::Bool(true));
+      runtime.Send(ui, "RestoreSavedSettings", tab);
+      return;
+    }
     if (name != "startmenu")
       return;
     const bool has_save = false;  // no save browser wired to the vanilla frame yet

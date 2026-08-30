@@ -186,6 +186,44 @@ void RunScripts(const swf::Movie& movie) {
   swf::GameBridge bridge(vm);
   swf::Stage stage(vm, movie);
   stage.Run();
+  // What the game does once the menu is up: run the extensions that register
+  // the rest of its callbacks, then send the message it opens this screen with.
+  // Everything reported below is the state the player would have been shown.
+  std::printf("%u clip(s) took InitExtensions\n", bridge.Open());
+  {
+    // sendMenuProperties(canQuit, hasSave, ...): the booleans the game passes
+    // for what the build offers. No save, so no CONTINUE.
+    base::Vector<swf::AsValue> properties;
+    for (int a = 0; a < 15; ++a)
+      properties.push_back(swf::AsValue::Bool(a == 0 || a == 8 || a == 9));
+    bridge.Invoke("sendMenuProperties", properties);
+    // RestoreSavedSettings(tab, tabsDisabled): the journal opened on its System
+    // page with the other tabs locked out, which is the pause menu.
+    base::Vector<swf::AsValue> tab;
+    tab.push_back(swf::AsValue::Number(2));
+    tab.push_back(swf::AsValue::Bool(true));
+    bridge.Invoke("RestoreSavedSettings", tab);
+  }
+
+  // What is actually up. A menu keeps every page it owns in the same tree and
+  // hides all but one, so the visible set is the direct measure of whether the
+  // screen the player asked for is the screen that would be drawn.
+  {
+    u32 hidden = 0;
+    const u32 objects = vm.object_count();
+    for (u32 i = 1; i < objects; ++i) {
+      if (!vm.Valid(i) || !vm.Get(i).is_movie_clip)
+        continue;
+      const swf::AsValue clip = swf::AsValue::Obj(i);
+      if (vm.ToBool(vm.GetMember(clip, "_visible")))
+        continue;
+      ++hidden;
+      if (hidden <= 10)
+        std::printf("  hidden: %s\n", vm.ToString(vm.GetMember(clip, "_name")).c_str());
+    }
+    std::printf("%u of %u clip(s) hidden\n", hidden, stage.clip_count());
+  }
+
   // Every list the run left with entries in it. A shipped menu ships its lists
   // empty, so this is the direct measure of how much of a screen the movie's
   // own code managed to fill.
@@ -261,6 +299,18 @@ void RunScripts(const swf::Movie& movie) {
   const base::Vector<swf::AsValue> stateful = stage.StatefulClips();
   std::printf("%zu clip(s) on the stage carry named frames\n",
               static_cast<size_t>(stateful.size()));
+  for (mem_size i = 0; i < stateful.size() && i < 12; ++i) {
+    base::String labels;
+    for (const base::String& label : stage.LabelsOf(stateful[i])) {
+      if (!labels.empty())
+        labels += ", ";
+      labels += label;
+    }
+    std::printf("  %-24s on frame %d of [%s]\n",
+                vm.ToString(vm.GetMember(stateful[i], "_name")).c_str(),
+                static_cast<int>(vm.ToNumber(vm.GetMember(stateful[i], "_currentframe"))),
+                labels.c_str());
+  }
   for (const swf::AsValue& clip : stateful) {
     const base::Vector<base::String> names = stage.LabelsOf(clip);
     if (names.size() < 2)
@@ -304,7 +354,6 @@ void RunScripts(const swf::Movie& movie) {
       std::printf("  _global.%s\n", name.c_str());
   }
   std::printf("%u function(s)/class(es) defined on _global\n", classes);
-  std::printf("%u clip(s) took InitExtensions\n", bridge.Open());
   const base::Vector<base::String> callbacks = bridge.Callbacks();
   if (!callbacks.empty()) {
     std::printf("%zu callback(s) the movie is listening for:\n",
@@ -313,9 +362,8 @@ void RunScripts(const swf::Movie& movie) {
       std::printf("  %s\n", callbacks[i].c_str());
   }
 
-  // The end-to-end check: a menu's contents are produced by its own code when
-  // the game sends it something. Send the message the game sends on open, the
-  // same way, and print what came out.
+  // What the option list the start menu built came out as, which is the direct
+  // check that sendMenuProperties reached the movie's own setup.
   for (u32 i = 1; i < 200000; ++i) {
     if (!vm.Valid(i) || !vm.Get(i).is_movie_clip)
       continue;
@@ -323,16 +371,6 @@ void RunScripts(const swf::Movie& movie) {
     const swf::AsValue setup = vm.GetMember(clip, "setupMainMenu");
     if (!setup.is_object() || !vm.Valid(setup.object()) || !vm.Get(setup.object()).is_function)
       continue;
-    // sendMenuProperties(platform, hasSave, ...): the booleans the game passes
-    // for what the build offers. No save, so no CONTINUE.
-    base::Vector<swf::AsValue> args;
-    args.push_back(swf::AsValue::Number(0));   // platform: PC
-    args.push_back(swf::AsValue::Bool(false)); // has a save
-    for (int a = 0; a < 12; ++a)
-      args.push_back(swf::AsValue::Bool(a == 6 || a == 10));  // creations, quit
-    if (!bridge.Invoke("sendMenuProperties", args))
-      vm.Call(setup, clip, args);
-
     const swf::AsValue list = vm.GetMember(clip, "MainList");
     // The property form, which is what the scripts actually write. It only
     // resolves once addProperty is honoured on the prototype chain.

@@ -1,5 +1,6 @@
 #include "components/swf/movie.h"
 
+#include <base/algorithm.h>
 #include <base/memory/move.h>
 
 namespace rx::swf {
@@ -336,6 +337,70 @@ Rect BoundsOf(const Movie& movie, u16 character_id, u32 depth) {
 }
 
 }  // namespace
+
+base::Vector<Place> DisplayListAt(const Timeline& timeline, u32 frame) {
+  base::Vector<Place> list;
+  const mem_size last =
+      timeline.frames.empty()
+          ? 0
+          : base::Min<mem_size>(static_cast<mem_size>(frame) + 1, timeline.frames.size());
+  for (mem_size f = 0; f < last; ++f) {
+    const Frame& source = timeline.frames[f];
+    for (u16 depth : source.removes) {
+      for (mem_size i = 0; i < list.size(); ++i) {
+        if (list[i].depth == depth) {
+          list.erase(i);
+          break;
+        }
+      }
+    }
+    for (const Place& place : source.places) {
+      mem_size existing = list.size();
+      for (mem_size i = 0; i < list.size(); ++i) {
+        if (list[i].depth == place.depth) {
+          existing = i;
+          break;
+        }
+      }
+      if (existing == list.size()) {
+        list.push_back(place);
+        continue;
+      }
+      if (!place.move && place.has_character) {
+        list[existing] = place;
+        continue;
+      }
+      // A move updates only the fields it carries. A fade is a run of moves
+      // carrying nothing but a colour transform, so dropping that would leave
+      // every tween on its first frame.
+      Place& target = list[existing];
+      if (place.has_character)
+        target.character_id = place.character_id;
+      if (place.has_matrix) {
+        target.matrix = place.matrix;
+        target.has_matrix = true;
+      }
+      if (place.has_color_transform) {
+        target.color_transform = place.color_transform;
+        target.has_color_transform = true;
+      }
+      if (!place.name.empty())
+        target.name = place.name;
+      if (place.clip_depth != 0)
+        target.clip_depth = place.clip_depth;
+    }
+  }
+  for (mem_size i = 1; i < list.size(); ++i) {
+    Place key = base::move(list[i]);
+    mem_size j = i;
+    while (j > 0 && list[j - 1].depth > key.depth) {
+      list[j] = base::move(list[j - 1]);
+      --j;
+    }
+    list[j] = base::move(key);
+  }
+  return list;
+}
 
 Rect CharacterBounds(const Movie& movie, u16 character_id) {
   return BoundsOf(movie, character_id, 0);

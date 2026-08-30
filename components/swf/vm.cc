@@ -1191,6 +1191,23 @@ i64 ArrayIndexArg(Vm& vm, const AsValue& value, i64 fallback) {
   return std::isnan(n) ? fallback : static_cast<i64>(n);
 }
 
+// new Array(): empty, new Array(n): n slots, new Array(a, b, ...): those
+// elements. The menus build their fixed tables this way (a journal's pages are
+// `new Array(QuestsFader.Page_mc, ...)`), so a constructor that ignored its
+// arguments left every one of those tables empty.
+AsValue ArrayCtor(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
+  if (self.is_object() && vm.Valid(self.object()))
+    vm.Get(self.object()).is_array = true;
+  if (args.size() == 1 && args[0].type() == AsValue::Type::kNumber) {
+    vm.SetMember(self, "length", args[0]);
+    return AsValue::Undefined();
+  }
+  for (mem_size i = 0; i < args.size(); ++i)
+    vm.SetMember(self, base::Format("{}", i), args[i]);
+  vm.SetMember(self, "length", AsValue::Number(static_cast<f64>(args.size())));
+  return AsValue::Undefined();
+}
+
 AsValue ArrayPush(Vm& vm, const AsValue& self, const base::Vector<AsValue>& args) {
   const AsValue length = vm.GetMember(self, "length");
   f64 n = vm.ToNumber(length);
@@ -1628,7 +1645,7 @@ void Vm::InstallStandardLibrary() {
   SetMember(AsValue::Obj(array_proto), "push", AsValue::Obj(NewNative(ArrayPush)));
   SetMember(AsValue::Obj(array_proto), "pop", AsValue::Obj(NewNative(ArrayPop)));
   SetMember(AsValue::Obj(array_proto), "join", AsValue::Obj(NewNative(ArrayJoin)));
-  const u32 array_ctor = NewNative(NoOp);
+  const u32 array_ctor = NewNative(ArrayCtor);
   SetMember(AsValue::Obj(array_ctor), "prototype", AsValue::Obj(array_proto));
   SetMember(g, "Array", AsValue::Obj(array_ctor));
   array_prototype_ = array_proto;

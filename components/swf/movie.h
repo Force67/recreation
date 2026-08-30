@@ -158,6 +158,13 @@ struct Movie {
   base::StringRef ExportName(u16 id) const;
 };
 
+// The display list a timeline has built up by `frame`: every placement from
+// frame 0 onwards, with removes applied and moves merged into what they move,
+// sorted by depth. A frame carries only what changed, so this is what "the
+// clip as it looks on that frame" means, and both the translation and the
+// interpreter have to read it the same way.
+base::Vector<Place> DisplayListAt(const Timeline& timeline, u32 frame);
+
 // What a character covers, in twips, within one movie's own dictionary: a
 // shape's or text field's authored box, a bitmap's pixel size, a button's up
 // state, and for a sprite the union of what its frames place. This is what a

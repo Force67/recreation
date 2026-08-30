@@ -2,6 +2,7 @@
 #define RECREATION_SWF_STAGE_H_
 
 #include <base/containers/pair.h>
+#include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
@@ -62,6 +63,21 @@ class Stage {
   // The frame labels on a clip's timeline, in frame order.
   base::Vector<base::String> LabelsOf(const AsValue& clip) const;
 
+  // The names this clip places: `current` on the frame it is on now, `ever` on
+  // any of its frames. A host drawing a translation of one frame needs both. A
+  // name in `ever` but not in `current` belongs to a state the clip has left,
+  // and has to be taken off the screen; a widget in neither is not the
+  // timeline's to decide about (a shape, or a container the translation
+  // invented) and follows whatever holds it.
+  void PlacedNames(const AsValue& clip, base::Vector<base::String>& current,
+                   base::Vector<base::String>& ever) const;
+
+  // The alpha the frame that placed this clip gives it, separate from the
+  // `_alpha` its script owns (the two multiply, as they do in the player). A
+  // fader is a timeline that ramps this and nothing else, so a host reading
+  // only the script's side sees a page that never fades.
+  f32 PlacedAlpha(const AsValue& clip) const;
+
   // Creates a clip from an exported symbol and puts it inside `parent` under
   // `name`, the way attachMovie does. Undefined when the movie exports no such
   // symbol. This is how the lists that build their own rows get them.
@@ -113,8 +129,9 @@ class Stage {
                 u16 character, u32 depth);
   // Applies a frame's display list to a clip that already exists.
   void ApplyFrame(u32 state_index, u32 frame, u32 depth);
-  // Writes _x/_y/_width/_height from where the frame put the character.
-  void PlaceGeometry(const AsValue& self, const Matrix& matrix, u16 character);
+  // Writes _x/_y/_width/_height from where the frame put the character, and
+  // records the placement's own alpha.
+  void PlaceGeometry(const AsValue& self, const Place& place);
   u32 StateIndexOf(const AsValue& clip) const;
   void InstallClipApi();
 
@@ -123,6 +140,9 @@ class Stage {
   AsValue root_;
   base::Vector<ClipState> clips_;
   base::Vector<base::String> unclassed_;
+  // object index -> the alpha its placement carries. Only the entries that are
+  // not fully opaque are kept.
+  base::UnorderedMap<u32, f32> place_alpha_;
   u32 clip_count_ = 0;
   u32 classed_count_ = 0;
   u32 goto_count_ = 0;

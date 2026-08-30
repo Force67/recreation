@@ -154,65 +154,6 @@ Box PlaceBox(const Matrix& m, const Rect& local) {
 
 // Applies frames 0..`frame` of a timeline to get the display list as it stands
 // when that frame is showing, sorted so lower depths come first.
-base::Vector<Place> DisplayList(const Timeline& timeline, u32 frame) {
-  base::Vector<Place> list;
-  const mem_size last = timeline.frames.size() == 0
-                            ? 0
-                            : (frame + 1 < timeline.frames.size() ? frame + 1
-                                                                  : timeline.frames.size());
-  for (mem_size f = 0; f < last; ++f) {
-    const Frame& source = timeline.frames[f];
-    for (u16 depth : source.removes) {
-      for (mem_size i = 0; i < list.size(); ++i) {
-        if (list[i].depth == depth) {
-          list.erase(i);
-          break;
-        }
-      }
-    }
-    for (const Place& place : source.places) {
-      mem_size existing = list.size();
-      for (mem_size i = 0; i < list.size(); ++i) {
-        if (list[i].depth == place.depth) {
-          existing = i;
-          break;
-        }
-      }
-      if (existing == list.size()) {
-        list.push_back(place);
-        continue;
-      }
-      if (!place.move && place.has_character) {
-        list[existing] = place;
-        continue;
-      }
-      // A move updates only the fields it carries.
-      Place& target = list[existing];
-      if (place.has_character)
-        target.character_id = place.character_id;
-      if (place.has_matrix) {
-        target.matrix = place.matrix;
-        target.has_matrix = true;
-      }
-      if (place.has_color_transform) {
-        target.color_transform = place.color_transform;
-        target.has_color_transform = true;
-      }
-      if (!place.name.empty())
-        target.name = place.name;
-      if (place.clip_depth != 0)
-        target.clip_depth = place.clip_depth;
-    }
-  }
-  for (mem_size i = 1; i < list.size(); ++i) {
-    for (mem_size j = i; j > 0 && list[j].depth < list[j - 1].depth; --j) {
-      Place tmp = base::move(list[j]);
-      list[j] = base::move(list[j - 1]);
-      list[j - 1] = base::move(tmp);
-    }
-  }
-  return list;
-}
 
 class Exporter {
  public:
@@ -522,7 +463,7 @@ Rect Exporter::SpriteBounds(const Timeline& timeline, u32 depth) {
 
   Rect out;
   bool first = true;
-  for (const Place& place : DisplayList(timeline, options_.frame)) {
+  for (const Place& place : DisplayListAt(timeline, options_.frame)) {
     if (!place.has_character || place.clip_depth != 0)
       continue;
     const Rect local = CharacterBounds(place.character_id, depth + 1);
@@ -1004,7 +945,7 @@ void Exporter::EmitTimeline(const Timeline& timeline,
                             const Box& parent_box,
                             u32 indent,
                             u32 depth) {
-  const base::Vector<Place> list = DisplayList(timeline, options_.frame);
+  const base::Vector<Place> list = DisplayListAt(timeline, options_.frame);
   mem_size i = 0;
   while (i < list.size()) {
     const Place& place = list[i];

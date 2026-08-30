@@ -24,6 +24,9 @@ namespace {
 
 namespace fs = std::filesystem;
 
+// "no such entry" for the binding table, which is indexed from zero.
+constexpr u32 kNoBinding = 0xffffffffu;
+
 // Namespace scope so it registers before base::InitOptionsFromEnv runs.
 base::Option<bool> VanillaVm{"ui.vanilla.vm", false, "RX_VANILLA_VM"};
 
@@ -96,6 +99,7 @@ struct VanillaRuntime::Impl {
     u32 clip = 0;      // interpreter object
     ugui::wid widget;  // the translated widget it drives
     bool is_text = false;
+    base::Vector<u32> children;  // indices into `bound`, in tree order
   };
   base::Vector<Bound> bound;
   const base::UnorderedMap<base::String, base::String>* strings = nullptr;
@@ -112,18 +116,23 @@ struct VanillaRuntime::Impl {
     bound_clips = stage->clip_count();
   }
 
+  bool Same(ugui::wid a, ugui::wid b) const { return a.index == b.index; }
+
   // Walks the two trees together. They come from the same movie, so a clip's
   // instance name is the widget's name at the same place in the hierarchy.
-  void Bind(ugui::UIContext& ui, const swf::AsValue& clip, ugui::wid widget, u32 depth) {
+  u32 Bind(ugui::UIContext& ui, const swf::AsValue& clip, ugui::wid widget, u32 depth) {
     if (depth > 24 || !clip.is_object() || !widget.valid())
-      return;
+      return kNoBinding;
     ugui::WidgetRegistry& world = ui.world();
-    Bound entry;
-    entry.clip = clip.object();
-    entry.widget = widget;
-    const ugui::WidgetNode* node = world.Get<ugui::WidgetNode>(widget);
-    entry.is_text = node && node->kind == ugui::WidgetKind::kText;
-    bound.push_back(entry);
+    const u32 index = static_cast<u32>(bound.size());
+    {
+      Bound entry;
+      entry.clip = clip.object();
+      entry.widget = widget;
+      const ugui::WidgetNode* node = world.Get<ugui::WidgetNode>(widget);
+      entry.is_text = node && node->kind == ugui::WidgetKind::kText;
+      bound.push_back(base::move(entry));
+    }
 
     // Only the clip's own members can be children; walking the prototype would
     // follow the class up into methods.
@@ -138,9 +147,13 @@ struct VanillaRuntime::Impl {
       if (!object.is_movie_clip && object.props.find(base::String("text")) == nullptr)
         continue;
       const ugui::wid child_widget = ChildNamed(world, widget, key);
-      if (child_widget.valid())
-        Bind(ui, child, child_widget, depth + 1);
+      if (!child_widget.valid())
+        continue;
+      const u32 child_index = Bind(ui, child, child_widget, depth + 1);
+      if (child_index != kNoBinding)
+        bound[index].children.push_back(child_index);
     }
+    return index;
   }
 
   // "$KEY" resolved against the interface's own table, the way Scaleform's
@@ -157,43 +170,104 @@ struct VanillaRuntime::Impl {
   // than written through on every property set: a menu touches these constantly
   // while it settles, and the screen only has to agree at the end of it.
   void Sync(ugui::UIContext& ui) {
-    ugui::WidgetRegistry& world = ui.world();
-    for (const Bound& entry : bound) {
-      if (!vm.Valid(entry.clip) || !entry.widget.valid())
-        continue;
-      const swf::AsValue clip = swf::AsValue::Obj(entry.clip);
-      ugui::StyleC* sc = world.Get<ugui::StyleC>(entry.widget);
-      if (!sc)
-        continue;
-      ugui::Style style = sc->style;
-      bool changed = false;
+    if (!bound.empty())
+      SyncNode(ui, 0, 1.0f);
+  }
 
-      const swf::AsValue visible = vm.GetMember(clip, "_visible");
-      if (!visible.is_undefined()) {
-        const ugui::Visibility want =
-            vm.ToBool(visible) ? ugui::Visibility::kVisible : ugui::Visibility::kCollapsed;
-        if (style.visibility != want) {
-          style.visibility = want;
-          changed = true;
-        }
-      }
-      const swf::AsValue alpha = vm.GetMember(clip, "_alpha");
-      if (!alpha.is_undefined()) {
-        const f32 want = static_cast<f32>(vm.ToNumber(alpha)) * 0.01f;
-        if (want >= 0 && want <= 1 && style.opacity != want) {
-          style.opacity = want;
-          changed = true;
-        }
-      }
-      if (changed)
-        ugui::SetStyle(world, entry.widget, style);
+  // One clip and everything the translation put under it. `inherited` is the
+  // opacity the clips above it resolved to: a menu hides a whole page by
+  // clearing _visible on the page, and the widgets under it have to follow.
+  void SyncNode(ugui::UIContext& ui, u32 index, f32 inherited) {
+    const Bound& entry = bound[index];
+    if (!vm.Valid(entry.clip) || !entry.widget.valid())
+      return;
+    const swf::AsValue clip = swf::AsValue::Obj(entry.clip);
 
-      if (entry.is_text) {
-        const swf::AsValue text = vm.GetMember(clip, "text");
-        if (!text.is_undefined())
-          ugui::SetText(entry.widget, Localise(vm.ToString(text)).c_str());
-      }
+    f32 opacity = inherited * stage->PlacedAlpha(clip);
+    const swf::AsValue visible = vm.GetMember(clip, "_visible");
+    if (!visible.is_undefined() && !vm.ToBool(visible))
+      opacity = 0.0f;
+    const swf::AsValue alpha = vm.GetMember(clip, "_alpha");
+    if (!alpha.is_undefined()) {
+      const f32 own = static_cast<f32>(vm.ToNumber(alpha)) * 0.01f;
+      if (own >= 0 && own <= 1)
+        opacity *= own;
     }
+
+    // What the clip's timeline is showing right now. The translation carries
+    // one frame of it, so anything from another frame has to be taken down.
+    base::Vector<base::String> current;
+    base::Vector<base::String> ever;
+    stage->PlacedNames(clip, current, ever);
+    Paint(ui.world(), entry.widget, opacity, entry, current, ever);
+    if (entry.is_text) {
+      const swf::AsValue text = vm.GetMember(clip, "text");
+      if (!text.is_undefined())
+        Write(ui.world(), entry.widget, Localise(vm.ToString(text)));
+    }
+    for (u32 child : entry.children)
+      SyncNode(ui, child, opacity);
+  }
+
+  // A field the movie fills. Its authored colour is often fully transparent:
+  // the designer leaves the placeholder invisible because the game is what puts
+  // words there, and the transparency is the placeholder's, not the text's. So
+  // writing to a field is also what makes it legible; how visible it ends up is
+  // the clip's own _alpha, which Paint has already applied.
+  void Write(ugui::WidgetRegistry& world, ugui::wid widget, const base::String& text) {
+    ugui::StyleC* sc = world.Get<ugui::StyleC>(widget);
+    if (sc && sc->style.text_color.a <= 0.0f) {
+      ugui::Style style = sc->style;
+      style.text_color.a = 1.0f;
+      ugui::SetStyle(world, widget, style);
+    }
+    ugui::SetText(widget, text.c_str());
+  }
+
+  // ugui does not inherit opacity, so a clip's has to be written onto every
+  // widget under it. The walk stops wherever a child clip took over, since that
+  // clip resolves its own and paints its own subtree.
+  void Paint(ugui::WidgetRegistry& world, ugui::wid widget, f32 opacity,
+             const Bound& owner, const base::Vector<base::String>& current,
+             const base::Vector<base::String>& ever) {
+    if (!widget.valid())
+      return;
+    if (ugui::StyleC* sc = world.Get<ugui::StyleC>(widget); sc && sc->style.opacity != opacity) {
+      ugui::Style style = sc->style;
+      style.opacity = opacity;
+      ugui::SetStyle(world, widget, style);
+    }
+    const ugui::Hierarchy* h = world.Get<ugui::Hierarchy>(widget);
+    if (!h)
+      return;
+    for (ugui::wid child : h->children) {
+      bool owned = false;
+      for (u32 index : owner.children)
+        owned = owned || Same(bound[index].widget, child);
+      if (owned)
+        continue;  // that clip resolves its own state
+      Paint(world, child, OnStage(world, child, current, ever) ? opacity : 0.0f, owner,
+            current, ever);
+    }
+  }
+
+  // Whether a widget the owning clip did not bind is part of what that clip is
+  // showing now. Only names the timeline itself places are judged: everything
+  // else is art or a container the translation added, and follows its holder.
+  bool OnStage(ugui::WidgetRegistry& world, ugui::wid widget,
+               const base::Vector<base::String>& current,
+               const base::Vector<base::String>& ever) const {
+    const ugui::WidgetNode* node = world.Get<ugui::WidgetNode>(widget);
+    if (!node)
+      return true;
+    const base::StringRef name(node->name.c_str());
+    for (const base::String& shown : current)
+      if (NameMatches(shown, name))
+        return true;
+    for (const base::String& known : ever)
+      if (NameMatches(known, name))
+        return false;
+    return true;
   }
 };
 
