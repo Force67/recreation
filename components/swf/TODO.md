@@ -163,7 +163,14 @@ but it caps how long a session can be play-tested.
 - Opacity inherits in ugui, which is where it belonged: `PaintWidgetTree` folds
   each widget's own into what it hands its children and `ComputedStyle` applies
   it. Both interpreters used to write a clip's resolved opacity onto every
-  widget beneath it, which flattened the alpha a placement had authored.
+  widget beneath it, which flattened the alpha a placement had authored. The
+  export still concatenates alpha down to the leaves rather than emitting it per
+  level: a colour tint does not inherit either, the two travel together, and
+  splitting them made the journal's fade apply twice.
+- `_alpha` starts where the placement left it, the way `_x` does. A clip whose
+  `_alpha` read 100 before its own code had touched it was a clip that had never
+  faded, so the host had to multiply the two - and multiplying keeps a menu that
+  fades in from an authored zero at zero forever.
 - An AS3 screen opening on the state its own frames say. Three things had to be
   true at once: only the frame a clip opens on may run its script (a Fallout 4
   panel keeps `visible = false` on frame 1, `true` on frame 3 and `false` again

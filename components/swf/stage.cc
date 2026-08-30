@@ -53,6 +53,10 @@ void Stage::PlaceGeometry(const AsValue& self, const Place& place) {
   placement.y = ToPixels(place.matrix.translate_y);
   const f32 alpha = place.has_color_transform ? place.color_transform.mul_a : 1.0f;
   placement.alpha = alpha < 0 ? 0.0f : (alpha > 1.0f ? 1.0f : alpha);
+  // `_alpha` starts where the placement put it, the way `_x` does. A menu ships
+  // parts of itself transparent and fades them in, and a clip whose `_alpha`
+  // reads 100 before its own code has touched it is a clip that never faded.
+  vm_.SetMember(self, "_alpha", AsValue::Number(placement.alpha * 100.0));
   placements_[self.object()] = placement;
 }
 

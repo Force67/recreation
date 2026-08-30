@@ -464,6 +464,41 @@ int main() {
   }
 
   {
+    // A clip's authored alpha is where `_alpha` STARTS, not a factor on top of
+    // it. A menu ships parts of itself transparent and fades them in, so a host
+    // that multiplies the two keeps a faded-in clip at whatever the designer
+    // left it, which for a Bethesda menu is usually zero.
+    swf::SwfFile file;
+    file.frame_size = swf::Rect{0, 0, 8000, 6000};
+    swf::Movie movie;
+    swf::Timeline sprite;
+    sprite.frames.push_back(swf::Frame{});
+    movie.sprites.push_back(base::move(sprite));
+    movie.characters[10] = swf::CharacterRef{swf::CharacterKind::kSprite, 0};
+
+    swf::Place place;
+    place.depth = 1;
+    place.character_id = 10;
+    place.has_character = true;
+    place.name = "Fader_mc";
+    place.has_matrix = true;
+    place.has_color_transform = true;
+    place.color_transform.mul_a = 0.0f;  // authored invisible, faded in by code
+    swf::Frame root;
+    root.places.push_back(base::move(place));
+    movie.root.frames.push_back(base::move(root));
+
+    swf::Vm vm;
+    swf::Stage stage(vm, movie);
+    stage.Run();
+    const swf::AsValue clip = vm.GetMember(stage.root(), "Fader_mc");
+    Check(clip.is_object(), "the placement made a clip");
+    Check(vm.ToNumber(vm.GetMember(clip, "_alpha")) == 0,
+          "_alpha starts where the placement left it, the way _x does");
+    Check(stage.PlacedAt(clip).alpha == 0.0f, "and the placement agrees");
+  }
+
+  {
     // Getters and setters. A screen reaches a field it does not hold a slot for
     // through a declared `get`, and reading that name has to run it: Fallout
     // 4's main menu takes its splash text down with

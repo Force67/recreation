@@ -135,7 +135,7 @@ ugui::wid ActiveState(ugui::WidgetRegistry& world, ugui::wid widget, i32 frame) 
 // state and each carries its own copy, so a clip drives all of them and the
 // inactive groups are simply not drawn.
 void ChildrenNamed(ugui::WidgetRegistry& world, ugui::wid parent, base::StringRef name,
-                   base::Vector<ugui::wid>& out) {
+                   base::Vector<ugui::wid>& out, bool deep = false) {
   const ugui::Hierarchy* h = world.Get<ugui::Hierarchy>(parent);
   if (!h)
     return;
@@ -148,7 +148,7 @@ void ChildrenNamed(ugui::WidgetRegistry& world, ugui::wid parent, base::StringRe
     // A state group is the translation's own scaffolding, not an instance the
     // movie ever named, so a lookup passes straight through it.
     if (StateFrameOf(actual) >= 0) {
-      ChildrenNamed(world, child, name, out);
+      ChildrenNamed(world, child, name, out, deep);
       continue;
     }
     if (name == actual) {
@@ -162,13 +162,16 @@ void ChildrenNamed(ugui::WidgetRegistry& world, ugui::wid parent, base::StringRe
     out.push_back(fallback);
     return;
   }
-  // Nothing at this level. A name can still stand for something further down:
-  // an AS3 getter hands back a field several clips deep under the flat name the
-  // class declares it as (`SplashScreenText_tf` lives inside
-  // `SplashScreenHolder_mc`). Only reached when the level itself has no match,
-  // so a name a parent does own always wins.
+  // Nothing at this level. An ActionScript 3 class declares a member under a
+  // flat name whatever depth the clip sits at (`SplashScreenText_tf` lives
+  // inside `SplashScreenHolder_mc`), so that lookup carries on downwards. The
+  // AS2 side walks the two trees in step and must not: a name missing at a
+  // level means the clip has no widget, and taking one from another subtree
+  // binds a clip to something that is not it.
+  if (!deep)
+    return;
   for (ugui::wid child : h->children) {
-    ChildrenNamed(world, child, name, out);
+    ChildrenNamed(world, child, name, out, true);
     if (!out.empty())
       return;
   }
@@ -224,7 +227,7 @@ struct VanillaRuntime::Impl {
         continue;
       const swf::As3Value instance = swf::As3Value::Obj(*built);
       base::Vector<ugui::wid> widgets;
-      ChildrenNamed(world, root_widget, place.name, widgets);
+      ChildrenNamed(world, root_widget, place.name, widgets, true);
       for (ugui::wid widget : widgets)
         BindAbcInto(ui, instance, widget,
                     ChildRef{SpriteOf(place.character_id), place.character_id,
@@ -290,7 +293,7 @@ struct VanillaRuntime::Impl {
       if (!child.is_object())
         continue;
       base::Vector<ugui::wid> widgets;
-      ChildrenNamed(world, widget, key, widgets);
+      ChildrenNamed(world, widget, key, widgets, true);
       for (ugui::wid found : widgets)
         BindAbcInto(ui, child, found, ChildOf(placed.timeline, key), depth + 1);
     }
@@ -356,7 +359,7 @@ struct VanillaRuntime::Impl {
       return;
     for (i32 row = 0;; ++row) {
       base::Vector<ugui::wid> widgets;
-      ChildrenNamed(world, widget, base::Format("Entry{}", row), widgets);
+      ChildrenNamed(world, widget, base::Format("Entry{}", row), widgets, true);
       if (widgets.empty())
         break;
       if (row >= count) {
@@ -625,16 +628,20 @@ struct VanillaRuntime::Impl {
     const swf::AsValue clip = swf::AsValue::Obj(entry.clip);
 
     const swf::Stage::Placement placed = stage->PlacedAt(clip);
+    // Where the placement left the clip, unless its own code has set an alpha
+    // since. The two are the same property in the player: the authored value is
+    // what `_alpha` starts at, not a second factor on top of it. A menu fades
+    // itself in from an authored zero, so multiplying keeps it at zero forever.
     f32 opacity = placed.alpha;
-    const swf::AsValue visible = vm.GetMember(clip, "_visible");
-    if (!visible.is_undefined() && !vm.ToBool(visible))
-      opacity = 0.0f;
     const swf::AsValue alpha = vm.GetMember(clip, "_alpha");
     if (!alpha.is_undefined()) {
       const f32 own = static_cast<f32>(vm.ToNumber(alpha)) * 0.01f;
       if (own >= 0 && own <= 1)
-        opacity *= own;
+        opacity = own;
     }
+    const swf::AsValue visible = vm.GetMember(clip, "_visible");
+    if (!visible.is_undefined() && !vm.ToBool(visible))
+      opacity = 0.0f;
 
     // What the clip's timeline is showing right now. The translation carries
     // one frame of it, so anything from another frame has to be taken down.
