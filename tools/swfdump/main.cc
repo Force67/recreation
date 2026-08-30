@@ -196,6 +196,16 @@ void RunScripts(const swf::Movie& movie) {
   // Everything reported below is the state the player would have been shown.
   std::printf("%u clip(s) took InitExtensions\n", bridge.Open());
   {
+    // Every screen is told what it is running on before anything else, the way
+    // the host does. A list that has not been told lays itself out for a
+    // controller and dims every row by its distance from the selection.
+    base::Vector<swf::AsValue> platform;
+    platform.push_back(swf::AsValue::Number(0));  // PC
+    platform.push_back(swf::AsValue::Bool(false));
+    if (stage.Dispatch(stage.root(), "SetPlatform", platform))
+      std::printf("the screen was told it is on a PC\n");
+  }
+  {
     // sendMenuProperties(canQuit, hasSave, ...): the booleans the game passes
     // for what the build offers. No save, so no CONTINUE.
     base::Vector<swf::AsValue> properties;
@@ -375,9 +385,10 @@ void RunScripts(const swf::Movie& movie) {
         const swf::AsValue row = vm.GetMember(clip, base::Format("Entry{}", r));
         if (!row.is_object())
           break;
-        std::printf("    row %d: y=%s h=%s visible=%d item=%s text='%s'\n", r,
+        std::printf("    row %d: y=%s h=%s a=%s visible=%d item=%s text='%s'\n", r,
                     vm.ToString(vm.GetMember(row, "_y")).c_str(),
                     vm.ToString(vm.GetMember(row, "_height")).c_str(),
+                    vm.ToString(vm.GetMember(row, "_alpha")).c_str(),
                     vm.ToBool(vm.GetMember(row, "_visible")) ? 1 : 0,
                     vm.ToString(vm.GetMember(row, "itemIndex")).c_str(),
                     vm.ToString(vm.GetMember(vm.GetMember(row, "textField"), "text")).c_str());
