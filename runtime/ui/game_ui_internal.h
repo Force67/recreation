@@ -89,11 +89,12 @@ inline base::Option<float> PauseAt{"ui.pause_at", 0.0f, "RX_PAUSE_AT"};
 // and pick that entry, so a sub-panel can be captured the same way.
 inline base::Option<int> PausePick{"ui.pause_pick", -1, "RX_PAUSE_PICK"};
 constexpr f32 kLegalSeconds = 5.0f;
-// The size legal.ugui is authored against. ugui's design space here is the raw
-// backbuffer, so the notice is scaled to the viewport for the few seconds it is
-// up; left alone, a 1920-wide card shrinks into the middle of a larger screen.
-constexpr f32 kLegalDesignWidth = 1920.0f;
-constexpr f32 kLegalDesignHeight = 1080.0f;
+// The stage the front screens (legal notice, setup wizard, NEXUS menu) are
+// authored against. ugui's design space here is the raw backbuffer, so they are
+// fitted to the viewport while one of them is up; left alone, a 1920-wide
+// composition draws at its authored size in the corner of a larger screen.
+constexpr f32 kFrontendDesignWidth = 1920.0f;
+constexpr f32 kFrontendDesignHeight = 1080.0f;
 inline base::Option<const char*> FirstRunStep{"first.run.step", nullptr, "RECREATION_FIRST_RUN_STEP"};
 
 // Scrolling compass geometry. 8 marks per 360deg turn, 3 turns so the strip

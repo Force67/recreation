@@ -679,6 +679,16 @@ void GameUi::Build(Window& window,
   impl->host.window_width = fb_w > 0.f ? fb_w : static_cast<float>(window.width());
   impl->host.window_height = fb_h > 0.f ? fb_h : static_cast<float>(window.height());
 
+  // The front screens (legal card, setup wizard, NEXUS menu) are authored
+  // against a fixed 1920x1080 stage and fitted to the viewport, the way a
+  // Scaleform movie is. Without it a 1440p or 4K display draws that composition
+  // at its authored size in the top-left corner with the rest of the screen
+  // empty. In-world UI keeps the raw backbuffer space it measures against.
+  const bool frontend = impl->legal_open || impl->first_run_open || impl->main_menu_open;
+  impl->ui.set_ui_scale(frontend ? base::Min(impl->host.window_width / kFrontendDesignWidth,
+                                             impl->host.window_height / kFrontendDesignHeight)
+                                 : 0.0f);
+
   // Feed the per-frame input snapshot into ultragui's queue, scaling the cursor
   // from window space into the (possibly larger) backbuffer canvas so clicks
   // line up with the widgets.
@@ -715,8 +725,6 @@ void GameUi::Build(Window& window,
   // clears the flag, and would otherwise activate a row of the menu underneath.
   const bool legal_was_open = impl->legal_open;
   if (impl->legal_open) {
-    impl->ui.set_ui_scale(base::Min(impl->host.window_width / kLegalDesignWidth,
-                                    impl->host.window_height / kLegalDesignHeight));
     impl->legal_left -= frame_delta;
     const int remaining = static_cast<int>(std::ceil(base::Max(0.0f, impl->legal_left)));
     if (remaining != impl->legal_shown) {
@@ -735,7 +743,6 @@ void GameUi::Build(Window& window,
     if (dismiss) {
       impl->legal_open = false;
       impl->SetVisible("legal", false);
-      impl->ui.set_ui_scale(0.0f);  // back to whatever the config asks for
       RX_INFO("ui: legal notice dismissed");
     }
   }
