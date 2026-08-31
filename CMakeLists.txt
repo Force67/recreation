@@ -319,6 +319,7 @@ endif()
 # game modules.
 set(RECREATION_MODULES
   bethesda
+  swf
   audio
   world
   quest
@@ -344,6 +345,7 @@ add_subdirectory(runtime)
 
 if(RECREATION_BUILD_TOOLS)
   add_subdirectory(tools/esminfo)
+  add_subdirectory(tools/swfdump)
   add_subdirectory(tools/modtool)
   add_subdirectory(tools/papyrus)
   add_subdirectory(tests/upstream)

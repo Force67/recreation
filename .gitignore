@@ -41,6 +41,7 @@ editor_layout.reclayout
 /run-skyrim.sh
 /run-morrowind.sh
 /run-fallout.sh
+/run-fo4.sh
 /run-starfield.sh
 /run-trailer.sh
 /run-all.sh
@@ -55,6 +56,11 @@ run-local.sh
 
 # Generated native-coverage report (pex2cs/nativescan --list-missing)
 missing_natives.txt
+
+# Screens translated from an installed game's own Scaleform movies
+# (tools/swfdump --ugui). Derived from game data, so generated locally.
+runtime/ui/vanilla/
+runtime/ui/vanilla_fo4/
 
 # Cached nix dev environments (devenv.sh) and their gcroots.
 /.devenv-*

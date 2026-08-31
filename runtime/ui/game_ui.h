@@ -226,6 +226,7 @@ struct MainMenuStats {
   int active_quests = 0;
   int players_online = 0;   // connected peers (host or client), 0 = offline
   base::String net_status;  // "Offline" / "Hosting :29700" / "Connected ..."
+  double game_days = 0;     // WorldClock::game_days, for menus that show the date
 
   // Real local-profile / system identity, shown on the front screen before any
   // universe is loaded (the profile is the machine account, not an RPG hero).
@@ -498,6 +499,9 @@ class GameUi {
   bool menu_open() const;
   bool settings_open() const;  // pause menu's Settings sub-view is showing
   bool quit_requested() const;
+  // True once, when the translated pause menu's QUIT list picked "Main Menu".
+  // The host tears the world down and reopens the front screen.
+  bool PollReturnToMenu();
 
   // Pause-menu Settings sub-view: the engine pushes the current controls each
   // frame and polls the request the panel raises (rebind a row, nudge a

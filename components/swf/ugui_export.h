@@ -1,0 +1,116 @@
+#ifndef RECREATION_SWF_UGUI_EXPORT_H_
+#define RECREATION_SWF_UGUI_EXPORT_H_
+
+#include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
+#include <base/strings/xstring.h>
+
+#include "components/swf/movie.h"
+
+namespace rx::swf {
+
+// A movie the one being translated imports symbols from. Scaleform loads these
+// at runtime and splices them into the placeholders the parent leaves; with the
+// set supplied here the translation does the same, which is the difference
+// between an inventory screen that is an empty shell and one that has its
+// lists, item card and button bar in it.
+struct ImportedMovie {
+  base::String path;  // as the ImportAssets2 tag spells it, lower case
+  const Movie* movie = nullptr;
+};
+
+struct UguiExportOptions {
+  // Base name of the screen; becomes the root widget's name and the asset
+  // directory. Sanitised to identifier characters.
+  base::String name = "screen";
+  // Multiplies every emitted coordinate and font size. Bethesda authors its
+  // menus for a 1280x720 stage and lets Scaleform scale them up; recreation's
+  // ugui design space is 1080p, so 1.5 puts a Skyrim screen at the right size.
+  f32 scale = 1.0f;
+  // Which frame of each timeline to snapshot. Menus build their opening state
+  // on frame 0; later frames are alternate states of the same widgets.
+  u32 frame = 0;
+  // Show what the movie is authored to look like rather than what frame 0
+  // draws. A Scaleform menu ships fully transparent and fades itself in from
+  // ActionScript, so a faithful snapshot of an unopened menu is mostly empty;
+  // with this set, an accumulated alpha of exactly zero is treated as opaque.
+  // Partial alpha is left alone, since that is a real design choice.
+  bool reveal_faded = false;
+  // Sprite instances nested deeper than this are placed as empty panels. The
+  // shipped menus reach about 8.
+  u32 max_depth = 16;
+  // How many of a sprite's states to translate. A menu keeps each state on its
+  // own frame and switches with `gotoAndStop`, so a clip needs one group per
+  // state for a host to be able to show the one it is on; without them a screen
+  // can only ever draw the frame it was snapshotted at. A CLIK button has nine
+  // (up/over/down/disabled and their selected twins) and most clips have one,
+  // so the cap is what keeps a screen's widget count in hand. 1 emits only
+  // `frame`, which is the old single-frame translation.
+  u32 max_states = 12;
+  // How deep to expand those states. They multiply: a clip with S states
+  // holding a clip with S states is S*S leaf subtrees, and the journal's chain
+  // of page, panel, list, row and art takes it from 1.4k widgets to 60k. The
+  // states worth having are near the top, where a menu switches its pages,
+  // panels and tabs; the art states deep inside a component matter less to a
+  // screen than being able to draw it at all.
+  u32 max_state_depth = 16;
+  // The interface's "$KEY" table (bethesda::InterfaceStrings::entries). A menu
+  // stores keys in its text fields and Scaleform substitutes at runtime, so
+  // without this every screen reads "$LEVEL" and "$Saving...". Null leaves the
+  // keys as authored.
+  const base::UnorderedMap<base::String, base::String>* strings = nullptr;
+  // Font symbol ("$EverywhereMediumFont") -> the family name the converted
+  // TrueType file carries ("Futura Condensed Medium"). A movie names its font
+  // by an imported symbol, so this is what lets a text widget ask for the
+  // typeface the game actually uses. See ExportTrueType.
+  const base::UnorderedMap<base::String, base::String>* font_families = nullptr;
+  // Movies this one imports from; see ImportedMovie.
+  const base::Vector<ImportedMovie>* imports = nullptr;
+  // Skip characters smaller than this in pixels: Scaleform leaves hairline
+  // spacers and hit-test rectangles all over the display list.
+  f32 min_size_px = 0.5f;
+};
+
+// One file the exporter produced alongside the markup.
+struct ExportedAsset {
+  base::String file;      // relative path, e.g. "hudmenu/shape_142.svg"
+  base::String widget;    // the ugui widget that binds it
+  base::Vector<u8> bytes;
+  // Set when the pixels are not in the movie: the .gfx export moves every
+  // bitmap out to a file beside it (see swf::ExternalImage), so `bytes` is empty
+  // and the caller has to fetch this name from wherever it found the movie.
+  base::String source;
+};
+
+struct UguiScreen {
+  base::String markup;                 // the .ugui document
+  base::String manifest;               // "widget<TAB>file" lines, one per image
+  base::String script;                 // decompiled ActionScript for the movie
+  base::Vector<ExportedAsset> assets;  // SVG and PNG files the markup references
+  u32 widget_count = 0;
+  u32 skipped_count = 0;               // display objects the translation dropped
+};
+
+// Translates a decoded movie into libultragui markup.
+//
+// The mapping is structural, not a screenshot: a DefineSprite becomes a nested
+// panel, a PlaceObject matrix becomes absolute left/top/width/height, a solid
+// rectangle becomes a panel background, a gradient rectangle becomes ugui's
+// background/background-end pair, vector art becomes an SVG asset, an imported
+// bitmap becomes a PNG asset, and every DefineEditText becomes a text widget
+// keeping the ActionScript variable it was bound to as a comment, so the
+// rebuilt screen can be wired back to the same game state.
+UguiScreen ExportUgui(const Movie& movie, const UguiExportOptions& options);
+
+// The decompiled ActionScript of every script in the movie, with a header per
+// block naming which timeline, frame or sprite class it came from.
+base::String ExportScript(const Movie& movie);
+
+// The frames of a timeline that stand for a state a host can ask for: the
+// labelled ones whose display list differs from the frame before. The export
+// emits a group per state and a host shows the one its clip is on.
+base::Vector<u32> StateFrames(const Timeline& timeline);
+
+}  // namespace rx::swf
+
+#endif  // RECREATION_SWF_UGUI_EXPORT_H_

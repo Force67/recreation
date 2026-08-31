@@ -1,0 +1,117 @@
+// RECREATION legal notice: the card shown before anything else on startup, in
+// the spirit of the plain legal/health screens the games themselves boot with.
+// Black field, no chrome, nothing but the notice, tiled in six languages so it
+// cannot read as small print.
+//
+// Authored against 1920x1080. GameUi scales the whole context to the viewport
+// while this is up (ugui's own design space is the raw framebuffer, so absolute
+// px would otherwise shrink into the middle of a larger screen).
+//
+// ugui text does not wrap, so every line is its own text widget. A block sets
+// `align: start` because a column's default is stretch, which would pull the
+// short rule under each language label out to the full block width.
+//
+// Drives the widgets GameUi expects: legal (root), legal_count (the countdown).
+
+  panel legal {
+    position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: #000000;
+    layout: column; justify: center; align: center;
+
+    panel { layout: column;
+
+      panel { layout: row; margin: 0 0 82 0;
+
+        panel { layout: column; align: start; width: 855; margin: 0 70 0 0;
+          text { text: "ENGLISH"; font-size: 15; color: #8a96a8; letter-spacing: 6; }
+          panel { width: 34; height: 1; background: #ffffff2e; margin: 11 0 18 0; }
+          text { text: "Not affiliated with, authorised by or endorsed by Bethesda";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+          text { text: "Softworks LLC or ZeniMax Media Inc. No Bethesda source code";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+          text { text: "was used in making this software. No game content is included:";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+          text { text: "you must own a legitimate copy of any game you load.";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+        }
+
+        panel { layout: column; align: start; width: 855;
+          text { text: "FRANÇAIS"; font-size: 15; color: #8a96a8; letter-spacing: 6; }
+          panel { width: 34; height: 1; background: #ffffff2e; margin: 11 0 18 0; }
+          text { text: "Sans affiliation, autorisation ni approbation de Bethesda";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+          text { text: "Softworks LLC ou ZeniMax Media Inc. Aucun code source Bethesda";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+          text { text: "n'a été utilisé. Aucun contenu de jeu n'est inclus : vous devez";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+          text { text: "posséder une copie légitime de chaque jeu que vous chargez.";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+        }
+      }
+
+      panel { layout: row; margin: 0 0 82 0;
+
+        panel { layout: column; align: start; width: 855; margin: 0 70 0 0;
+          text { text: "DEUTSCH"; font-size: 15; color: #8a96a8; letter-spacing: 6; }
+          panel { width: 34; height: 1; background: #ffffff2e; margin: 11 0 18 0; }
+          text { text: "Nicht verbunden mit, autorisiert oder unterstützt von Bethesda";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+          text { text: "Softworks LLC oder ZeniMax Media Inc. Es wurde kein Bethesda-";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+          text { text: "Quellcode verwendet. Keine Spielinhalte enthalten: Sie müssen";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+          text { text: "eine rechtmäßige Kopie jedes geladenen Spiels besitzen.";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+        }
+
+        panel { layout: column; align: start; width: 855;
+          text { text: "ITALIANO"; font-size: 15; color: #8a96a8; letter-spacing: 6; }
+          panel { width: 34; height: 1; background: #ffffff2e; margin: 11 0 18 0; }
+          text { text: "Non affiliato, autorizzato né approvato da Bethesda Softworks";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+          text { text: "LLC o ZeniMax Media Inc. Non è stato usato alcun codice";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+          text { text: "sorgente Bethesda. Nessun contenuto di gioco è incluso: devi";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+          text { text: "possedere una copia legittima di ogni gioco che carichi.";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+        }
+      }
+
+      panel { layout: row;
+
+        panel { layout: column; align: start; width: 855; margin: 0 70 0 0;
+          text { text: "ESPAÑOL"; font-size: 15; color: #8a96a8; letter-spacing: 6; }
+          panel { width: 34; height: 1; background: #ffffff2e; margin: 11 0 18 0; }
+          text { text: "Sin afiliación, autorización ni respaldo de Bethesda Softworks";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+          text { text: "LLC o ZeniMax Media Inc. No se ha utilizado código fuente de";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+          text { text: "Bethesda. No se incluye contenido del juego: debes poseer una";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+          text { text: "copia legítima de cada juego que cargues.";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+        }
+
+        panel { layout: column; align: start; width: 855;
+          text { text: "POLSKI"; font-size: 15; color: #8a96a8; letter-spacing: 6; }
+          panel { width: 34; height: 1; background: #ffffff2e; margin: 11 0 18 0; }
+          text { text: "Bez powiązania, autoryzacji ani poparcia ze strony Bethesda";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+          text { text: "Softworks LLC lub ZeniMax Media Inc. Nie użyto kodu źródłowego";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+          text { text: "Bethesda. Nie dołączono zawartości gry: musisz posiadać legalną";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+          text { text: "kopię każdej uruchamianej gry.";
+                 font-size: 24; color: #c2ccdb; line-height: 1.07; }
+        }
+      }
+    }
+
+    // ===================== dismiss prompt =====================
+    panel { layout: row; align: center; justify: center; gap: 24; margin: 82 0 0 0;
+      text { text: "PRESS ANY KEY TO CONTINUE"; font-size: 16; color: #7c8798; letter-spacing: 6; }
+      panel { border-width: 1; border-color: #ffffff26; corner-radius: 3; padding: 4 11 4 11;
+        text legal_count { text: "5"; font-size: 16; color: #98a3b3; letter-spacing: 2; }
+      }
+    }
+  }

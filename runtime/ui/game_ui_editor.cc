@@ -664,7 +664,7 @@ void GameUi::Impl::ApplyEditorView() {
   // On the active<->inactive edge, hide the gameplay HUD while editing and
   // restore it on exit (the editor has its own reticle and chrome).
   if (editor.active != editor_prev_active) {
-    const bool hud = !editor.active;
+    const bool hud = !editor.active && !UsingVanillaUi();
     SetVisible("topbar", hud);
     SetVisible("crosshair", hud);
     SetVisible("vitals", hud);

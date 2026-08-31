@@ -14,7 +14,7 @@ const char* const kUiFragments[kUiFragmentCount] = {
     "mp_prompt.ugui", "nametag.ugui",    "journal.ugui",    "war_map.ugui",
     "player_map.ugui",
     "dialogue.ugui",  "container.ugui",  "pause_menu.ugui", "main_menu.ugui",
-    "first_run.ugui",
+    "first_run.ugui", "legal.ugui",
 };
 
 // Directory holding the .ugui fragments: RECREATION_UI_DIR, else the compiled-in
@@ -40,6 +40,53 @@ base::String LoadUiFragment(const char* name) {
   std::stringstream ss;
   ss << f.rdbuf();
   return ss.str();
+}
+
+// Loaded once and kept, so the image manifests survive a hot reload of the
+// hand-written fragments.
+base::Vector<ui::VanillaScreen>& VanillaScreens() {
+  static base::Vector<ui::VanillaScreen> screens;
+  static bool loaded = false;
+  if (loaded)
+    return screens;
+  loaded = true;
+  const base::String dir = ui::VanillaScreenDir();
+  for (const base::String& name : ui::VanillaScreenNames()) {
+    ui::VanillaScreen screen;
+    if (ui::LoadVanillaScreen(dir, name, screen))
+      screens.push_back(base::move(screen));
+  }
+  if (!screens.empty())
+    RX_INFO("ui: {} vanilla screen(s) from {}", screens.size(), dir);
+  return screens;
+}
+
+VanillaRole VanillaRoleOf(base::StringRef name) {
+  if (name == "startmenu" || name == "mainmenu")
+    return VanillaRole::kFrontMenu;  // Skyrim's boot menu, Fallout 4's
+  if (name == "quest_journal")
+    return VanillaRole::kPauseMenu;  // its System page is what Esc opens
+  return VanillaRole::kHud;
+}
+
+base::String VanillaRootName(base::StringRef screen) {
+  return "vanilla_" + base::String(screen);
+}
+
+bool UsingVanillaUi() {
+  return !VanillaScreens().empty();
+}
+
+void BindVanillaScreens(ugui::UIContext& context, ugui::TextureBackend& backend) {
+  base::Vector<ui::VanillaScreen>& screens = VanillaScreens();
+  if (screens.empty())
+    return;
+  ui::ReleaseVanillaImages(backend);  // a rebuild re-uploads them all
+  const base::String dir = ui::VanillaScreenDir();
+  u32 bound = 0;
+  for (const ui::VanillaScreen& screen : screens)
+    bound += ui::BindVanillaImages(context, backend, dir, screen);
+  RX_INFO("ui: bound {} vanilla image(s)", bound);
 }
 
 // The scrolling compass: letters only, no rule and no pips. Generated per
@@ -107,6 +154,9 @@ base::String BuildUi() {
   s += LoadUiFragment("pause_menu.ugui");
   s += LoadUiFragment("main_menu.ugui");
   s += LoadUiFragment("first_run.ugui");  // out-of-box wizard, overlays the menu
+  for (const ui::VanillaScreen& screen : VanillaScreens())
+    s += screen.markup;               // translated Scaleform, on top of everything
+  s += LoadUiFragment("legal.ugui");  // the startup notice, over all of it
   s += "}\n";
   return s;
 }

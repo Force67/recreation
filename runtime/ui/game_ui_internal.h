@@ -46,6 +46,9 @@
 #include "render/rhi/vulkan_interop.h"
 #include "runtime/ui/gui_backend.h"
 #include "runtime/ui/ugui_platform.h"
+#include "runtime/ui/vanilla_list.h"
+#include "runtime/ui/vanilla_runtime.h"
+#include "runtime/ui/vanilla_ui.h"
 
 namespace rx {
 
@@ -75,6 +78,22 @@ inline base::Option<bool> UiMenuStats{"ui.menu.stats", false, "RECREATION_UI_MEN
 inline base::Option<float> UiScale{"ui.scale", 1.0f, "RECREATION_UI_SCALE"};
 inline base::Option<bool> MainMenu{"main.menu", false, "RECREATION_MAIN_MENU"};
 inline base::Option<bool> FirstRun{"first.run", false, "RECREATION_FIRST_RUN"};
+// The startup legal notice. On by default and meant to stay that way; RX_LEGAL=0
+// exists so the screenshot harnesses (which capture a frame a second or two in)
+// do not all photograph this card instead of the screen under test.
+inline base::Option<bool> ShowLegal{"legal", true, "RX_LEGAL"};
+// Test hook, matching RX_MENU_AUTOPLAY on the front menu: opens the pause menu
+// this many seconds in, so the journal path can be captured without a keypress.
+inline base::Option<float> PauseAt{"ui.pause_at", 0.0f, "RX_PAUSE_AT"};
+// With RX_PAUSE_AT, walk this many rows down the category list a second later
+// and pick that entry, so a sub-panel can be captured the same way.
+inline base::Option<int> PausePick{"ui.pause_pick", -1, "RX_PAUSE_PICK"};
+constexpr f32 kLegalSeconds = 5.0f;
+// The size legal.ugui is authored against. ugui's design space here is the raw
+// backbuffer, so the notice is scaled to the viewport for the few seconds it is
+// up; left alone, a 1920-wide card shrinks into the middle of a larger screen.
+constexpr f32 kLegalDesignWidth = 1920.0f;
+constexpr f32 kLegalDesignHeight = 1080.0f;
 inline base::Option<const char*> FirstRunStep{"first.run.step", nullptr, "RECREATION_FIRST_RUN_STEP"};
 
 // Scrolling compass geometry. 8 marks per 360deg turn, 3 turns so the strip
@@ -193,8 +212,34 @@ base::String BuildTopbarSection();
 base::String BuildUi();
 base::String LoadUiFragment(const char* name);
 fs::path UiDir();
-constexpr int kUiFragmentCount = 19;
+constexpr int kUiFragmentCount = 20;
 extern const char* const kUiFragments[kUiFragmentCount];
+
+// Screens translated from the games' own Scaleform movies by tools/swfdump
+// (see RX_VANILLA_UI), and the queries the rest of GameUi makes about them.
+// Defined in game_ui_doc.cc beside the rest of the document assembly.
+base::Vector<ui::VanillaScreen>& VanillaScreens();
+
+// Which state of the host's UI a translated screen stands in for. The movies
+// are separate files with no notion of when they are up: the game decides, and
+// so does this. A screen with no role is chrome that belongs to gameplay (the
+// HUD, the cursor, the fader), which is what most of them are.
+enum class VanillaRole : u8 { kHud, kFrontMenu, kPauseMenu };
+
+VanillaRole VanillaRoleOf(base::StringRef name);
+
+// The root panel the exporter emits for a screen. Namespaced, because a movie's
+// stem collides with the host's own fragments (Fallout 4 ships mainmenu.swf).
+base::String VanillaRootName(base::StringRef screen);
+
+// True once any translated Scaleform screen is loaded. Asking for the game's own
+// interface means asking for it instead of recreation's, so the engine's HUD
+// fragments stay hidden rather than drawing a second one over the top.
+bool UsingVanillaUi();
+
+// The vanilla screens reference their art by widget name; the textures have to
+// be re-bound every time the tree is rebuilt.
+void BindVanillaScreens(ugui::UIContext& context, ugui::TextureBackend& backend);
 // Font discovery, in game_ui_doc.cc.
 const char* FindFont();
 const char* FindMonoFont();
@@ -212,6 +257,19 @@ struct GameUi::Impl {
   bool settings_open = false;  // settings sub-view of the pause menu
   bool stats_open = false;     // stats sub-view of the pause menu
   bool quit_requested = false;
+  bool return_to_menu = false;  // pause menu asked to leave the world
+  f32 ui_time = 0;              // seconds since the UI came up, for the test hooks
+
+  // The startup legal notice: a full-bleed card over everything, dismissed by
+  // any input or by its own countdown running out.
+  bool legal_open = false;
+  f32 legal_left = kLegalSeconds;
+  int legal_shown = -1;  // last count written, so the text is not set every frame
+
+  // The screens' own ActionScript, running against the translated widgets. One
+  // per loaded vanilla screen; the movies drive their own menus.
+  base::Vector<ui::VanillaRuntime> vanilla_vms;
+  base::UnorderedMap<base::String, base::String> vanilla_strings;
   SettingsRequest settings_request;  // raised by the settings panel, polled by the engine
   // Rows the stats pane shows at once; the markup authors exactly this many.
   static constexpr size_t kStatsRows = 18;
@@ -465,7 +523,42 @@ struct GameUi::Impl {
   // the matching event to editor_sink. Returns true if it consumed the click.
   bool RouteEditorClick(ugui::wid target);
 
+  // Shows whichever translated screen belongs to the state the UI is in, and
+  // hides the rest. Without this every loaded screen draws at once, which is
+  // fine for a single screenshot and useless for actually playing.
+  void ApplyVanillaVisibility() {
+    for (const ui::VanillaScreen& screen : VanillaScreens()) {
+      bool show = false;
+      switch (VanillaRoleOf(screen.name)) {
+        case VanillaRole::kFrontMenu:
+          show = main_menu_open;
+          break;
+        case VanillaRole::kPauseMenu:
+          show = menu_open;
+          break;
+        case VanillaRole::kHud:
+          show = !main_menu_open && !menu_open;
+          break;
+      }
+      SetVisible(VanillaRootName(screen.name).c_str(), show);
+    }
+  }
+
+  // Whether a translated screen has taken over one of the host's own screens,
+  // so the host's version stays out of the way instead of drawing underneath.
+  bool VanillaCovers(VanillaRole role) const {
+    for (const ui::VanillaScreen& screen : VanillaScreens())
+      if (VanillaRoleOf(screen.name) == role)
+        return true;
+    return false;
+  }
+
   void ApplyMenuVisibility() {
+    if (VanillaCovers(VanillaRole::kPauseMenu)) {
+      SetVisible("menu", false);  // the journal is the pause menu now
+      ApplyVanillaVisibility();
+      return;
+    }
     SetStyleField(
         "menu",
         [](ugui::Style& s, float v) {
@@ -531,14 +624,185 @@ struct GameUi::Impl {
     }
     return false;
   }
+  // The message the game sends a menu when it opens it. Most screens fill
+  // themselves from their own onLoad; the start menu is the one that waits to
+  // be told what the build offers, and the arguments are positional (see
+  // StartMenu::setupMainMenu in the decompiled script beside the screen).
+  void OpenVanillaScreen(ui::VanillaRuntime& runtime, base::StringRef name) {
+    // Every screen is told what it is running on before anything else. A list
+    // that has not been told dims and re-lays itself for a controller, which
+    // leaves most of its rows at zero alpha on a PC.
+    base::Vector<swf::AsValue> platform;
+    platform.push_back(swf::AsValue::Number(0));  // PC
+    platform.push_back(swf::AsValue::Bool(false));
+    runtime.CallRoot(ui, "SetPlatform", platform);
+
+    if (name == "quest_journal") {
+      // What the game sends when the journal is opened with Escape rather than
+      // the journal key: the System page, with the other tabs locked out. That
+      // is the pause menu.
+      base::Vector<swf::AsValue> tab;
+      tab.push_back(swf::AsValue::Number(2));  // Quest_Journal.PAGE_SYSTEM
+      tab.push_back(swf::AsValue::Bool(true));
+      runtime.Send(ui, "RestoreSavedSettings", tab);
+      return;
+    }
+    if (name != "startmenu")
+      return;
+    const bool has_save = false;  // no save browser wired to the vanilla frame yet
+    base::Vector<swf::AsValue> args;
+    for (int i = 0; i < 15; ++i)
+      args.push_back(swf::AsValue::Bool(false));
+    args[0] = swf::AsValue::Bool(true);      // quit is offered
+    args[1] = swf::AsValue::Bool(has_save);  // continue, and load is enabled
+    // The build, which the screen prints as "v <this>" in its corner. Left as
+    // the `false` the loop fills with, that is what it prints.
+    args[2] = swf::AsValue::Str("recreation");
+    args[7] = swf::AsValue::Bool(true);  // mod manager
+    args[9] = swf::AsValue::Bool(true);  // no login screen is needed
+    runtime.Send(ui, "sendMenuProperties", args);
+  }
+
+  // The same conversation for an ActionScript 3 screen. It asks through the
+  // code object the game hands it, one call one answer, rather than through
+  // GameDelegate's two-way registration.
+  static swf::As3Value AnswerVanillaAs3(void* user, swf::Avm2& vm, base::StringRef name,
+                                        const base::Vector<swf::As3Value>& args) {
+    Impl* self = static_cast<Impl*>(user);
+    // What this build offers. Each of these adds a row to the main menu, and
+    // answering nothing at all leaves the menu deciding on `undefined`.
+    if (name == "GetHasSavedGames")
+      return swf::As3Value::Bool(false);
+    if (name == "GetHasInstalledContent")
+      return swf::As3Value::Bool(false);
+    if (name == "GetShowBethesdaNetOption")
+      return swf::As3Value::Bool(false);
+    if (name == "GetShowCreationClubOption")
+      return swf::As3Value::Bool(false);
+    if (name == "GetVersionString")
+      return swf::As3Value::Str("recreation");
+    if (name == "StartNewGame") {
+      if (!self->main_menu_open)
+        return swf::As3Value::Undefined();
+      self->mm_request.kind = MainMenuRequest::Kind::kEnterUniverse;
+      self->mm_request.universe = 1;  // Fallout 4
+      self->mm_request.multiplayer = false;
+      return swf::As3Value::Undefined();
+    }
+    if (name == "QuitToDesktop" || name == "ExitGame") {
+      if (self->menu_open || self->main_menu_open)
+        self->quit_requested = true;
+      return swf::As3Value::Undefined();
+    }
+    (void)vm;
+    (void)args;
+    return swf::As3Value::Undefined();
+  }
+
+  // What the game answers when a screen asks it something. A menu leaves the
+  // blank on screen until the answer arrives, so an unanswered call is a
+  // visible gap: without RequestPlayerInfo the journal's bottom bar keeps
+  // reading "Time, Date, Year".
+  //
+  // This runs from inside the movie's own call, which is the only time an
+  // answer can land (see GameBridge::set_answerer). It is also where a menu's
+  // decisions arrive: a screen does not tell the host which row was picked, it
+  // asks for the thing that row means (StartNewGame, QuitToMainMenu), so acting
+  // on those is the whole of "the menu works" without the host knowing what a
+  // row is. Fire-and-forget calls (sounds, logging, remembering a tab) are left
+  // unhandled on purpose; they collect in GameBridge::pending(), which is the
+  // list of what a screen is still waiting on.
+  //
+  // Each action is guarded on the screen that asks for it being up. A menu says
+  // these to its host as part of its own housekeeping while it starts, and
+  // acting on one then takes the screen down before the player has seen it.
+  static bool AnswerVanillaCall(void* user, swf::GameBridge& bridge,
+                                const swf::GameBridge::Call& call) {
+    Impl* self = static_cast<Impl*>(user);
+    base::Vector<swf::AsValue> answer;
+    if (call.name == "RequestPlayerInfo") {
+      answer.push_back(swf::AsValue::Str(ui::TamrielDate(self->mm_stats.game_days)));
+      answer.push_back(swf::AsValue::Str(base::ToString(self->mm_stats.level)));
+      answer.push_back(swf::AsValue::Number(0));
+    } else if (call.name == "ShouldShowMod") {
+      // No Creation Club and no mod manager here, and answering yes puts a
+      // second CREATIONS row in the list beside the one the page authored.
+      answer.push_back(swf::AsValue::Bool(false));
+    } else if (call.name == "ShouldShowKinectTunerOption") {
+      answer.push_back(swf::AsValue::Bool(false));
+    } else if (call.name == "SetVersionText") {
+      // The odd one out: the movie hands over its own field rather than asking
+      // for a string, so the answer is written straight into it.
+      if (!call.args.empty() && call.args[0].is_object())
+        bridge.vm().SetMember(call.args[0], "text", swf::AsValue::Str("recreation"));
+      return true;
+    } else if (call.name == "StartNewGame") {
+      if (!self->main_menu_open)
+        return false;
+      self->mm_request.kind = MainMenuRequest::Kind::kEnterUniverse;
+      self->mm_request.universe = 0;  // Skyrim
+      self->mm_request.multiplayer = false;
+      return true;
+    } else if (call.name == "QuitToDesktop" || call.name == "ExitGame") {
+      if (!self->menu_open && !self->main_menu_open)
+        return false;
+      self->quit_requested = true;
+      return true;
+    } else if (call.name == "QuitToMainMenu") {
+      if (!self->menu_open)
+        return false;
+      self->return_to_menu = true;
+      self->menu_open = false;
+      self->ApplyMenuVisibility();
+      return true;
+    } else if (call.name == "CloseMenu") {
+      // Only when there is a menu to close. A journal says this to its host as
+      // part of its own housekeeping while it starts up, and acting on that
+      // takes the screen down before the player has seen it.
+      if (!self->menu_open)
+        return false;
+      self->menu_open = false;
+      self->ApplyMenuVisibility();
+      return true;
+    } else {
+      return false;
+    }
+    return bridge.Respond(call.id, answer);
+  }
+
+  void StartVanillaVms() {
+    vanilla_vms.clear();
+    if (!ui::VanillaRuntime::Enabled())
+      return;
+    const base::String dir = ui::VanillaScreenDir();
+    for (const ui::VanillaScreen& screen : VanillaScreens()) {
+      ui::VanillaRuntime runtime;
+      runtime.SetStrings(&vanilla_strings);
+      runtime.SetAnswerer(&Impl::AnswerVanillaCall, this);
+      runtime.SetAs3Answerer(&Impl::AnswerVanillaAs3, this);
+      if (!runtime.Load(ui, dir, screen.name, VanillaRootName(screen.name)))
+        continue;
+      OpenVanillaScreen(runtime, screen.name);
+      vanilla_vms.push_back(base::move(runtime));
+    }
+  }
+
   // Reassemble the tree from the (edited) fragments and reapply the live
   // visibility state the rebuild reset to markup defaults. Per-frame value
   // updates (HUD text, editor view, main-menu data) refresh the rest next frame.
   void ReloadUi() {
     const base::String doc = BuildUi();
     ui.LoadUiString(doc.c_str(), "hud");
+    BindVanillaScreens(ui, backend);
     CaptureFragmentMtimes();
-    const bool hud = !editor.active;
+    // The tree came back from markup, so the vanilla menus are placeholder
+    // frames again and the legal notice is visible again (its markup has no
+    // `visibility`, and ugui ignores that property anyway). The screens have to
+    // run over the new tree, and the notice has to go back to whatever state it
+    // was actually in.
+    StartVanillaVms();
+    SetVisible("legal", legal_open);
+    const bool hud = !editor.active && !UsingVanillaUi();
     SetVisible("topbar", hud);
     SetVisible("crosshair", hud);
     SetVisible("vitals", hud);

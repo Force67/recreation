@@ -30,10 +30,28 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   cfg.external_window = &impl_->host;
   cfg.width = static_cast<int>(window.width());
   cfg.height = static_cast<int>(window.height());
-  // A design resolution below the real one makes ugui scale every px dimension
-  // by real/design, so scale N means asking for a viewport N times smaller than
-  // we actually have.
-  if (UiScale.get() > 1.001f) {
+  // A translated Scaleform screen is authored against the movie's own stage
+  // (1280x720 for every Skyrim menu), and Scaleform scales that stage to the
+  // viewport. ugui's equivalent is a design size with a contain fit; without it
+  // the screen sits at its authored size in a corner. The vanilla screens stand
+  // in for the engine's own interface, so switching the whole context is right,
+  // and the host's own px scale no longer has anything to scale.
+  const ui::VanillaScreen* stage = nullptr;
+  if (!VanillaScreens().empty()) {
+    const ui::VanillaScreen& first = VanillaScreens()[0];
+    if (first.stage_width > 0 && first.stage_height > 0)
+      stage = &first;
+  }
+  if (stage != nullptr) {
+    cfg.scale_mode = ugui::ViewportScaleMode::kContain;
+    cfg.design_width = stage->stage_width;
+    cfg.design_height = stage->stage_height;
+    RX_INFO("ui: vanilla stage {}x{}, scaled to the viewport",
+            static_cast<int>(stage->stage_width), static_cast<int>(stage->stage_height));
+  } else if (UiScale.get() > 1.001f) {
+    // A design resolution below the real one makes ugui scale every px dimension
+    // by real/design, so scale N means asking for a viewport N times smaller than
+    // we actually have.
     cfg.scale_mode = ugui::ViewportScaleMode::kHeight;
     cfg.design_width = static_cast<float>(window.width()) / UiScale.get();
     cfg.design_height = static_cast<float>(window.height()) / UiScale.get();
@@ -87,8 +105,31 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   }
   impl_->ui.set_texture_backend(&impl_->backend);
 
+  // The screens name the game's own typeface, so those fonts have to be
+  // registered before the tree that asks for them is built.
+  if (UsingVanillaUi()) {
+    const u32 fonts = ui::LoadVanillaFonts(impl_->ui, ui::VanillaScreenDir(), VanillaScreens());
+    if (fonts != 0)
+      RX_INFO("ui: {} vanilla font(s)", fonts);
+  }
+
   base::String doc = BuildUi();
   impl_->ui.LoadUiString(doc.c_str(), "hud");
+  BindVanillaScreens(impl_->ui, impl_->backend);
+
+  // The shipped menus are empty frames; the game fills them on open, and so
+  // does this. See runtime/ui/vanilla_runtime, which runs the movie's own code.
+  if (UsingVanillaUi())
+    impl_->vanilla_strings = ui::LoadVanillaStrings(ui::VanillaScreenDir());
+  impl_->StartVanillaVms();
+  if (UsingVanillaUi()) {
+    for (const char* fragment : {"topbar", "crosshair", "vitals", "readout", "questtracker"})
+      impl_->SetVisible(fragment, false);
+  }
+  // The legal notice comes up over everything and is the first thing seen.
+  impl_->legal_open = bool(ShowLegal);
+  impl_->SetVisible("legal", impl_->legal_open);
+
   // Hot reload: when enabled, the .ugui fragments are polled for edits and the
   // tree is rebuilt in place (see GameUi::Build). Off by default.
   impl_->hot_reload = bool(UiHotReload);
@@ -100,6 +141,10 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   impl_->ui.input().set_on_click([impl](ugui::wid w, ugui::MouseButton btn) {
     if (btn != ugui::MouseButton::kLeft)
       return;
+    for (ui::VanillaRuntime& runtime : impl->vanilla_vms) {
+      if (runtime.Click(impl->ui, w.index))
+        return;  // the movie's own code took this click
+    }
     if (impl->RouteFirstRunClick(w))
       return;  // the setup wizard owns this click
     if (impl->RouteMainMenuClick(w))
@@ -196,10 +241,20 @@ void GameUi::Shutdown() {
 void GameUi::ToggleMenu() {
   if (!impl_->initialized)
     return;
+  // Esc opens and closes the menu. Walking back out of a sub-panel is the
+  // movie's own job, but its `handleInput` reports every key as handled, so
+  // routing Esc through it would mean the menu could never be closed at all.
   impl_->menu_open = !impl_->menu_open;
   impl_->settings_open = false;  // always reopen on the main pause screen
   impl_->stats_open = false;
   impl_->ApplyMenuVisibility();
+}
+
+bool GameUi::PollReturnToMenu() {
+  if (!impl_->initialized || !impl_->return_to_menu)
+    return false;
+  impl_->return_to_menu = false;
+  return true;
 }
 
 bool GameUi::menu_open() const {
@@ -229,6 +284,13 @@ bool GameUi::main_menu_open() const {
 }
 
 void GameUi::MainMenuMove(int dx, int dy) {
+  if (impl_->initialized && impl_->main_menu_open && !impl_->vanilla_vms.empty()) {
+    if (dy != 0) {
+      for (ui::VanillaRuntime& runtime : impl_->vanilla_vms)
+        runtime.Navigate(impl_->ui, dy < 0 ? "up" : "down");
+    }
+    return;
+  }
   if (!impl_->initialized || !impl_->main_menu_open || impl_->mm_screen != 0)
     return;
   const int count = static_cast<int>(impl_->mm_entries.size());
@@ -242,7 +304,16 @@ void GameUi::MainMenuMove(int dx, int dy) {
 }
 
 void GameUi::MainMenuActivate() {
-  if (!impl_->initialized || !impl_->main_menu_open || impl_->mm_screen != 0)
+  if (!impl_->initialized || !impl_->main_menu_open)
+    return;
+  if (!impl_->vanilla_vms.empty()) {
+    // The translated boot menu is the front screen; activating a row is the
+    // movie asking the host for what that row means.
+    for (ui::VanillaRuntime& runtime : impl_->vanilla_vms)
+      runtime.Navigate(impl_->ui, "enter");
+    return;
+  }
+  if (impl_->mm_screen != 0)
     return;
   impl_->LaunchFocusedEntry();
 }
@@ -318,8 +389,12 @@ void GameUi::SetMainMenuGlyph(const base::String& widget, u64 texture) {
 }
 
 void GameUi::SetMainMenuStats(const MainMenuStats& stats) {
-  if (impl_->initialized)
-    impl_->mm_stats = stats;
+  if (!impl_->initialized)
+    return;
+  // The journal's bottom bar is the game's RequestPlayerInfo answer; recreation
+  // has the clock, so the date is real. There is no XP source yet, so the level
+  // meter sits where the engine leaves it.
+  impl_->mm_stats = stats;
 }
 
 void GameUi::SetMainMenuMods(const base::Vector<base::String>& mods) {
@@ -608,6 +683,62 @@ void GameUi::Build(Window& window,
   // from window space into the (possibly larger) backbuffer canvas so clicks
   // line up with the widgets.
   const InputState& in = window.input();
+  impl->ui_time += frame_delta;
+  for (ui::VanillaRuntime& runtime : impl->vanilla_vms) {
+    runtime.Tick(impl->ui, frame_delta);
+  }
+  if (const float at = PauseAt.get(); at > 0.0f) {
+    const auto crossed = [&](float t) {
+      return impl->ui_time >= t && impl->ui_time - frame_delta < t;
+    };
+    if (crossed(at))
+      ToggleMenu();
+    if (const int pick = PausePick.get(); pick >= 0 && crossed(at + 1.0f)) {
+      for (ui::VanillaRuntime& runtime : impl->vanilla_vms) {
+        for (int i = 0; i < pick; ++i)
+          runtime.Navigate(impl->ui, "down");
+        runtime.Navigate(impl->ui, "enter");
+      }
+    }
+    // A second beat picks the first entry of whatever sub-panel that opened,
+    // which is how the quit list's "Main Menu" gets exercised.
+    if (PausePick.get() >= 0 && crossed(at + 2.0f)) {
+      for (ui::VanillaRuntime& runtime : impl->vanilla_vms)
+        runtime.Navigate(impl->ui, "enter");
+    }
+  }
+
+  // The legal notice: counts itself down, and any key, pad button or click takes
+  // it away early. It swallows that input so the press does not also land on
+  // whatever it is covering: the guards below read the state the frame STARTED
+  // in, because the dismissing press is still set in `in.pressed` after this
+  // clears the flag, and would otherwise activate a row of the menu underneath.
+  const bool legal_was_open = impl->legal_open;
+  if (impl->legal_open) {
+    impl->ui.set_ui_scale(base::Min(impl->host.window_width / kLegalDesignWidth,
+                                    impl->host.window_height / kLegalDesignHeight));
+    impl->legal_left -= frame_delta;
+    const int remaining = static_cast<int>(std::ceil(base::Max(0.0f, impl->legal_left)));
+    if (remaining != impl->legal_shown) {
+      impl->legal_shown = remaining;
+      ugui::SetText(impl->ui.FindWidget("legal_count"), base::ToString(remaining).c_str());
+    }
+    bool dismiss = impl->legal_left <= 0.0f;
+    for (int k = 0; !dismiss && k < static_cast<int>(Key::kCount); ++k)
+      dismiss = in.pressed[k];
+    for (int b = 0; !dismiss && b < static_cast<int>(MouseButton::kCount); ++b)
+      dismiss = in.mouse[b] && !impl->prev_mouse[b];
+    if (!dismiss && window.gamepad().connected) {
+      for (int b = 0; !dismiss && b < static_cast<int>(GamepadButton::kCount); ++b)
+        dismiss = window.gamepad().pressed[b];
+    }
+    if (dismiss) {
+      impl->legal_open = false;
+      impl->SetVisible("legal", false);
+      impl->ui.set_ui_scale(0.0f);  // back to whatever the config asks for
+      RX_INFO("ui: legal notice dismissed");
+    }
+  }
   ugui::InputQueue& q = impl->ui.platform()->input_queue();
   const float msx = window.width() > 0 ? fb_w / static_cast<float>(window.width()) : 1.f;
   const float msy = window.height() > 0 ? fb_h / static_cast<float>(window.height()) : 1.f;
@@ -647,6 +778,7 @@ void GameUi::Build(Window& window,
   // tab-index'd widgets (pause / settings) are navigable by pad and keyboard.
   // ugui drives nav/activation internally from these queued events.
   const GamepadState& pad = window.gamepad();
+  bool pad_pressed[static_cast<int>(GamepadButton::kCount)] = {};
   if (pad.connected) {
     // Map our buttons to ugui's (the enums differ in order); skip unmapped ones.
     static constexpr int kNoUgui = -1;
@@ -691,6 +823,7 @@ void GameUi::Build(Window& window,
       if (down == impl->prev_pad[b])
         continue;
       impl->prev_pad[b] = down;
+      pad_pressed[b] = down;
       int u = to_ugui(static_cast<GamepadButton>(b));
       if (u != kNoUgui)
         q.PushGamepadButton(static_cast<ugui::GamepadButton>(u), down);
@@ -701,10 +834,38 @@ void GameUi::Build(Window& window,
   }
   // Keyboard focus nav: Tab cycles, Enter/Space activate (ugui uses GLFW codes).
   const int shift_mod = in.key(Key::kLeftShift) ? 0x0001 : 0;
-  if (in.key_pressed(Key::kTab))
-    q.PushKey(258, 0, true, false, shift_mod);
-  if (in.key_pressed(Key::kReturn))
-    q.PushKey(257, 0, true, false, 0);
+  if (!legal_was_open) {
+    if (in.key_pressed(Key::kTab))
+      q.PushKey(258, 0, true, false, shift_mod);
+    if (in.key_pressed(Key::kReturn))
+      q.PushKey(257, 0, true, false, 0);
+  }
+
+  // The vanilla menus are lists the game drives itself rather than focus rings,
+  // so they take up/down and activate directly instead of going through ugui's
+  // navigation. Their rows are all one widget deep and carry no focus index.
+  // The interpreter path takes navigation through the movies' own components,
+  // which reaches whichever screen is up without the host knowing which.
+  if (!legal_was_open && ui::VanillaRuntime::Enabled()) {
+    const char* navigation = nullptr;
+    if (in.key_pressed(Key::kArrowUp) || pad_pressed[static_cast<int>(GamepadButton::kDpadUp)])
+      navigation = "up";
+    else if (in.key_pressed(Key::kArrowDown) ||
+             pad_pressed[static_cast<int>(GamepadButton::kDpadDown)])
+      navigation = "down";
+    else if (in.key_pressed(Key::kReturn) || pad_pressed[static_cast<int>(GamepadButton::kSouth)])
+      navigation = "enter";
+    if (navigation != nullptr) {
+      for (ui::VanillaRuntime& runtime : impl->vanilla_vms)
+        runtime.Navigate(impl->ui, navigation);
+      // "Press any button to start": a Fallout 4 screen waits on its splash
+      // until the game moves it on, which is the game's decision and not one
+      // the movie makes for itself. Any of the keys above is that button.
+      const base::Vector<swf::As3Value> none;
+      for (ui::VanillaRuntime& runtime : impl->vanilla_vms)
+        runtime.CallAs3(impl->ui, "ReturnToMainState", none);
+    }
+  }
 
   // --- Drive HUD values from real engine state ---
   // Compass heading from the camera's facing direction.
@@ -881,8 +1042,11 @@ void GameUi::Build(Window& window,
   }
 
   // --- Quest HUD ---
+  // The only HUD fragment driven every frame rather than on an edge, so it is
+  // also the only one that needs the vanilla gate here: hiding it once at
+  // startup would not survive the next quest update.
   const bool has_quest = !impl->quest.title.empty();
-  impl->SetVisible("questtracker", has_quest);
+  impl->SetVisible("questtracker", has_quest && !UsingVanillaUi());
   if (has_quest)
     impl->SetText("quest_title", impl->quest.title.c_str());
   for (int i = 0; i < kQuestObjectiveRows; ++i) {
@@ -1146,6 +1310,9 @@ u64 GameUi::CreateUiTexture(int, int, const u8*) {
   return 0;
 }
 void GameUi::ToggleMenu() {}
+bool GameUi::PollReturnToMenu() {
+  return false;
+}
 bool GameUi::menu_open() const {
   return false;
 }

@@ -622,6 +622,7 @@ void Engine::RefreshMenuData() {
   stats.machine = identity.second;
   stats.build = RECREATION_VERSION;
   stats.player_name = (handle.empty() || handle == "player") ? stats.account : handle;
+  stats.game_days = clock_ ? clock_->game_days() : 0.0;
   stats.net_status = "Offline";
 
   // The live character, once a universe is up. Read out of the bindings, which

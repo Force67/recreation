@@ -182,7 +182,7 @@ void GameUi::Impl::ApplyCharGenView() {
   // On the active<->inactive edge, hide the gameplay HUD while creating a
   // character and restore it on exit (the overlay owns the whole screen).
   if (chargen.active != chargen_prev_active) {
-    const bool hud = !chargen.active;
+    const bool hud = !chargen.active && !UsingVanillaUi();
     SetVisible("topbar", hud);
     SetVisible("crosshair", hud);
     SetVisible("vitals", hud);
@@ -277,7 +277,10 @@ void GameUi::Impl::RebuildDerivedEntries() {
 }
 
 void GameUi::Impl::ApplyMainMenu() {
-  SetVisible("mainmenu", main_menu_open);
+  // A translated boot menu replaces the host's front screen rather than sitting
+  // on top of it; the two would otherwise both take the same clicks.
+  SetVisible("mainmenu", main_menu_open && !VanillaCovers(VanillaRole::kFrontMenu));
+  ApplyVanillaVisibility();
   if (!main_menu_open) {
     mm_prev_open = false;
     return;
