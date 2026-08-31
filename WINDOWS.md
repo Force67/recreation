@@ -13,14 +13,23 @@ against the host GPU.
 
 ```sh
 scripts/build-windows.sh              # configure + build
+scripts/build-windows.sh test         # ctest, every test a Windows PE under wine
 scripts/build-windows.sh package      # assemble dist/win, a runnable tree
 scripts/build-windows.sh run --menu   # build, then launch under wine
 ```
 
 The shader and code generators (dxc, slangc, nanoc) stay host Linux binaries and
-come from the nix dev shell, exactly as the native build gets them. Build width
-is derived from free memory rather than core count: clang peaks around 1.5 GB on
-the heavier translation units and this box has no swap.
+come from the nix dev shell, exactly as the native build gets them. rxpack is
+the exception that needs saying: it packs the `.rxp` archives *during* the
+build, so it has to be a host binary — the script configures a small native rx
+tree to produce one and passes it as `RX_RXPACK`. Build width is derived from
+free memory rather than core count: clang peaks around 1.5 GB on the heavier
+translation units and this box has no swap.
+
+`test` sets `CMAKE_CROSSCOMPILING_EMULATOR`, so ctest runs the actual Windows
+executables through wine and the regression suite covers the port rather than
+only the Linux build. USD scene loading is off here: tinyusdz builds itself with
+`-fno-exceptions` and then throws on its own Windows path.
 
 ## What ends up beside the executable
 
@@ -58,6 +67,18 @@ Game data takes a Windows path, and wine maps `/` to `Z:`:
 
 ```sh
 ./recreation.exe --data-dir 'Z:\path\to\Skyrim Special Edition\Data'
+```
+
+## C# scripting
+
+The managed layer needs a .NET runtime the CLR host can load through hostfxr.
+`winer/scripts/66-dotnet-core.sh` unzips one into the prefix and points
+`DOTNET_ROOT` at it; the assemblies themselves are portable IL, built on the
+host by the `managed_build` test fixture and copied into `dist/win/managed` by
+`package`. Then:
+
+```sh
+RECREATION_SCRIPTING_DIR=managed ./recreation.exe --menu
 ```
 
 ## Backends
