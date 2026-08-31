@@ -112,13 +112,18 @@ function(recreation_embed_shaders target)
   add_dependencies(${target} ${target}_shaders)
   target_include_directories(${target} PRIVATE ${CMAKE_BINARY_DIR}/generated)
 
-  # Pack the staged blobs into shaders.rxp with the rxpack tool (an rx target
-  # brought in via add_subdirectory). The archive rebuilds whenever any staged
-  # blob changes; the game mounts it under the shaders:// scheme at startup.
+  # Pack the staged blobs into shaders.rxp with rxpack (rx sets RX_RXPACK_COMMAND
+  # to the one it builds, or to a host-built one on a cross build). The archive
+  # rebuilds whenever any staged blob changes; the game mounts it under the
+  # shaders:// scheme at startup.
+  if(NOT RX_RXPACK_COMMAND)
+    message(WARNING "no rxpack: ${target} shaders will not be packed into shaders.rxp")
+    return()
+  endif()
   set(pack_archive ${CMAKE_BINARY_DIR}/shaders.rxp)
   add_custom_command(OUTPUT ${pack_archive}
-    COMMAND $<TARGET_FILE:rxpack> create ${pack_archive} ${pack_dir}
-    DEPENDS ${pack_staged} rxpack
+    COMMAND ${RX_RXPACK_COMMAND} create ${pack_archive} ${pack_dir}
+    DEPENDS ${pack_staged} ${RX_RXPACK_DEPENDS}
     COMMENT "pack ${target} shaders -> shaders.rxp")
   add_custom_target(${target}_shader_pack DEPENDS ${pack_archive})
   add_dependencies(${target} ${target}_shader_pack)
