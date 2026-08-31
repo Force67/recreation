@@ -1,36 +1,11 @@
-// Bottom-left vitals bars (health / magicka / stamina). The *_fill widths are
-// driven each frame from engine state.
+// Vitals, top-left. The engine drives each fill's width every frame.
+//
+// All three fills are white; they are told apart by bar length and stack order
+// (health 420, stamina 360, magicka 320). Hue is reserved for the domain accent.
 
   panel vitals {
-    position: absolute; left: 30; bottom: 30; layout: column; gap: 9;
-    panel bar_health_track {
-      width: 280; height: 13; overflow: hidden;
-      background: #0c0e16cc; corner-radius: 7;
-      border-color: #00000077; border-width: 1;
-      shadow-color: #00000066; shadow-blur: 12; shadow-y: 3;
-      panel bar_health_fill {
-        width: 100%; height: 100%; corner-radius: 7;
-        background: #b23a3a; background-end: #e8645d;
-      }
-    }
-    panel bar_magicka_track {
-      width: 280; height: 13; overflow: hidden;
-      background: #0c0e16cc; corner-radius: 7;
-      border-color: #00000077; border-width: 1;
-      shadow-color: #00000066; shadow-blur: 12; shadow-y: 3;
-      panel bar_magicka_fill {
-        width: 100%; height: 100%; corner-radius: 7;
-        background: #3a63b2; background-end: #5d92e8;
-      }
-    }
-    panel bar_stamina_track {
-      width: 280; height: 13; overflow: hidden;
-      background: #0c0e16cc; corner-radius: 7;
-      border-color: #00000077; border-width: 1;
-      shadow-color: #00000066; shadow-blur: 12; shadow-y: 3;
-      panel bar_stamina_fill {
-        width: 100%; height: 100%; corner-radius: 7;
-        background: #3aa05a; background-end: #5de88a;
-      }
-    }
+    position: absolute; left: 52; top: 48; layout: column; gap: 7;
+    ui_meter bar_health  { width: 420; w: 100%; }
+    ui_meter bar_magicka { width: 320; w: 100%; }
+    ui_meter bar_stamina { width: 360; w: 100%; }
   }

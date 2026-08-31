@@ -18,6 +18,7 @@
 #include "components/bethesda/script_attachment.h"
 #include "components/bethesda/strings.h"
 #include "components/quest/quest_graph.h"
+#include "core/input.h"
 #include "core/types.h"
 #include "core/world_clock.h"
 
@@ -29,6 +30,7 @@ class AudioSystem;
 #include "components/quest/scene_player.h"
 #include "components/script/games/skyrim/skyrim_natives.h"
 #include "components/script/host/bridge.h"
+#include "components/script/vehicle_drive_sink.h"
 #include "components/script/world_effect_sink.h"
 
 namespace rx::script::papyrus {
@@ -82,6 +84,9 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // Sink for quest-driven world mutations (spawn/move/enable/delete + cleanup).
   // Set by the runtime; when null, those bindings only update logical state.
   void set_world_sink(WorldEffectSink* sink) { world_sink_ = sink; }
+  // Sink for script commands that steer the ridden cart (the cart racing kit).
+  // Set by the runtime; when null, the Vehicle.Drive native is a no-op.
+  void set_vehicle_sink(script::VehicleDriveSink* sink) { vehicle_sink_ = sink; }
 
   // Routes an engine-triggered stage fragment onto a fiber so a latent Wait inside
   // it suspends instead of returning at once. Set by the runtime to the guest's
@@ -116,6 +121,22 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // from frame-to-frame displacement. Called on the main thread; shares the
   // snapshot mutex, read by Actor.IsRunning on the guest thread.
   void UpdateMovingActors(const base::Vector<u64>& running);
+
+  // Refreshes the held-key snapshot the Input.Held native reads. Called by the
+  // runtime each frame on the main thread; shares a mutex with the guest read.
+  void UpdateInputSnapshot(const base::Array<u8, static_cast<size_t>(Key::kCount)>& held);
+
+    // Refreshes the ridden-cart snapshot the Vehicle natives read: forward speed
+  // (m/s) and whether the player is riding. Called by the runtime each frame on
+  // the main thread; shares a mutex with the guest read.
+  void UpdateVehicleSnapshot(f32 speed, bool riding);
+
+  // SkyrimBindings overrides for the cart racing kit.
+  void DriveCart(f32 steer, f32 throttle) override;
+  void MoveCart(f32 x, f32 y, f32 z) override;
+  f32 CartSpeed() override;
+  bool IsRiding() override;
+  bool InputHeld(i32 key) override;
 
   // Replica mode (a multiplayer client): the server is authoritative for quests
   // and quest-driven world state, so the client's own scripts must not mutate
@@ -250,12 +271,17 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   i32 GetFormType(papyrus::ObjectRef form) override;
   bool RefIsType(papyrus::ObjectRef ref, const base::String& type_name) override;
   base::String GetName(papyrus::ObjectRef form) override;
+  void SetName(papyrus::ObjectRef form, const base::String& name) override;
   bool HasKeyword(papyrus::ObjectRef form, papyrus::ObjectRef keyword) override;
   i32 GetKeywordCount(papyrus::ObjectRef form) override;
   papyrus::ObjectRef GetNthKeyword(i32 index) override;
   papyrus::ObjectRef GetHarvestIngredient(papyrus::ObjectRef flora) override;
   papyrus::ObjectRef GetBookSpell(papyrus::ObjectRef book) override;
   base::String GetBookSkill(papyrus::ObjectRef book) override;
+  void SetBookFlags(papyrus::ObjectRef book, i32 flags) override;
+  bool IsBookRead(papyrus::ObjectRef book) override;
+  void SetKnownIngredientEffects(papyrus::ObjectRef ingredient, i32 effects) override;
+  i32 GetKnownIngredientEffects(papyrus::ObjectRef ingredient) override;
   f32 GetWeight(papyrus::ObjectRef form) override;
   i32 GetGoldValue(papyrus::ObjectRef form) override;
   i32 GetWeaponDamage(papyrus::ObjectRef weapon) override;
@@ -291,6 +317,10 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   papyrus::ObjectRef GetNthLeveledForm(i32 index) override;
   i32 GetNthLeveledLevel(i32 index) override;
   i32 GetNthLeveledCount(i32 index) override;
+  void AddLeveledListEntry(papyrus::ObjectRef list,
+                           papyrus::ObjectRef form,
+                           i32 level,
+                           i32 count) override;
   i32 GetFormListSize(papyrus::ObjectRef list) override;
   papyrus::ObjectRef GetNthListForm(i32 index) override;
   i32 PlaySound(papyrus::ObjectRef sound, papyrus::ObjectRef source) override;
@@ -354,6 +384,11 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   i32 GetCrimeGold(papyrus::ObjectRef faction) override;
   void SetCrimeGold(papyrus::ObjectRef faction, i32 gold) override;
   void ModCrimeGold(papyrus::ObjectRef faction, i32 delta) override;
+  // Crimes the faction has seen the player commit, violent and not. Unlike the
+  // bounty this is never paid off, so it is stored rather than derived.
+  void SetInfamy(papyrus::ObjectRef faction, i32 violent, i32 non_violent) override;
+  i32 GetInfamyViolent(papyrus::ObjectRef faction) override;
+  i32 GetInfamyNonViolent(papyrus::ObjectRef faction) override;
 
   // Player controls (new system).
   void SetPlayerControl(i32 category, bool enabled) override;
@@ -377,6 +412,10 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   void ModActorValue(papyrus::ObjectRef actor, const base::String& av, f32 delta) override;
   void RestoreActorValue(papyrus::ObjectRef actor, const base::String& av, f32 amount) override;
   bool IsDead(papyrus::ObjectRef actor) override;
+  // The actor's level: an override the savegame set, else the level its NPC_
+  // record authors, with a level-mult actor scaled against the player's own.
+  i32 GetLevel(papyrus::ObjectRef actor) override;
+  void SetLevel(papyrus::ObjectRef actor, i32 level);
   void Resurrect(papyrus::ObjectRef actor) override;
   bool IsInCombat(papyrus::ObjectRef actor) override;
   void SetRelationshipRank(papyrus::ObjectRef a, papyrus::ObjectRef b, i32 rank) override;
@@ -403,6 +442,20 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // quest system + records). Returns raw unchanged when it carries no token.
   base::String ResolveQuestText(u64 quest, const base::String& raw);
 
+  // Fills a container's inventory from the contents its base record authors
+  // (the CNTO list on the CONT or NPC_ behind the reference), unless it already
+  // holds something. Silent, and idempotent: a save's item deltas are relative
+  // to these, so they have to be in place before the save is applied, and
+  // applying two saves in a row must not double them.
+  void SeedAuthoredInventory(papyrus::ObjectRef container);
+  // Gives the container a live, empty inventory: the state a chest is in once
+  // the player has cleared it out. Distinct from having no entry at all, which
+  // means "never touched, use the record's authored contents".
+  void MarkInventoryEmptied(papyrus::ObjectRef container);
+  // Sets a stack outright, without the add/remove events: restoring a save is
+  // not a pickup, and there is nobody listening yet when it runs.
+  void SetItemCount(papyrus::ObjectRef container, papyrus::ObjectRef item, i32 count);
+
   // Inventory (new system).
   i32 GetItemCount(papyrus::ObjectRef container, papyrus::ObjectRef item) override;
   void AddItem(papyrus::ObjectRef container, papyrus::ObjectRef item, i32 count) override;
@@ -413,6 +466,41 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   void EquipItem(papyrus::ObjectRef actor, papyrus::ObjectRef item) override;
   void UnequipItem(papyrus::ObjectRef actor, papyrus::ObjectRef item) override;
   bool IsEquipped(papyrus::ObjectRef actor, papyrus::ObjectRef item) override;
+  // Every base form the actor has equipped, in no particular order. What the
+  // renderer needs to dress a body: IsEquipped can only answer about a form the
+  // caller already knows to ask about.
+  void EquippedForms(papyrus::ObjectRef actor, base::Vector<bethesda::GlobalFormId>& out) const;
+  // Perks: what the actor holds, at what rank. A savegame's perk arrays and the
+  // Actor.AddPerk native land in the same store, so a script asking HasPerk sees
+  // the ones a loaded save gave the player.
+  void AddPerk(papyrus::ObjectRef actor, papyrus::ObjectRef perk, i32 rank) override;
+  void RemovePerk(papyrus::ObjectRef actor, papyrus::ObjectRef perk) override;
+  bool HasPerk(papyrus::ObjectRef actor, papyrus::ObjectRef perk) override;
+  i32 GetPerkCount(papyrus::ObjectRef actor) override;
+  // Spells, shouts and words of power, on the same footing as the perks above:
+  // one store per actor that both a loaded save and the Papyrus natives write,
+  // so HasSpell answers for the spell book the save restored.
+  void AddSpell(papyrus::ObjectRef actor, papyrus::ObjectRef spell) override;
+  void RemoveSpell(papyrus::ObjectRef actor, papyrus::ObjectRef spell) override;
+  bool HasSpell(papyrus::ObjectRef actor, papyrus::ObjectRef spell) override;
+  i32 GetSpellCount(papyrus::ObjectRef actor) override;
+  void AddShout(papyrus::ObjectRef actor, papyrus::ObjectRef shout) override;
+  void RemoveShout(papyrus::ObjectRef actor, papyrus::ObjectRef shout) override;
+  bool HasShout(papyrus::ObjectRef actor, papyrus::ObjectRef shout) override;
+  i32 GetShoutCount(papyrus::ObjectRef actor) override;
+  void TeachWord(papyrus::ObjectRef word) override;
+  void UnlockWord(papyrus::ObjectRef word) override;
+  bool IsWordTaught(papyrus::ObjectRef word) override;
+  bool IsWordUnlocked(papyrus::ObjectRef word) override;
+  i32 GetKnownWordCount() override;
+  void AddMagicFavourite(papyrus::ObjectRef form, i32 hotkey) override;
+  i32 GetMagicFavouriteCount() override;
+  papyrus::ObjectRef GetNthMagicFavourite(i32 index) override;
+  i32 GetNthMagicFavouriteHotkey(i32 index) override;
+  void SetLastUsedMagic(papyrus::ObjectRef weapon,
+                        papyrus::ObjectRef spell,
+                        papyrus::ObjectRef shout) override;
+  papyrus::ObjectRef GetEquippedShout(papyrus::ObjectRef actor) override;
   // The equipped weapon / shield form (None if none), backing GetEquippedWeapon /
   // GetEquippedShield. Scans equipped_ and classifies by record signature: a WEAP
   // is the weapon; an ARMO whose biped template occupies the shield slot (39) is
@@ -420,6 +508,11 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   papyrus::ObjectRef GetEquippedWeapon(papyrus::ObjectRef actor) override;
   papyrus::ObjectRef GetEquippedShield(papyrus::ObjectRef actor) override;
   i32 GetNumItems(papyrus::ObjectRef container) override;
+  // Whether this container has live inventory state at all, as opposed to
+  // merely holding nothing. A chest the player emptied and an untouched chest
+  // both report zero items, but only the first should stop the UI falling back
+  // to the record's authored CNTO list and refilling it.
+  bool HasLiveInventory(papyrus::ObjectRef container) const;
   papyrus::ObjectRef GetNthForm(papyrus::ObjectRef container, i32 index) override;
   papyrus::ObjectRef GetLinkedRef(papyrus::ObjectRef ref, papyrus::ObjectRef keyword) override;
   papyrus::ObjectRef GetParentCell(papyrus::ObjectRef ref) override;
@@ -498,6 +591,8 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
     i32 flags = 0;
     base::Vector<LeveledEntry> entries;
   };
+  // A book's DATA flags, runtime override first, the record's otherwise.
+  u8 BookFlags(papyrus::ObjectRef book, const bethesda::Record& rec) const;
   bethesda::GlobalFormId ToFormId(papyrus::ObjectRef ref) const;
   // Reads a 4-byte form-id subrecord off `from`'s record and resolves it
   // against the load order. Used for record fields that point at another form.
@@ -517,9 +612,28 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   papyrus::ObjectRef player_;
   base::UnorderedMap<u64, base::UnorderedMap<base::String, ActorValue>> actor_values_;
   base::UnorderedMap<u64, base::UnorderedMap<u64, i32>> inventory_;
-  base::UnorderedMap<u64, base::UnorderedSet<u64>> equipped_;  // actor -> equipped item forms
-  base::UnorderedMap<u64, base::Array<f32, 3>> positions_;     // SetPosition/MoveTo overrides
-  base::UnorderedMap<u64, f32> scales_;                        // SetScale overrides (default 1.0)
+  base::UnorderedMap<u64, base::UnorderedSet<u64>> equipped_;    // actor -> equipped item forms
+  base::UnorderedMap<u64, base::UnorderedMap<u64, i32>> perks_;  // actor -> perk -> rank
+  base::UnorderedMap<u64, base::UnorderedSet<u64>> spells_;      // actor -> spell forms
+  base::UnorderedMap<u64, base::UnorderedSet<u64>> shouts_;      // actor -> shout forms
+  // Word of power -> whether it is taught and whether it is unlocked. Not per
+  // actor: only the player ever learns words.
+  struct WordState {
+    bool taught = false;
+    bool unlocked = false;
+  };
+  base::UnorderedMap<u64, WordState> words_;
+  struct Favourite {
+    u64 form = 0;
+    i32 hotkey = -1;
+  };
+  base::Vector<Favourite> magic_favourites_;
+  base::UnorderedMap<u64, base::String> names_;  // renamed forms, over their FULL
+  u64 last_used_weapon_ = 0;
+  u64 last_used_spell_ = 0;
+  u64 last_used_shout_ = 0;
+  base::UnorderedMap<u64, base::Array<f32, 3>> positions_;       // SetPosition/MoveTo overrides
+  base::UnorderedMap<u64, f32> scales_;                          // SetScale overrides (default 1.0)
   struct LockState {
     bool locked = false;
     i32 level = 0;
@@ -537,6 +651,15 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   // Drops the ref -> alias reverse link when an alias is refilled or cleared.
   void EraseRefAlias(u64 ref, u64 alias_handle);
   WorldEffectSink* world_sink_ = nullptr;
+  script::VehicleDriveSink* vehicle_sink_ = nullptr;
+  // Held-key and ridden-cart speed snapshots, pushed by the runtime each frame
+  // on the main thread and read by the guest. Mutex-guarded like the live
+  // position snapshot so neither side races.
+  mutable std::mutex input_mutex_;
+  base::Array<u8, static_cast<size_t>(Key::kCount)> held_keys_{};
+  mutable std::mutex cart_speeds_mutex_;
+  f32 cart_speed_ = 0;
+  bool cart_riding_ = false;
   base::Function<void(base::Function<void()>)>
       fiber_runner_;  // engine-triggered fragments onto a fiber
   base::Function<void(const host::ManagedEvent&)> event_sink_;  // managed event bus, see above
@@ -624,12 +747,28 @@ class RecordBackedSkyrimBindings : public SkyrimBindings, public quest::QuestAct
   base::Vector<base::Pair<u64, i32>> faction_cache_;
   base::UnorderedMap<u64, base::UnorderedMap<u64, i32>> reactions_;     // faction -> other
   base::UnorderedMap<u64, i32> crime_gold_;                             // faction -> gold
+  struct Infamy {
+    i32 violent = 0;
+    i32 non_violent = 0;
+  };
+  base::UnorderedMap<u64, Infamy> infamy_;    // faction -> crimes seen
+  base::UnorderedMap<u64, i32> actor_levels_;  // actor -> level override
+  // The player's level, which every level-mult actor scales against. Kept here
+  // because GetLevel has to answer for actors the player never meets.
+  u32 player_level_ = 1;
   base::Array<bool, SkyrimBindings::kControlCount> player_controls_{};  // true = enabled
   bool player_controls_init_ = false;
   base::UnorderedMap<u64, f32> global_values_;               // GlobalVariable overrides
   base::Map<base::Pair<u64, u64>, i32> relationship_ranks_;  // symmetric actor-pair ranks
   base::UnorderedMap<u64, u64> location_fills_;        // location-alias handle -> location handle
   base::Map<base::Pair<u64, u64>, f32> keyword_data_;  // (form, keyword) -> stored float
+  // Runtime state the records do not author, so the accessors that read a
+  // record have to consult these first. A book's flags lose the teaches-skill
+  // bit once its skill has been taken, which is how a resumed save stops the
+  // same book paying out twice.
+  base::UnorderedMap<u64, u8> book_flags_;
+  base::UnorderedMap<u64, u32> known_ingredient_effects_;  // INGR -> bit per effect slot
+  base::UnorderedMap<u64, base::Vector<LeveledEntry>> leveled_additions_;
   // The day/night clock and the packed handles of the globals that proxy it.
   // Owned by the runtime; null/0 until wired (see set_clock/set_time_globals).
   WorldClock* clock_ = nullptr;

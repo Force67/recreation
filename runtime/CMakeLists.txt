@@ -4,9 +4,13 @@
 set(RECREATION_RUNTIME_SOURCES
   app/engine.cc
   app/frame_loop.cc
+  app/platform_profile.cc
   app/networking.cc
   app/managed_rpc.cc
   app/content_load.cc
+  app/savegame_load.cc
+  app/map_state.cc
+  app/player_map.cc
   app/managed_scripting.cc
   app/main_menu.cc
   app/first_run.cc
@@ -40,6 +44,9 @@ set(RECREATION_RUNTIME_SOURCES
   ui/thumbnailer.cc
   ui/debug_ui.cc
   ui/game_ui.cc
+  ui/game_ui_doc.cc
+  ui/game_ui_editor.cc
+  ui/game_ui_menu.cc
 )
 
 set(RECREATION_RUNTIME_MODULES
@@ -138,6 +145,10 @@ if(RECREATION_HAS_UGUI)
   # overrides this path.
   target_compile_definitions(recreation PRIVATE
     RECREATION_VANILLA_UI_DIR_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/ui/vanilla")
+  # Key art shipped for the base-game tiles on the NEXUS grid. Absolute for the
+  # same reason: the dev build reads it straight out of the source tree.
+  target_compile_definitions(recreation PRIVATE
+    RECREATION_UI_ART_DIR_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/ui/art")
   recreation_embed_shaders(recreation
     ui/shaders/ugui_quad.vs.hlsl
     ui/shaders/ugui_quad.ps.hlsl
@@ -177,4 +188,5 @@ if(RECREATION_BUILD_TOOLS)
   recreation_add_test(demo/trailertest recreation::weather rx::core SRCS demo/trailer.cc)
   recreation_add_test(editor/editor_layouttest rx::core)
   recreation_add_test(character/chargen_presettest rx::core)
+  recreation_add_test(ui/touch_pointertest rx::core)
 endif()

@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include "components/bethesda/actor_stats.h"
 #include "components/bethesda/record.h"
 #include "components/quest/quest_def.h"
 #include "components/quest/quest_import.h"
@@ -461,7 +462,16 @@ bool RecordBackedSkyrimBindings::RefIsType(ObjectRef ref, const base::String& ty
 // Item record-data accessors (GetWeight, GetGoldValue, GetWeaponDamage,
 // GetArmorRating) live in skyrim_bindings_item_data.cc.
 
+void RecordBackedSkyrimBindings::SetName(ObjectRef form, const base::String& name) {
+  if (form.handle != 0)
+    names_[form.handle] = name;
+}
+
 base::String RecordBackedSkyrimBindings::GetName(ObjectRef form) {
+  // A renamed form answers with its new name whether or not it has a record:
+  // the player's own reference is a form no plugin authors.
+  if (const base::String* renamed = names_.find(form.handle))
+    return *renamed;
   if (!records_)
     return "";
   bethesda::Record record;
@@ -730,6 +740,43 @@ void RecordBackedSkyrimBindings::ModCrimeGold(ObjectRef faction, i32 delta) {
   gold = base::Max(0, gold + delta);
 }
 
+void RecordBackedSkyrimBindings::SetInfamy(ObjectRef faction, i32 violent, i32 non_violent) {
+  infamy_[faction.handle] = Infamy{base::Max(0, violent), base::Max(0, non_violent)};
+}
+
+i32 RecordBackedSkyrimBindings::GetInfamyViolent(ObjectRef faction) {
+  const Infamy* it = infamy_.find(faction.handle);
+  return it == nullptr ? 0 : it->violent;
+}
+
+i32 RecordBackedSkyrimBindings::GetInfamyNonViolent(ObjectRef faction) {
+  const Infamy* it = infamy_.find(faction.handle);
+  return it == nullptr ? 0 : it->non_violent;
+}
+
+i32 RecordBackedSkyrimBindings::GetLevel(ObjectRef actor) {
+  if (const i32* level = actor_levels_.find(actor.handle))
+    return *level;
+  // No override: read the level off the actor's own NPC_ record. An actor whose
+  // base cannot be resolved is level 1 rather than a guess.
+  if (!records_)
+    return 1;
+  const ObjectRef base = GetBaseObject(actor);
+  bethesda::Record record;
+  if (base.handle == 0 || !records_->Parse(ToFormId(base), &record))
+    return 1;
+  bethesda::ActorStats stats;
+  if (!bethesda::ReadActorStats(record, player_level_, &stats))
+    return 1;
+  return static_cast<i32>(stats.level);
+}
+
+void RecordBackedSkyrimBindings::SetLevel(ObjectRef actor, i32 level) {
+  actor_levels_[actor.handle] = base::Max(1, level);
+  if (actor.handle == player_.handle)
+    player_level_ = static_cast<u32>(base::Max(1, level));
+}
+
 void RecordBackedSkyrimBindings::SetPlayerControl(i32 category, bool enabled) {
   if (!player_controls_init_) {
     player_controls_.fill(true);
@@ -874,6 +921,45 @@ void RecordBackedSkyrimBindings::UpdatePositionSnapshot(
   live_positions_.clear();
   for (const auto& [handle, pos] : positions)
     live_positions_[handle] = pos;
+}
+
+void RecordBackedSkyrimBindings::UpdateInputSnapshot(
+    const base::Array<u8, static_cast<size_t>(Key::kCount)>& held) {
+  std::lock_guard<std::mutex> lock(input_mutex_);
+  held_keys_ = held;
+}
+
+void RecordBackedSkyrimBindings::UpdateVehicleSnapshot(f32 speed, bool riding) {
+  std::lock_guard<std::mutex> lock(cart_speeds_mutex_);
+  cart_speed_ = speed;
+  cart_riding_ = riding;
+}
+
+void RecordBackedSkyrimBindings::DriveCart(f32 steer, f32 throttle) {
+  if (vehicle_sink_)
+    vehicle_sink_->DriveCart(steer, throttle);
+}
+
+void RecordBackedSkyrimBindings::MoveCart(f32 x, f32 y, f32 z) {
+  if (vehicle_sink_)
+    vehicle_sink_->MoveRidden(x, y, z);
+}
+
+f32 RecordBackedSkyrimBindings::CartSpeed() {
+  std::lock_guard<std::mutex> lock(cart_speeds_mutex_);
+  return cart_speed_;
+}
+
+bool RecordBackedSkyrimBindings::IsRiding() {
+  std::lock_guard<std::mutex> lock(cart_speeds_mutex_);
+  return cart_riding_;
+}
+
+bool RecordBackedSkyrimBindings::InputHeld(i32 key) {
+  if (key < 0 || key >= static_cast<i32>(Key::kCount))
+    return false;
+  std::lock_guard<std::mutex> lock(input_mutex_);
+  return held_keys_[static_cast<size_t>(key)] != 0;
 }
 
 i32 RecordBackedSkyrimBindings::GetNearbyRefs(ObjectRef center, f32 radius) {
@@ -1233,6 +1319,63 @@ void RecordBackedSkyrimBindings::Resurrect(ObjectRef actor) {
     world_sink_->ActorResurrected(active_quest_, actor.handle);
 }
 
+void RecordBackedSkyrimBindings::MarkInventoryEmptied(ObjectRef container) {
+  // Insert-then-clear rather than skipping the seed: the entry has to exist so
+  // GetNumItems and HasLiveInventory can tell an emptied chest from a fresh one.
+  inventory_[container.handle].clear();
+}
+
+void RecordBackedSkyrimBindings::SeedAuthoredInventory(ObjectRef container) {
+  if (records_ == nullptr || inventory_.contains(container.handle))
+    return;
+  const bethesda::GlobalFormId refr = ToFormId(container);
+  const bethesda::RecordStore::StoredRecord* placed = records_->Find(refr);
+  if (placed == nullptr)
+    return;
+  bethesda::Record record;
+  if (!records_->Parse(refr, &record))
+    return;
+  const bethesda::Subrecord* name = record.Find(FourCc('N', 'A', 'M', 'E'));
+  if (name == nullptr || name->data.size() < 4)
+    return;
+  u32 base_raw = 0;
+  std::memcpy(&base_raw, name->data.data(), 4);
+  const bethesda::GlobalFormId base =
+      records_->ResolveFrom(bethesda::RawFormId{base_raw}, placed->winning_plugin);
+  const bethesda::RecordStore::StoredRecord* stored = records_->Find(base);
+  bethesda::Record contents;
+  if (stored == nullptr || !records_->Parse(base, &contents))
+    return;
+  // CNTO is { form id, count }. A levelled list in there is left alone: what it
+  // rolls is decided at runtime and the record does not say.
+  auto& bucket = inventory_[container.handle];
+  for (const bethesda::Subrecord& sub : contents.subrecords) {
+    if (sub.type != FourCc('C', 'N', 'T', 'O') || sub.data.size() < 8)
+      continue;
+    u32 item_raw = 0;
+    i32 count = 0;
+    std::memcpy(&item_raw, sub.data.data(), 4);
+    std::memcpy(&count, sub.data.data() + 4, 4);
+    if (count <= 0)
+      continue;
+    const bethesda::GlobalFormId item =
+        records_->ResolveFrom(bethesda::RawFormId{item_raw}, stored->winning_plugin);
+    bucket[item.packed()] += count;
+  }
+}
+
+void RecordBackedSkyrimBindings::SetItemCount(ObjectRef container, ObjectRef item, i32 count) {
+  if (container.handle == 0 || item.handle == 0)
+    return;
+  if (count <= 0) {
+    auto* it = inventory_.find(container.handle);
+    if (it != nullptr)
+      it->erase(item.handle);
+    return;
+  }
+  inventory_[container.handle][item.handle] = count;
+}
+
 i32 RecordBackedSkyrimBindings::GetItemCount(ObjectRef container, ObjectRef item) {
   auto* it = inventory_.find(container.handle);
   if (it == nullptr)
@@ -1244,6 +1387,10 @@ i32 RecordBackedSkyrimBindings::GetItemCount(ObjectRef container, ObjectRef item
 i32 RecordBackedSkyrimBindings::GetNumItems(ObjectRef container) {
   auto* it = inventory_.find(container.handle);
   return it == nullptr ? 0 : static_cast<i32>(it->size());
+}
+
+bool RecordBackedSkyrimBindings::HasLiveInventory(ObjectRef container) const {
+  return inventory_.find(container.handle) != nullptr;
 }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetNthForm(ObjectRef container, i32 index) {
@@ -1321,6 +1468,175 @@ void RecordBackedSkyrimBindings::UnequipItem(ObjectRef actor, ObjectRef item) {
 bool RecordBackedSkyrimBindings::IsEquipped(ObjectRef actor, ObjectRef item) {
   auto* it = equipped_.find(actor.handle);
   return it != nullptr && it->count(item.handle) != 0;
+}
+
+void RecordBackedSkyrimBindings::EquippedForms(ObjectRef actor,
+                                               base::Vector<bethesda::GlobalFormId>& out) const {
+  const auto* it = equipped_.find(actor.handle);
+  if (it == nullptr)
+    return;
+  out.reserve(out.size() + it->size());
+  for (u64 item : *it)
+    out.push_back(ToFormId(ObjectRef{item}));
+}
+
+void RecordBackedSkyrimBindings::AddPerk(ObjectRef actor, ObjectRef perk, i32 rank) {
+  if (actor.handle == 0 || perk.handle == 0)
+    return;
+  perks_[actor.handle][perk.handle] = rank < 1 ? 1 : rank;
+}
+
+void RecordBackedSkyrimBindings::RemovePerk(ObjectRef actor, ObjectRef perk) {
+  auto* it = perks_.find(actor.handle);
+  if (it == nullptr)
+    return;
+  it->erase(perk.handle);
+  if (it->empty())
+    perks_.erase(actor.handle);
+}
+
+bool RecordBackedSkyrimBindings::HasPerk(ObjectRef actor, ObjectRef perk) {
+  auto* it = perks_.find(actor.handle);
+  return it != nullptr && it->find(perk.handle) != nullptr;
+}
+
+i32 RecordBackedSkyrimBindings::GetPerkCount(ObjectRef actor) {
+  auto* it = perks_.find(actor.handle);
+  return it == nullptr ? 0 : static_cast<i32>(it->size());
+}
+
+namespace {
+
+void AddToSet(base::UnorderedMap<u64, base::UnorderedSet<u64>>& sets, u64 owner, u64 member) {
+  if (owner == 0 || member == 0)
+    return;
+  sets[owner].insert(member);
+}
+
+void RemoveFromSet(base::UnorderedMap<u64, base::UnorderedSet<u64>>& sets, u64 owner, u64 member) {
+  auto* it = sets.find(owner);
+  if (it == nullptr)
+    return;
+  it->erase(member);
+  if (it->empty())
+    sets.erase(owner);
+}
+
+bool SetHas(const base::UnorderedMap<u64, base::UnorderedSet<u64>>& sets, u64 owner, u64 member) {
+  const auto* it = sets.find(owner);
+  return it != nullptr && it->contains(member);
+}
+
+i32 SetSize(const base::UnorderedMap<u64, base::UnorderedSet<u64>>& sets, u64 owner) {
+  const auto* it = sets.find(owner);
+  return it == nullptr ? 0 : static_cast<i32>(it->size());
+}
+
+}  // namespace
+
+void RecordBackedSkyrimBindings::AddSpell(ObjectRef actor, ObjectRef spell) {
+  AddToSet(spells_, actor.handle, spell.handle);
+}
+
+void RecordBackedSkyrimBindings::RemoveSpell(ObjectRef actor, ObjectRef spell) {
+  RemoveFromSet(spells_, actor.handle, spell.handle);
+}
+
+bool RecordBackedSkyrimBindings::HasSpell(ObjectRef actor, ObjectRef spell) {
+  return SetHas(spells_, actor.handle, spell.handle);
+}
+
+i32 RecordBackedSkyrimBindings::GetSpellCount(ObjectRef actor) {
+  return SetSize(spells_, actor.handle);
+}
+
+void RecordBackedSkyrimBindings::AddShout(ObjectRef actor, ObjectRef shout) {
+  AddToSet(shouts_, actor.handle, shout.handle);
+}
+
+void RecordBackedSkyrimBindings::RemoveShout(ObjectRef actor, ObjectRef shout) {
+  RemoveFromSet(shouts_, actor.handle, shout.handle);
+}
+
+bool RecordBackedSkyrimBindings::HasShout(ObjectRef actor, ObjectRef shout) {
+  return SetHas(shouts_, actor.handle, shout.handle);
+}
+
+i32 RecordBackedSkyrimBindings::GetShoutCount(ObjectRef actor) {
+  return SetSize(shouts_, actor.handle);
+}
+
+void RecordBackedSkyrimBindings::TeachWord(ObjectRef word) {
+  if (word.handle != 0)
+    words_[word.handle].taught = true;
+}
+
+void RecordBackedSkyrimBindings::UnlockWord(ObjectRef word) {
+  if (word.handle == 0)
+    return;
+  // A word cannot be unlocked without having been learned first, so unlocking
+  // one the game never taught still leaves the shout list right.
+  WordState& state = words_[word.handle];
+  state.taught = true;
+  state.unlocked = true;
+}
+
+bool RecordBackedSkyrimBindings::IsWordTaught(ObjectRef word) {
+  const WordState* state = words_.find(word.handle);
+  return state != nullptr && state->taught;
+}
+
+bool RecordBackedSkyrimBindings::IsWordUnlocked(ObjectRef word) {
+  const WordState* state = words_.find(word.handle);
+  return state != nullptr && state->unlocked;
+}
+
+i32 RecordBackedSkyrimBindings::GetKnownWordCount() {
+  return static_cast<i32>(words_.size());
+}
+
+void RecordBackedSkyrimBindings::AddMagicFavourite(ObjectRef form, i32 hotkey) {
+  if (form.handle == 0)
+    return;
+  for (Favourite& have : magic_favourites_) {
+    if (have.form == form.handle) {
+      have.hotkey = hotkey;
+      return;
+    }
+  }
+  magic_favourites_.push_back(Favourite{form.handle, hotkey});
+}
+
+i32 RecordBackedSkyrimBindings::GetMagicFavouriteCount() {
+  return static_cast<i32>(magic_favourites_.size());
+}
+
+ObjectRef RecordBackedSkyrimBindings::GetNthMagicFavourite(i32 index) {
+  if (index < 0 || static_cast<size_t>(index) >= magic_favourites_.size())
+    return {};
+  return ObjectRef{magic_favourites_[static_cast<size_t>(index)].form};
+}
+
+i32 RecordBackedSkyrimBindings::GetNthMagicFavouriteHotkey(i32 index) {
+  if (index < 0 || static_cast<size_t>(index) >= magic_favourites_.size())
+    return -1;
+  return magic_favourites_[static_cast<size_t>(index)].hotkey;
+}
+
+void RecordBackedSkyrimBindings::SetLastUsedMagic(ObjectRef weapon,
+                                                  ObjectRef spell,
+                                                  ObjectRef shout) {
+  last_used_weapon_ = weapon.handle;
+  last_used_spell_ = spell.handle;
+  last_used_shout_ = shout.handle;
+}
+
+// The shout the player has up. Nothing equips one yet, so the last one used is
+// the best answer the engine has, and it is what the save means by selected.
+ObjectRef RecordBackedSkyrimBindings::GetEquippedShout(ObjectRef actor) {
+  if (actor.handle != player_.handle)
+    return {};
+  return ObjectRef{last_used_shout_};
 }
 
 papyrus::ObjectRef RecordBackedSkyrimBindings::GetEquippedWeapon(ObjectRef actor) {
@@ -1513,7 +1829,8 @@ void RecordBackedSkyrimBindings::RunSceneFragment(u64 scene,
   active_quest_ = owning_quest;
   u64 before = vm_->native_call_count();
   vm_->Call(papyrus::ObjectRef{scene}, function, {});
-  RX_DEBUG("scene fragment {} ran, {} native calls", function, vm_->native_call_count() - before);
+  RX_INFO("scene: 0x{:x} fires {}, {} native call(s)", scene, function,
+          vm_->native_call_count() - before);
   active_quest_ = prev_quest;
   --fragment_depth_;
 }
@@ -1712,6 +2029,12 @@ bool RecordBackedSkyrimBindings::IsRunning(ObjectRef quest) {
 void RecordBackedSkyrimBindings::StartQuest(ObjectRef quest) {
   if (replica_mode_)
     return;  // server starts quests; clients mirror the result
+  // Papyrus Quest.Start() does nothing to a quest that is already running, and
+  // that matters here: a restored save resumes hundreds of quests mid-story, so
+  // re-kicking the opening stage would replay their start logic (which, for the
+  // handful that open by moving the player, warps them off their save point).
+  if (quest_system_.IsRunning(quest.handle))
+    return;
   quest_system_.StartQuest(quest.handle);
   // Kick the opening stage so the quest's logic actually begins. The start
   // stage is the lowest one carrying a fragment.

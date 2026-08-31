@@ -384,6 +384,53 @@ void PlayerController::PublishCamera() {
   eye_orientation_ = v.orientation;
 }
 
+void PlayerController::KeepAboveTerrain() {
+  // The world streams in behind the player. An avatar spawned at boot, placed by
+  // a savegame or landed by a fast travel stands in a cell whose terrain
+  // heightfield has not been built yet, and a capsule with nothing under it
+  // falls -- by the time the collider arrives the player is a hundred metres
+  // below it and keeps going, which reads as an empty grey world.
+  //
+  // The LAND heights are decoded long before the collider is, so they are the
+  // floor. Only a real fall-through is caught: the drop has to be deeper than
+  // anything the sampled grid and the collider can disagree by, and deeper than
+  // any hole the records author, so ordinary walking, swimming (the sea floor is
+  // terrain too) and jumping into a gorge never trip it.
+  constexpr f32 kFallenThrough = 3.0f;  // metres below the terrain
+  if (!ctx_.streamer)
+    return;
+  auto* tr = ctx_.world->Get<scene::Transform>(player_);
+  if (!tr)
+    return;
+  f32 ground = 0;
+  const bool have_ground = ctx_.streamer->GroundHeight(tr->position[0], tr->position[2], &ground);
+  // An interior has no terrain of its own and its x/z land on some unrelated
+  // exterior cell, so the floor there is the cell's own collision and nothing
+  // here may touch it.
+  if (ctx_.streamer->in_interior() || !have_ground) {
+    // Reported once: a player dropping at terminal speed with no terrain to put
+    // them back on is a hole this cannot close, and silence would read as no
+    // hole at all.
+    const auto* st = ctx_.world->Get<character::CharacterState>(player_);
+    if (!no_floor_warned_ && st && st->velocity.y < -25.0f) {
+      no_floor_warned_ = true;
+      RX_WARN("player: falling at {:.0f} m/s from {:.0f} m with no terrain to stand on ({})",
+              -st->velocity.y, tr->position[1],
+              ctx_.streamer->in_interior() ? "in an interior" : "no LAND under them");
+    }
+    return;
+  }
+  if (tr->position[1] >= ground - kFallenThrough)
+    return;
+  RX_WARN("player: fell {:.1f} m through the world, put back on the terrain",
+          ground - tr->position[1]);
+  character::TeleportCharacter(
+      *ctx_.world, *ctx_.physics, player_,
+      Vec3{tr->position[0], ground + world::CellStreamer::kGroundClearance, tr->position[2]});
+  if (auto* st = ctx_.world->Get<character::CharacterState>(player_))
+    st->velocity = {0, 0, 0};
+}
+
 void PlayerController::Update(f32 dt,
                               const InputState& input,
                               const ActionState& actions,
@@ -422,6 +469,8 @@ void PlayerController::Update(f32 dt,
     }
     orbit->pitch = base::Clamp(cam_pitch_, orbit->min_pitch, orbit->max_pitch);
   }
+
+  KeepAboveTerrain();
 
   // rx character + camera-rig pipeline (README staged order).
   character::StepCharacters(world, phys, dt);

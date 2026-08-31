@@ -861,6 +861,14 @@ bool CutsceneDirector::ArmedSceneLocation(Vec3* pos) {
   if (armed_quest_ == 0 || !ctx_.records)
     return false;
 
+  // A quest that opens with a ride plays its scenes along the way, so it boots
+  // where the journey starts. The cast placement below would give the far end of
+  // it: everyone aboard is parked at the destination until the quest moves them.
+  if (packages_ && packages_->JourneyStart(armed_quest_, pos)) {
+    RX_INFO("cutscene: the armed quest rides from ({:.0f}, {:.0f})", pos->x, pos->z);
+    return true;
+  }
+
   auto* it = by_quest_.find(armed_quest_);
   if (it == nullptr)
     return false;

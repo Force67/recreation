@@ -17,6 +17,7 @@ third_party/NRD/
 third_party/NRD-MathLib/
 third_party/NRD-ShaderMake/
 third_party/nanobuf/
+docs/
 
 # Android build outputs
 android/app/src/main/jniLibs/
@@ -44,8 +45,14 @@ editor_layout.reclayout
 /run-starfield.sh
 /run-trailer.sh
 /run-all.sh
+/run-menu.sh
 /bench.sh
 run-local.sh
+
+# Savegames used to verify the load path. Player data, not ours to ship.
+*.ess
+*.fos
+/Skyrim Special Edition 100 Percent Complete Save-*/
 
 # Generated native-coverage report (pex2cs/nativescan --list-missing)
 missing_natives.txt
@@ -54,3 +61,10 @@ missing_natives.txt
 # (tools/swfdump --ugui). Derived from game data, so generated locally.
 runtime/ui/vanilla/
 runtime/ui/vanilla_fo4/
+
+# Cached nix dev environments (devenv.sh) and their gcroots.
+/.devenv-*
+/devenv.sh
+
+# ctest scratch output
+/Testing/

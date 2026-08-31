@@ -64,6 +64,9 @@ class PlayerController {
                   const Vec3& auto_move,
                   f32 dt);
   void ReconcileViewMode();  // sync rx view kind to ctx_.third_person (smooth toggle)
+  // Puts the player back on the terrain when they have dropped through a cell
+  // whose collider had not streamed in yet. Exteriors only.
+  void KeepAboveTerrain();
   void ApplyZoom(f32 wheel);
   void PublishCamera();
 
@@ -72,6 +75,7 @@ class PlayerController {
   const InputMap& input_map_;
 
   bool assembled_ = false;
+  bool no_floor_warned_ = false;  // see KeepAboveTerrain
   ecs::Entity player_{};         // the player actor entity (rx components live here)
   ecs::Entity camera_output_{};  // CameraOutput sink read back each frame
 

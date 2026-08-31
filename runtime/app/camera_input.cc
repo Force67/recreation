@@ -124,10 +124,15 @@ void Engine::UpdateCamera(f32 frame_delta) {
     ctx_.third_person = !ctx_.third_person;
   if (actions_->pressed(Action::kToggleJournal) && !menu && !kb && !modal && !editor_on)
     quest_->ToggleJournal();
-  // The war map (M): the Civil War campaign board, a modern overlay over the
-  // managed campaign state.
-  if (input.key_pressed(Key::kM) && !menu && !kb && !modal && !editor_on)
-    war_map_open_ = !war_map_open_;
+  // The world map (M), and the Civil War campaign board on Shift+M: two maps,
+  // one key, the player's own coming first.
+  if (input.key_pressed(Key::kM) && !menu && !kb && !modal && !editor_on &&
+      !player_map_.open) {
+    if (input.key(Key::kLeftShift))
+      war_map_open_ = !war_map_open_;
+    else
+      TogglePlayerMap(*this);
+  }
 
   if (editor_on) {
     // Free-fly builder camera: right mouse looks, WASD/QE move (unless the search
@@ -146,6 +151,11 @@ void Engine::UpdateCamera(f32 frame_delta) {
     // dpad/arrows highlight, A/Enter or 1-4 select, B/Esc leaves.
     interaction_->UpdateDialogueInput(input, *actions_);
     interaction_->UpdateInteraction(false);  // freeze movement/activation while talking
+  } else if (player_map_.open) {
+    // The map is modal: it takes W/S, the arrows and Enter, and movement stands
+    // down behind it.
+    UpdatePlayerMapInput(*this, input, *actions_);
+    interaction_->UpdateInteraction(false);
   } else if (quest_->journal_open()) {
     // The journal is a modal overlay: a number key pins that quest to track,
     // pad B closes it; movement is frozen while it is open.
@@ -186,6 +196,8 @@ void Engine::UpdateCamera(f32 frame_delta) {
     debug_ui_.ToggleTrace();
   if (actions_->pressed(Action::kToggleQuests) && !kb)
     debug_ui_.ToggleQuests();
+  if (actions_->pressed(Action::kToggleMap) && !kb)
+    debug_ui_.ToggleMap();
   if (actions_->pressed(Action::kToggleEditor) && !kb && editor_)
     editor_->Toggle();
   if (actions_->pressed(Action::kThrowDebug) && !menu && !kb && !ctx_.walk_mode && !editor_on)

@@ -1,0 +1,55 @@
+// The world map. The map itself is one image (pmap_canvas), painted in C++ from
+// the discovery bits and the marker catalogue and re-uploaded when the view
+// changes (player_map.cc); the rail beside it lists the discovered locations,
+// pmap_row* (kPlayerMapRows) being the fixed pool GameUi::Build fills.
+//
+// The canvas is a fixed pixel size on purpose: a percentage would resolve to 0,
+// and the painter has to know how many pixels it is drawing into anyway.
+
+  panel pmap_box {
+    position: absolute; left: 0; top: 0; width: 100vw; height: 100vh;
+    background: #000000e0; backdrop-blur: 26;
+    panel pmap_card { position: absolute; left: 130; right: 130; top: 76; bottom: 0;
+      layout: column;
+      panel { layout: row; align: end; justify: space-between; width: 100%;
+        text pmap_head { class: t_mast; text: "Map"; }
+        text pmap_hint { class: t_micro2; text: "Enter to travel"; }
+      }
+      panel { width: 100%; height: 1; margin: 26 0 0 0;
+        background: #ffffff66; background-end: #ffffff00; gradient-angle: 90; }
+
+      panel { flex-grow: 1; layout: row; align: start; width: 100%; padding: 34 0 0 0;
+        panel pmap_frame { width: 1000; height: 620; border-color: #ffffff1c; border-width: 1;
+          image pmap_canvas { position: absolute; left: 0; top: 0; width: 1000; height: 620; }
+        }
+        panel { flex-grow: 1; layout: column; padding: 0 0 0 44;
+          text pmap_sub { class: t_micro; text: ""; margin: 0 0 6 0; }
+          text pmap_where { class: t_dim; text: ""; margin: 0 0 20 0; }
+          text pmap_row0 { class: t_body; text: ""; margin: 0 0 9 0; }
+          text pmap_row1 { class: t_body; text: ""; margin: 0 0 9 0; }
+          text pmap_row2 { class: t_body; text: ""; margin: 0 0 9 0; }
+          text pmap_row3 { class: t_body; text: ""; margin: 0 0 9 0; }
+          text pmap_row4 { class: t_body; text: ""; margin: 0 0 9 0; }
+          text pmap_row5 { class: t_body; text: ""; margin: 0 0 9 0; }
+          text pmap_row6 { class: t_body; text: ""; margin: 0 0 9 0; }
+          text pmap_row7 { class: t_body; text: ""; margin: 0 0 9 0; }
+          text pmap_row8 { class: t_body; text: ""; margin: 0 0 9 0; }
+          text pmap_row9 { class: t_body; text: ""; margin: 0 0 9 0; }
+          text pmap_row10 { class: t_body; text: ""; margin: 0 0 9 0; }
+          text pmap_row11 { class: t_body; text: ""; margin: 0 0 9 0; }
+          text pmap_row12 { class: t_body; text: ""; margin: 0 0 9 0; }
+          text pmap_row13 { class: t_body; text: ""; margin: 0 0 9 0; }
+          panel { class: rule_dim; width: 100%; margin: 18 0 0 0; }
+          text pmap_status { class: t_faint; text: ""; margin: 18 0 0 0; }
+        }
+      }
+      panel { height: 96; layout: row; align: center; gap: 44; width: 100%;
+        panel { position: absolute; left: 0; right: 0; top: 0; height: 1; background: #ffffff1c; }
+        ui_hint { k: "W/S"; a: "Select"; }
+        ui_hint { k: "Q/E"; a: "Zoom"; }
+        ui_hint { k: "ARR"; a: "Pan"; }
+        ui_hint { k: "ENTER"; a: "Travel"; }
+        ui_hint { k: "M"; a: "Close"; }
+      }
+    }
+  }

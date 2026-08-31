@@ -85,11 +85,44 @@ void RegisterItemsExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) 
   reg.Register("Ingredient", "IsHostile", hostile);
   reg.Register("Potion", "IsHostile", hostile);
 
-  // Ingredient effect-knowledge is not tracked, so these report learned.
-  auto learned = [](VirtualMachine&, ObjectRef, Args&) { return Value::Bool(true); };
-  reg.Register("Ingredient", "LearnEffect", learned);
-  reg.Register("Ingredient", "LearnNextEffect", learned);
-  reg.Register("Ingredient", "LearnAllEffects", learned);
+  // Effect knowledge, one bit per effect slot. An ingredient has four, and the
+  // alchemy menu shows only the ones the player has discovered by eating it or
+  // brewing with it. The natives return whether the call changed anything, so a
+  // script can tell a new discovery from a repeat.
+  constexpr i32 kAllEffects = 0x0f;
+  reg.Register("Ingredient", "LearnEffect", [bindings](VirtualMachine&, ObjectRef self, Args& a) {
+    auto& b = Resolve(bindings);
+    const i32 slot = ArgI(a, 0);
+    if (slot < 0 || slot > 3)
+      return Value::Bool(false);
+    const i32 known = b.GetKnownIngredientEffects(self);
+    const i32 after = known | (1 << slot);
+    b.SetKnownIngredientEffects(self, after);
+    return Value::Bool(after != known);
+  });
+  reg.Register("Ingredient", "LearnNextEffect",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 auto& b = Resolve(bindings);
+                 const i32 known = b.GetKnownIngredientEffects(self);
+                 for (i32 slot = 0; slot < 4; ++slot) {
+                   if (known & (1 << slot))
+                     continue;
+                   b.SetKnownIngredientEffects(self, known | (1 << slot));
+                   return Value::Bool(true);
+                 }
+                 return Value::Bool(false);
+               });
+  reg.Register("Ingredient", "LearnAllEffects",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 auto& b = Resolve(bindings);
+                 const i32 known = b.GetKnownIngredientEffects(self);
+                 b.SetKnownIngredientEffects(self, kAllEffects);
+                 return Value::Bool(known != kAllEffects);
+               });
+  reg.Register("Ingredient", "GetKnownEffectFlags",
+               [bindings](VirtualMachine&, ObjectRef self, Args&) {
+                 return Value::Int(Resolve(bindings).GetKnownIngredientEffects(self));
+               });
 
   // The actor value the effect modifies is the closest available skill.
   reg.Register("MagicEffect", "GetAssociatedSkill",

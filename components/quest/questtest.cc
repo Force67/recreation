@@ -141,6 +141,13 @@ void TestState() {
   Check("objective 10 displayed", qs.IsObjectiveDisplayed(h, 10));
   Check("objective change fired", objective_changes == 1);
 
+  // A quest's own scripts set bookkeeping stages below the one they just
+  // reached (Skyrim's cart ride sets 15 then 14); that runs the lower stage's
+  // fragment and marks it done, but the journal stays where it got to.
+  Check("lower SetStage still runs its fragment", qs.SetStage(h, 5));
+  Check("journal does not rewind", qs.GetStage(h) == 10);
+  Check("lower stage marked done", qs.GetStageDone(h, 5));
+
   QuestStatus st = qs.Status(h);
   Check("status name Unbound", st.name == "Unbound");
   Check("status stage 10", st.stage == 10);
@@ -155,7 +162,7 @@ void TestState() {
   Check("complete after stage 200", qs.IsComplete(h));
   Check("status reports complete", qs.Status(h).complete);
 
-  Check("stage change count", stage_changes == 3);
+  Check("stage change count", stage_changes == 4);
 
   // Running/active snapshots feed the HUD.
   auto running = qs.RunningStatuses();

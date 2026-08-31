@@ -136,6 +136,13 @@ void SeedProperty(VirtualMachine& vm, ObjectRef inst, const bethesda::ScriptProp
   }
 }
 
+// What one visit to the guest thread settles about a script attachment.
+struct Attached {
+  ObjectRef instance;
+  bool attached = false;
+  bool restored = false;
+};
+
 }  // namespace
 
 base::Vector<ObjectRef> ScriptSystem::AttachScripts(u64 form_id,
@@ -155,28 +162,42 @@ ScriptSystem::AttachmentResult ScriptSystem::AttachScriptsWithStatus(
         RX_WARN("script: cannot attach {}, .pex missing or not executable", entry.name);
       continue;
     }
-    auto [inst, attached] =
+    // One hop to the guest thread for the whole attachment. Seeding the baked
+    // properties used to be a second, asynchronous one; folding it in keeps the
+    // savegame restore, which has to run after the properties and before OnInit,
+    // on the same visit.
+    Attached done =
         guest_
-            .SubmitFor([type, form_id](VirtualMachine& vm) {
-              ObjectRef created = vm.CreateInstanceWithHandle(type, form_id);
-              return base::Pair{
-                  created, created.handle != 0 || vm.HasAttachedScript(ObjectRef{form_id}, type)};
+            .SubmitFor([type, form_id, props = entry.properties, this](VirtualMachine& vm) {
+              Attached out;
+              out.instance = vm.CreateInstanceWithHandle(type, form_id);
+              out.attached = out.instance.handle != 0 ||
+                             vm.HasAttachedScript(ObjectRef{form_id}, type);
+              if (out.instance.handle == 0)
+                return out;
+              for (const bethesda::ScriptProperty& p : props)
+                SeedProperty(vm, out.instance, p);
+              // The save has the last word over the record's baked values: the
+              // record says what the form starts as, the save says what play
+              // made of it.
+              out.restored = on_restore_ && on_restore_(vm, out.instance, type);
+              return out;
             })
             .get();
-    if (!attached) {
+    if (!done.attached) {
       result.complete = false;
       continue;
     }
     result.any_attached = true;
-    if (inst.handle == 0)
+    if (done.instance.handle == 0)
       continue;  // already instantiated on this form
 
-    guest_.Submit([inst, props = entry.properties](VirtualMachine& vm) {
-      for (const bethesda::ScriptProperty& p : props)
-        SeedProperty(vm, inst, p);
-    });
-    guest_.RaiseScriptEvent(inst, type, "OnInit");
-    result.created.push_back(inst);
+    // An instance the save owned was initialized once already, so OnInit does
+    // not run again; that is what the game does on load too, and re-running it
+    // would undo the state just restored.
+    if (!done.restored)
+      guest_.RaiseScriptEvent(done.instance, type, "OnInit");
+    result.created.push_back(done.instance);
   }
   // Signal the form went live so the managed world can react (FormLoaded).
   if (on_attach_ && !result.created.empty())

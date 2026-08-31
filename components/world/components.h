@@ -2,6 +2,7 @@
 #define RECREATION_WORLD_COMPONENTS_H_
 
 #include "asset/asset_id.h"
+#include "components/bethesda/actor_stats.h"
 #include "components/bethesda/form_id.h"
 #include "components/world/prop_streaming.h"
 #include "core/types.h"
@@ -87,6 +88,12 @@ struct PackInOwner {
 struct Npc {
   bethesda::GlobalFormId base;
 };
+
+// The level and temperament of a placed actor, resolved when it streams in from
+// its NPC_ record and overridden by a resumed savegame. Aliased, not redefined:
+// the record layer owns the shape (components/bethesda/actor_stats.h) and the
+// ECS only carries it, so one struct answers for records, saves and scripts.
+using ActorStats = bethesda::ActorStats;
 
 // Tag marking an entity disabled (Papyrus Disable()); the render pass skips it.
 using Hidden = scene::Hidden;

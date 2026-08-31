@@ -206,6 +206,17 @@ struct HostHandshake {
   // (single-player). The managed world starts server+shared mods on a host,
   // client+shared on a client, and everything standalone. Append-only.
   std::int32_t realm;
+  // The optional game mode the launcher armed, as a mode id (UTF-8), or null
+  // when the plain game was launched. A mode arms on top of the domain's base
+  // ruleset, it does not replace it. Append-only.
+  const char* mode_id;
+  // Every mode id the host knows as its own selectable launch entry, so managed
+  // code can tell a mode that was offered and not picked from a base ruleset or
+  // an ordinary mod without scanning the staging directory itself. `mode_ids`
+  // points at `mode_id_count` UTF-8 strings. The count is 0 on a launch path
+  // with no launcher, and nothing is filtered then. Append-only.
+  std::int32_t mode_id_count;
+  const char* const* mode_ids;
 };
 
 // Signature of the managed entrypoint, exported [UnmanagedCallersOnly]. The host

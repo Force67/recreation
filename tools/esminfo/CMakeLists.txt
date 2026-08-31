@@ -14,3 +14,7 @@ recreation_set_warnings(assetdump)
 add_executable(hkxinfo ../hkxinfo/main.cc)
 target_link_libraries(hkxinfo PRIVATE recreation::bethesda rx::asset)
 recreation_set_warnings(hkxinfo)
+
+add_executable(shaderdump ../shaderdump/main.cc)
+target_link_libraries(shaderdump PRIVATE recreation::bethesda rx::asset)
+recreation_set_warnings(shaderdump)

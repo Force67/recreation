@@ -28,6 +28,7 @@ InteractionSystem::InteractionSystem(EngineContext& ctx, ActorSystem* actors)
       records_(*ctx.records),
       strings_(*ctx.strings),
       dialogue_(*ctx.dialogue),
+      said_(*ctx.said_topics),
       quest_world_(*ctx.quest_world),
       camera_(*ctx.camera),
       game_ui_(*ctx.game_ui) {}
@@ -41,7 +42,12 @@ void InteractionSystem::SyncHud() {
   // Mark the highlighted option with a caret so the pad/keyboard selection is
   // visible (matches the journal's tracked-quest caret convention).
   for (size_t i = 0; i < dialogue_session_.options.size(); ++i) {
-    const base::String& line = dialogue_session_.options[i].player_line;
+    const DialogueOption& option = dialogue_session_.options[i];
+    base::String line = option.player_line;
+    // A line the player has already heard is still offered (only say-once ones
+    // close), so it is marked rather than hidden, the way the games grey it out.
+    if (option.said)
+      line += "  (said)";
     dv.options.push_back(static_cast<int>(i) == dialogue_session_.selected ? "▶ " + line : line);
   }
   game_ui_.SetDialogue(dv);
@@ -278,6 +284,10 @@ void InteractionSystem::OpenDialogue(u64 npc) {
               return keyed ? SpeakerFit::kForeign : SpeakerFit::kGeneric;
             };
             script::skyrim::SkyrimConditionContext ctx(binds);
+            // The speaker is who a line's relationship checks run against: a
+            // GetRelationshipRank in dialogue asks how THIS actor feels about
+            // the actor it names, which is almost always the player.
+            ctx.set_subject(npc);
             struct Scored {
               DialogueOption opt;
               i32 priority;
@@ -299,21 +309,33 @@ void InteractionSystem::OpenDialogue(u64 npc) {
                   // that fails (Allows passes lines whose checks we cannot judge).
                   if (fit == SpeakerFit::kForeign || !ctx.Allows(r.conditions))
                     continue;
+                  const bool said = said_.Said(r.info);
+                  // A say-once line that has been said is spent; the rest stay on
+                  // offer and are only marked.
+                  if (said && r.say_once) {
+                    ++s.spent_lines;
+                    continue;
+                  }
                   DialogueOption opt;
                   opt.player_line = r.player_line;
                   opt.npc_line = r.npc_line;
                   opt.info = r.info;
                   opt.quest = q.handle;
                   opt.fragment_function = r.fragment_function;
+                  opt.said = said;
                   candidates.push_back({base::move(opt), t.priority, fit == SpeakerFit::kKeyed});
                 }
               }
             }
-            // Keyed-to-this-actor lines first, then by topic priority.
+            // Keyed-to-this-actor lines first, then unheard before heard, then by
+            // topic priority. Only four rows fit, so an exhausted topic must not
+            // push a fresh one off the panel.
             std::stable_sort(candidates.begin(), candidates.end(),
                              [](const Scored& a, const Scored& b) {
                                if (a.keyed != b.keyed)
                                  return a.keyed;
+                               if (a.opt.said != b.opt.said)
+                                 return !a.opt.said;
                                return a.priority > b.priority;
                              });
             constexpr size_t kMaxOptions = 4;  // the dialogue panel shows four rows
@@ -331,13 +353,14 @@ void InteractionSystem::OpenDialogue(u64 npc) {
 
 void InteractionSystem::ReportDialogueWith(u64 npc) {
   OpenDialogue(npc);
-  RX_INFO("dialogue probe: '{}' offers {} topic(s):", dialogue_session_.speaker,
-          dialogue_session_.options.size());
+  RX_INFO("dialogue probe: '{}' offers {} topic(s), {} say-once line(s) already spent:",
+          dialogue_session_.speaker, dialogue_session_.options.size(),
+          dialogue_session_.spent_lines);
   for (size_t i = 0; i < dialogue_session_.options.size(); ++i) {
     const DialogueOption& o = dialogue_session_.options[i];
-    RX_INFO("  [{}] \"{}\" -> info 0x{:x}{}", i,
+    RX_INFO("  [{}] \"{}\" -> info 0x{:x}{}{}", i,
             o.player_line.empty() ? "(forcegreet/silent)" : o.player_line, o.info,
-            o.fragment_function.empty() ? "" : " [has fragment]");
+            o.fragment_function.empty() ? "" : " [has fragment]", o.said ? " [said]" : "");
   }
   CloseDialogue();
 }
@@ -346,7 +369,10 @@ void InteractionSystem::SelectDialogueOption(int index) {
   if (!dialogue_session_.open || index < 0 ||
       index >= static_cast<int>(dialogue_session_.options.size()))
     return;
-  const DialogueOption opt = dialogue_session_.options[index];
+  DialogueOption& chosen = dialogue_session_.options[index];
+  chosen.said = true;
+  said_.MarkSaid(chosen.info);
+  const DialogueOption opt = chosen;
   dialogue_session_.npc_line = opt.npc_line;  // show the reply
   // Firing the INFO fragment (which advances the quest) is server-authoritative:
   // a client asks the server, the host / single-player runs it directly.
@@ -755,25 +781,58 @@ bool InteractionSystem::TryOpenContainer(u64 handle) {
   s.name = RecordName(base);
   if (s.name.empty())
     s.name = "Container";
-  // CNTO holds the contents: item form id (4) + count (4). Names resolve against
-  // the base record's owning plugin; the row pool caps how many we show.
-  for (const bethesda::Subrecord& sub : cont.subrecords) {
-    if (s.items.size() >= 14)
-      break;
-    if (sub.type != FourCc('C', 'N', 'T', 'O') || sub.data.size() < 8)
-      continue;
-    u32 item_raw;
-    i32 count;
-    std::memcpy(&item_raw, sub.data.data(), 4);
-    std::memcpy(&count, sub.data.data() + 4, 4);
-    bethesda::GlobalFormId item =
-        records_.ResolveFrom(bethesda::RawFormId{item_raw}, bstored->winning_plugin);
-    ContainerItem ci;
-    ci.count = count;
-    ci.name = RecordName(item);
-    if (ci.name.empty())
-      ci.name = "(item)";
-    s.items.push_back(base::move(ci));
+  // What this chest holds NOW, which is only the record's CNTO list for one the
+  // game has never touched. A resumed savegame seeds every container it changed
+  // with the record's contents and then applies its own signed deltas, and a
+  // script that took or added something writes there too, so the live inventory
+  // outranks the record whenever it knows this container at all. Reading CNTO
+  // regardless is what used to refill a chest the player emptied hours ago.
+  const i32 live = ctx_.bindings ? ctx_.bindings->GetNumItems(
+                                       script::papyrus::ObjectRef{refr.packed()})
+                                 : 0;
+  // A container the game has touched keeps its live list even when that list is
+  // empty, and an emptied chest must stay empty: falling through to CNTO on a
+  // zero count is what refills a chest the player has already cleared.
+  const bool has_live =
+      ctx_.bindings && ctx_.bindings->HasLiveInventory(script::papyrus::ObjectRef{refr.packed()});
+  if (has_live) {
+    for (i32 i = 0; i < live && s.items.size() < 14; ++i) {
+      const script::papyrus::ObjectRef form = ctx_.bindings->GetNthForm(
+          script::papyrus::ObjectRef{refr.packed()}, i);
+      const i32 count =
+          ctx_.bindings->GetItemCount(script::papyrus::ObjectRef{refr.packed()}, form);
+      if (form.handle == 0 || count <= 0)
+        continue;
+      ContainerItem ci;
+      ci.count = count;
+      ci.name = RecordName(bethesda::GlobalFormId{static_cast<u16>(form.handle >> 32),
+                                                  static_cast<u32>(form.handle)});
+      if (ci.name.empty())
+        ci.name = "(item)";
+      s.items.push_back(base::move(ci));
+    }
+  } else {
+    // CNTO holds the contents: item form id (4) + count (4). Names resolve
+    // against the base record's owning plugin; the row pool caps how many we
+    // show.
+    for (const bethesda::Subrecord& sub : cont.subrecords) {
+      if (s.items.size() >= 14)
+        break;
+      if (sub.type != FourCc('C', 'N', 'T', 'O') || sub.data.size() < 8)
+        continue;
+      u32 item_raw;
+      i32 count;
+      std::memcpy(&item_raw, sub.data.data(), 4);
+      std::memcpy(&count, sub.data.data() + 4, 4);
+      bethesda::GlobalFormId item =
+          records_.ResolveFrom(bethesda::RawFormId{item_raw}, bstored->winning_plugin);
+      ContainerItem ci;
+      ci.count = count;
+      ci.name = RecordName(item);
+      if (ci.name.empty())
+        ci.name = "(item)";
+      s.items.push_back(base::move(ci));
+    }
   }
   container_session_ = base::move(s);
   RX_INFO("container: opened '{}' ({} items)", container_session_.name,

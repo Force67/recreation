@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Recreation;
 using Recreation.Interop;
 
 namespace Recreation.Tests;
@@ -217,6 +218,16 @@ public sealed class FakeBackend : IEngineBackend
     // In-game time in days; the fractional part is the time of day.
     public float GameTime { get; set; }
 
+    // Cart-drive kit state: the ridden-cart speed/riding snapshot the Vehicle
+    // globals read, plus the last Drive/MoveTo the ruleset issued. HeldKeys is
+    // the held-input snapshot Input.Held polls.
+    public float VehicleSpeed { get; set; }
+    public bool VehicleRiding { get; set; }
+    public (float Steer, float Throttle) LastVehicleDrive { get; private set; }
+    public (float X, float Y, float Z)? LastVehicleMove { get; private set; }
+    public readonly HashSet<Key> HeldKeys = new();
+    public void SetHeld(params Key[] keys) { HeldKeys.Clear(); foreach (Key k in keys) HeldKeys.Add(k); }
+
     // Every Debug.Notification message shown, in order, for asserting UI prompts.
     public List<string> Notifications { get; } = new();
     // The latest Hud.Gauge push per id (id -> fraction), for asserting a survival
@@ -232,6 +243,14 @@ public sealed class FakeBackend : IEngineBackend
         if (type == "Debug" && function == "Notification") Notifications.Add(LastStringArg);
         if (type == "Hud" && function == "Gauge") Gauges[args[0].AsString()] = args[1].AsFloat();
         if (type == "Hud" && function == "ClearGauge") Gauges.Remove(args[0].AsString());
+        if (type == "Vehicle" && function == "Drive")
+            LastVehicleDrive = (args[0].AsFloat(), args[1].AsFloat());
+        if (type == "Vehicle" && function == "Speed") return Value.Float(VehicleSpeed);
+        if (type == "Vehicle" && function == "Riding") return Value.Bool(VehicleRiding);
+        if (type == "Vehicle" && function == "MoveTo")
+            LastVehicleMove = (args[0].AsFloat(), args[1].AsFloat(), args[2].AsFloat());
+        if (type == "Input" && function == "Held")
+            return Value.Bool(HeldKeys.Contains((Key)args[0].AsInt()));
         if (type == "Game" && function == "GetPlayer") return Value.Object(Player);
         if (type == "Game" && function == "GetForm") return Value.Object((ulong)args[0].AsInt() & 0xFFFFFFFF);
         if (type == "Game" && function == "EnableFastTravel") FastTravelEnabled = LastBoolArg;

@@ -16,11 +16,20 @@
 #include "app/host.h"
 #include "components/audio/ambient.h"
 #include "components/bethesda/planet.h"
+#include "components/bethesda/savegame_apply.h"
 #include "components/script/host/managed_host.h"
+#include "components/script/papyrus_restore.h"
+#include "components/script/vehicle_drive_sink.h"
 #include "components/weather/director.h"
 #include "components/weather/weather.h"
+#include "components/world/actor_stats_store.h"
 #include "components/world/combat.h"
+#include "components/world/map_discovery.h"
+#include "components/world/map_markers.h"
+#include "components/world/created_forms.h"
+#include "components/world/misc_stats.h"
 #include "components/world/planet_tile.h"
+#include "components/world/saved_spawns.h"
 #include "core/input_bindings.h"
 #include "core/window.h"
 #include "core/world_clock.h"
@@ -150,6 +159,65 @@ class RuntimeWorldSink : public script::WorldEffectSink {
   std::atomic<u32> next_handle_{1};
 };
 
+// VehicleDriveSink implementation: the Skyrim bindings call this on the guest
+// thread when a script drives a cart (the cart racing kit); it forwards to the
+// carriage system's DriveRemote, which crosses back to the main thread through
+// its own mutex slot. Null carriage means no ride is up and the command is
+// dropped. Header-only and tiny, like RuntimeWorldSink.
+class RuntimeVehicleSink : public script::VehicleDriveSink {
+ public:
+  explicit RuntimeVehicleSink(CarriageSystem* carriage) : carriage_(carriage) {}
+  void set_carriage(CarriageSystem* carriage) { carriage_ = carriage; }
+
+  void DriveCart(f32 steer, f32 throttle) override {
+    if (carriage_)
+      carriage_->DriveRemote(steer, throttle);
+  }
+
+  void MoveRidden(f32 x, f32 y, f32 z) override {
+    if (carriage_)
+      carriage_->MoveRemote(x, y, z);
+  }
+
+ private:
+  CarriageSystem* carriage_ = nullptr;
+};
+
+// A savegame the engine booted with (--load-save): the parsed file, the remap
+// of its form ids onto this run's load order, and where the player stood. Held
+// from the record load until the world is placed, since the three things that
+// need it happen at three different points of bring-up.
+struct LoadedSavegame {
+  bethesda::SaveFile file;
+  bethesda::FormRemap remap;
+  bethesda::PlayerPlacement player;
+  base::String worldspace;  // editor id of the player's worldspace, "" for an interior
+};
+
+// The world map overlay (player_map.cc). The map picture is painted into
+// `pixels` and uploaded once into `texture`, then re-uploaded whenever the view
+// changes; `shown` is the discovered-location list the rail beside it lists,
+// nearest first, and `selected` indexes it.
+struct PlayerMapState {
+  // Matches the canvas the .ugui reserves. A ugui image cannot be sized in
+  // percent, so the painter and the screen agree on one pixel size.
+  static constexpr int kCanvasWidth = 1000;
+  static constexpr int kCanvasHeight = 620;
+
+  bool open = false;
+  int selected = 0;
+  // The view rides the selected marker until the player pans by hand.
+  bool follow_selection = true;
+  f32 zoom = 1.0f;
+  f32 pan_x = 0.0f, pan_y = 0.0f;  // canvas pixels, from the framed centre
+  u64 texture = 0;
+  base::Vector<u8> pixels;
+  base::Vector<u32> shown;  // indices into MapMarkers::all()
+  base::String status;      // the last fast travel
+  bool dirty = true;
+  bool boot_applied = false;  // the RX_PLAYER_MAP / RX_FAST_TRAVEL hooks ran
+};
+
 // The game: recreation's app::Application. Owns the gameplay layer (actors,
 // interaction, quest, npc, demos, weather, networking, data loading, the camera
 // and the UI) and drives it from the app::Host callbacks; the generic
@@ -166,9 +234,9 @@ class Engine : public app::Application {
   bool OnInitialize(app::Services& services) override;
   // Frame-cadence game simulation (scripting, quests, npc/combat, networking);
   // runs in both windowed and headless (dedicated-server) modes.
-  void OnSimulate(f32 frame_delta) override;
+  void OnSimulate(f32 raw_frame_delta) override;
   // Windowed-only per-frame policy: weather/sky, camera, menus, UI begin.
-  void OnUpdate(f32 frame_delta) override;
+  void OnUpdate(f32 raw_frame_delta) override;
   // Windowed-only: builds this frame's FrameView (camera, gathered draws,
   // actors, lights, decals, HUD).
   void OnBuildView(f32 frame_delta, render::FrameView& view) override;
@@ -208,12 +276,24 @@ class Engine : public app::Application {
   // / main_menu.cc); they reach the engine's internals as friends.
   friend bool LoadGameData(Engine&);
   friend void MountArchives(Engine&);
+  friend bool LoadSavegame(Engine&, const bethesda::LoadOrder&);
+  friend void ApplySavegameState(Engine&);
+  friend void ApplySavegameLocation(Engine&);
+  friend void PlaceSavegamePlayer(Engine&);
+  friend void BuildMapMarkers(Engine&);
+  friend void TogglePlayerMap(Engine&);
+  friend void UpdatePlayerMapInput(Engine&, const InputState&, const ActionState&);
+  friend void RefreshPlayerMap(Engine&, f32);
+  friend bool FastTravelToMarker(Engine&, bethesda::GlobalFormId);
+  friend void MarkPlayerDiscovery(Engine&);
+  friend void RefreshMapPanel(Engine&, f32);
   friend bool LoadInterior(Engine&);
   friend bool LoadPlanetTile(Engine&, const base::String&);
   friend void LoadExtraDomains(Engine&);
   friend void SetupExtraStreamers(Engine&);
   friend void BootManagedScripting(Engine&);
   friend void ResolveUniverses(Engine&);
+  friend void BuildMenuEntries(Engine&);
   friend void SetupMainMenu(Engine&);
   friend void EnterUniverse(Engine&, int, bool, bool, const base::String&);
   friend void SetupFirstRun(Engine&);
@@ -242,8 +322,9 @@ class Engine : public app::Application {
   void UpdateFirstRun(f32 dt);
   // Paints the three universe panes (Skyrim / Fallout 4 / Starfield) as original,
   // per-pixel procedural concept art (atmospheric sky, silhouettes, grain) and
-  // uploads them as the menu's pane backdrop textures. No external image assets:
-  // the front screen is self-contained and non-infringing.
+  // uploads them as the menu's pane backdrop textures, then uploads each launch
+  // tile's key art from the path BuildMenuEntries resolved. A base game with no
+  // image left falls back to a painting; a mode with none gets a flat plate.
   void GenerateMenuBackdrops();
   // Per-frame: a few seconds after entering a universe, grabs one clean frame of
   // its world (HUD/overlays hidden) into the backdrop cache for next time.
@@ -305,6 +386,19 @@ class Engine : public app::Application {
     bool available = false;
   };
   base::Array<MenuUniverse, 3> menu_universes_;
+  // The flat launch grid the menu shows: the three universes, then every game
+  // mode whose manifest was found beside the staged assemblies. menu_entry_art_
+  // runs parallel to it and holds each entry's key-art PNG path: for a game its
+  // world capture or the one shipped in runtime/ui/art, for a mode whatever its
+  // manifest named. Empty where there is none. menu_mode_id_ is
+  // the mode a MODE tile launched, applied by EnterUniverse before the world (and
+  // with it the managed host) comes up; menu_mode_ids_ is every mode the menu
+  // could have launched, which is what tells the managed side that an unarmed
+  // mode is optional content rather than an ordinary mod.
+  base::Vector<GameUi::MenuEntry> menu_entries_;
+  base::Vector<base::String> menu_entry_art_;
+  base::String menu_mode_id_;
+  base::Vector<base::String> menu_mode_ids_;
   bool main_menu_active_ = false;
   // First-run out-of-box wizard: owns the screen on a fresh install until the
   // player finishes setup, at which point it hands off to the main menu. The
@@ -356,6 +450,7 @@ class Engine : public app::Application {
   // frame into the npc director's combat driver.
   world::CombatEventQueue combat_event_queue_;
   RuntimeWorldSink runtime_world_sink_{&quest_world_queue_, &combat_event_queue_};
+  RuntimeVehicleSink runtime_vehicle_sink_{nullptr};  // pointed at carriage_ at load
 
   // The Vfs + audio system are owned by the host; non-owning views cached here.
   // Audio reads sound bytes lazily through the Vfs; the sound catalog (SOUN/SNDR
@@ -368,10 +463,42 @@ class Engine : public app::Application {
   audio::AmbientDirector ambient_director_;
   base::UniquePointer<asset::AssetDatabase> assets_;
   bethesda::RecordStore records_;
+  // The savegame this run booted from (--load-save), null without one.
+  base::UniquePointer<LoadedSavegame> save_;
+  // Its Papyrus heap, in this run's terms. Outlives save_ on purpose: a
+  // reference's scripts attach when its cell streams in, long after the rest of
+  // the save has been applied and let go.
+  base::UniquePointer<script::PapyrusRestorer> papyrus_restore_;
   // Localized FULL/log/objective text for records (quest names, journal text).
   bethesda::StringTable strings_;
   // DIAL topics indexed by quest, for NPC dialogue.
   dialogue::DialogueDb dialogue_;
+  // Dialogue lines already heard, and the cells the player has uncovered on the
+  // map. Both are pure state a savegame fills and play adds to.
+  dialogue::SaidTopics said_topics_;
+  world::MapDiscovery map_discovery_;
+  // The Stats page. Only a resumed save fills it today: nothing in the engine
+  // counts kills or picked locks yet, so a fresh game leaves it empty and the
+  // menu says so rather than showing a page of zeroes.
+  world::MiscStats misc_stats_;
+  // The named places on the map and which of them the player has found. Built
+  // from the records at load, then filled in by a savegame and by walking.
+  world::MapMarkers map_markers_;
+  // Actor level and temperament, read off the NPC_ records and overridden by a
+  // save. Outlives the streamer that reads it, which is why it lives here.
+  world::ActorStatsStore actor_stats_;
+  // References a resumed savegame created while it was played, binned by cell.
+  // Filled once when the save is applied, read for the rest of the session by
+  // the streamer as each cell comes in, so it outlives both the save and the
+  // streamer on purpose.
+  world::SavedSpawnIndex saved_spawns_;
+  // The potions the player brewed and the enchantments they made, out of a
+  // resumed savegame's created-object table. Nothing in the load order describes
+  // one, so this is where the inventory and the item catalogue ask about them.
+  world::CreatedForms created_forms_;
+  MapPanel map_panel_;
+  PlayerMapState player_map_;
+  f32 map_panel_timer_ = 0.0f;
   base::UniquePointer<world::CellStreamer> streamer_;
   // Procedural Starfield planet tile (RX_STARFIELD_PLANET): the generator plus
   // the resolved surface it reads from, kept alive for the session (the ground
@@ -416,6 +543,9 @@ class Engine : public app::Application {
   void SaveControls();    // write input_map_ back to controls.ini
   void ApplyControls();   // push sensitivity/invert to the camera, LED to the pad
   void UpdateSettings();  // drive the settings panel: rebind capture + sliders
+  // Stat rows already handed to the menu. Starts past any real size so the
+  // first frame pushes, which is what puts the empty-page text up.
+  mem_size stats_pushed_ = ~mem_size(0);
   base::String controls_path_;
   int capturing_row_ = -1;           // settings: row awaiting an input (-1 = idle)
   bool capture_prev_mouse_[3] = {};  // mouse-button edge tracking during capture
@@ -577,6 +707,37 @@ class Engine : public app::Application {
 bool LoadGameData(Engine& engine);
 void MountArchives(Engine& engine);
 bool LoadInterior(Engine& engine);
+// Booting from a savegame (savegame_load.cc), in the order bring-up allows.
+// LoadSavegame reads the file and builds the form id remap while the run's
+// LoadOrder is still in scope; ApplySavegameState pushes globals, quest, actor
+// and reference state at the live systems before quest scripts attach;
+// ApplySavegameLocation points the streamer at the player's cell and
+// PlaceSavegamePlayer puts the player and camera on the exact saved spot.
+bool LoadSavegame(Engine& engine, const bethesda::LoadOrder& order);
+void ApplySavegameState(Engine& engine);
+void ApplySavegameLocation(Engine& engine);
+void PlaceSavegamePlayer(Engine& engine);
+// Map discovery on the live world (map_state.cc): BuildMapMarkers reads the
+// map-marker references out of the load order once, MarkPlayerDiscovery uncovers
+// wherever the walking player stands (and discovers a location they walk up to),
+// RefreshMapPanel snapshots the store for the F5 window.
+void BuildMapMarkers(Engine& engine);
+void MarkPlayerDiscovery(Engine& engine);
+// Which worldspace's map a worldspace draws on: itself, or the parent it borrows
+// map data from (Skyrim's walled cities are their own worldspaces but appear on
+// Tamriel's map at Tamriel's coordinates).
+bethesda::GlobalFormId MapWorldspaceFor(const bethesda::RecordStore& records,
+                                        bethesda::GlobalFormId worldspace);
+// The world map overlay (player_map.cc): the toggle, the input it takes while
+// open (selection, pan, zoom, travel) and the per-frame repaint + push to the UI.
+void TogglePlayerMap(Engine& engine);
+void UpdatePlayerMapInput(Engine& engine, const InputState& input, const ActionState& actions);
+void RefreshPlayerMap(Engine& engine, f32 dt);
+// Moves the player to a discovered map marker and spends the game time the walk
+// would have cost. False when the marker is unknown, is not a travel destination
+// or its worldspace cannot be streamed.
+bool FastTravelToMarker(Engine& engine, bethesda::GlobalFormId marker_ref);
+void RefreshMapPanel(Engine& engine, f32 dt);
 // Boots a synthesized procedural Starfield planet tile (RX_STARFIELD_PLANET).
 bool LoadPlanetTile(Engine& engine, const base::String& biom_name);
 void LoadExtraDomains(Engine& engine);
@@ -586,10 +747,13 @@ void SetupExtraStreamers(Engine& engine);
 // A no-op on a replica client, where scripts run server-authoritative.
 void BootManagedScripting(Engine& engine);
 // NEXUS main menu. ResolveUniverses fills menu_universes_ (the three games' data
-// dirs from args / env / a Steam scan); SetupMainMenu opens the menu without
-// loading a game; EnterUniverse loads the chosen game on demand so its C#
-// gameplay module boots (the module gates on being the primary domain).
+// dirs from args / env / a Steam scan); BuildMenuEntries turns those plus the
+// gamemode manifests staged beside the managed assemblies into the launch grid;
+// SetupMainMenu opens the menu without loading a game; EnterUniverse loads the
+// chosen game on demand so its C# gameplay module boots (the module gates on
+// being the primary domain), arming menu_mode_id_ on top of it.
 void ResolveUniverses(Engine& engine);
+void BuildMenuEntries(Engine& engine);
 void SetupMainMenu(Engine& engine);
 void EnterUniverse(Engine& engine,
                    int idx,

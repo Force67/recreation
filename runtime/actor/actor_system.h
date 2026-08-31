@@ -17,6 +17,7 @@
 #include "components/bethesda/animation_data.h"
 #include "components/bethesda/hkx_anim.h"
 #include "components/bethesda/hkx_physics.h"
+#include "components/bethesda/worn_armor.h"
 #include "core/math.h"
 #include "ecs/world.h"
 #include "physics/physics_world.h"
@@ -61,6 +62,10 @@ class ActorSystem {
   f32 PlayerYaw() const;  // facing of the player biped, radians about engine up
   // Teleports the player (capsule + ECS transform); the target of a quest MoveTo.
   void TeleportPlayer(f32 x, f32 y, f32 z);
+  // Turns a standing player to face `yaw` (biped convention, +Z faces the
+  // heading). MovePlayer only turns the body while it is moving, so a resumed
+  // savegame has no other way to say which way the character was looking.
+  void SetPlayerFacing(f32 yaw);
   // Sits the player's biped on a piece of furniture: `clip_path` holds the pose
   // and the caller plants it, since Bethesda's seated idles carry the seat as a
   // baked offset on the COM. The locomotion machine stands down until
@@ -98,10 +103,18 @@ class ActorSystem {
   // How many drawable parts a streamed NPC's instance has. 0 means it has an actor
   // but nothing to render, which is invisible rather than missing.
   int NpcInstanceParts(ecs::Entity npc) const;
+  // Whether a spawned actor is a person rather than a creature, which is what
+  // decides if it can take a seat: a horse standing beside a cart is not a
+  // passenger, however close it parks.
+  bool NpcIsPerson(ecs::Entity npc) const;
   // World position of an NPC instance's head bone, as of the last pose update.
   // False when the entity has no actor or the rig has no head. What a camera
   // frames a conversation on, rather than guessing at the body's origin.
   bool NpcHeadWorld(ecs::Entity npc, Vec3* out);
+
+  // The head builder, created on first use. A savegame reaches it to override
+  // the face its records author, which happens long before any head is built.
+  FaceBuilder& faces();
 
   // --- Spawning ---
   bool SpawnPlayerActor(const Vec3& pos);
@@ -275,8 +288,20 @@ class ActorSystem {
   // scripted NPC is instanced from). False when no body assets could be loaded.
   bool EnsureNpcTemplate();
   // soldier_kind: 0 = bare civilian body, 1 = imperial-side soldier (worn
-  // cuirass in the body slot), 2 = stormcloak-side soldier.
-  bool LoadActorTemplate(Actor* out, int soldier_kind = 0);
+  // cuirass in the body slot), 2 = stormcloak-side soldier. `skip_slots` is a
+  // biped slot mask (bethesda::BipedSlotBit) of the bare parts to leave off
+  // because worn armour is going to cover them; skin under a cuirass is not
+  // just invisible, it z-fights through it.
+  bool LoadActorTemplate(Actor* out, int soldier_kind = 0, u32 skip_slots = 0);
+  // The armour an actor has equipped, resolved through ARMO -> ARMA -> model
+  // against the actor's own race. `covered` comes back as the biped slots the
+  // set fills. Empty when the bindings are not up or nothing is worn.
+  base::Vector<bethesda::WornArmor> ResolveEquippedArmor(bethesda::GlobalFormId npc_base,
+                                                         bethesda::GlobalFormId actor_ref,
+                                                         u32* covered);
+  // Loads each resolved piece as a skinned part sharing the actor's skeleton.
+  // Returns how many went on.
+  u32 AttachWornArmor(Actor& actor, base::Span<const bethesda::WornArmor> worn);
   // Plays a spline-compressed .hkx clip on the actor (replacing the
   // procedural gait). Resolves tracks to bones through the character
   // skeleton.hkx (cached). False when the file is missing or undecodable.
@@ -355,7 +380,12 @@ class ActorSystem {
   // Attaches head-part meshes riding the head bone. With a valid `npc` it
   // assembles + morphs that NPC's FaceGen head (face/eyes/brows/beard/hair);
   // otherwise (player, soldiers) it falls back to the default male head + hair.
-  void AttachHead(Actor& actor, bethesda::GlobalFormId npc, bool allow_groom = true);
+  // `covered_slots` are the biped slots worn armour already fills: a hood owns
+  // the hair slot, so the default hairstyle underneath has to go.
+  void AttachHead(Actor& actor,
+                  bethesda::GlobalFormId npc,
+                  bool allow_groom = true,
+                  u32 covered_slots = 0);
   // Builds a strand groom from a hair nif and rides it on the head bone. Replaces
   // the flat card hair when RX_STRAND_HAIR is on. No-op if the nif has no usable
   // geometry.
@@ -401,6 +431,12 @@ class ActorSystem {
   base::Vector<Actor> actors_;
   i32 player_actor_ = -1;  // index into actors_ the walk mode drives, -1 = none
   bool player_seated_ = false;
+  // Where a quest asked to put the player before there was a player to put, held
+  // until the avatar spawns.
+  base::Optional<Vec3> pending_move_;
+  // Which way a resumed savegame asked the player to face, held the same way:
+  // the save is read long before the body streams in.
+  base::Optional<f32> pending_yaw_;
   base::Optional<Actor> npc_template_;
   base::Optional<Actor> soldier_templates_[2];  // [0] imperial (team 1), [1] stormcloak (team 2)
   // Creature rig per race (packed RACE form id); an entry with no actor is a

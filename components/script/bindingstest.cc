@@ -83,6 +83,28 @@ int main(int argc, char** argv) {
   bindings.RemoveItem(chest, gold, 1000);
   check("over-remove clamps to 0", bindings.GetItemCount(chest, gold) == 0);
 
+  // Perks. A loaded save pushes its perk arrays through AddPerk, so HasPerk has
+  // to answer for them and the count has to be the actor's own.
+  {
+    const ObjectRef necromage{0x000581E4};  // Skyrim.esm Necromage
+    const ObjectRef impact{0x000153D2};     // Skyrim.esm Impact
+    check("no perks to start", bindings.GetPerkCount(actor) == 0 &&
+                                   !bindings.HasPerk(actor, necromage));
+    bindings.AddPerk(actor, necromage, 1);
+    bindings.AddPerk(actor, impact, 1);
+    check("two perks, both held", bindings.GetPerkCount(actor) == 2 &&
+                                      bindings.HasPerk(actor, necromage) &&
+                                      bindings.HasPerk(actor, impact));
+    check("another actor holds none of them",
+          bindings.GetPerkCount(chest) == 0 && !bindings.HasPerk(chest, necromage));
+    bindings.AddPerk(actor, necromage, 1);
+    check("adding one twice does not double it", bindings.GetPerkCount(actor) == 2);
+    bindings.RemovePerk(actor, necromage);
+    check("removed one, the other stands", bindings.GetPerkCount(actor) == 1 &&
+                                               !bindings.HasPerk(actor, necromage) &&
+                                               bindings.HasPerk(actor, impact));
+  }
+
   // Runtime alias fill (ReferenceAlias.ForceRefTo / Clear). Uses a quest handle
   // with no definition so only the runtime override is in play.
   {
@@ -317,6 +339,24 @@ int main(int argc, char** argv) {
   bindings.SetCrimeGold(thieves, 100);
   bindings.ModCrimeGold(thieves, 50);
   check("crime gold 100 + 50 = 150", bindings.GetCrimeGold(thieves) == 150);
+  // Infamy is a separate ledger: paying the bounty off leaves it standing.
+  check("no infamy before a crime", bindings.GetInfamyViolent(thieves) == 0);
+  bindings.SetInfamy(thieves, 44, 247);
+  bindings.SetCrimeGold(thieves, 0);
+  check("infamy survives the bounty being cleared",
+        bindings.GetInfamyViolent(thieves) == 44 &&
+            bindings.GetInfamyNonViolent(thieves) == 247 && bindings.GetCrimeGold(thieves) == 0);
+
+  // Levels: the actor's NPC_ record answers until a savegame overrides it.
+  // Ahtar (base 0x0001325F) is a 1.0x level-mult actor with a calc range of
+  // 6..30, so an unlevelled player leaves him at his floor of 6.
+  const GlobalFormId ahtar_ref = records.PlacedRefForBase(GlobalFormId{0, 0x0001325F});
+  check("Ahtar has a placed reference", ahtar_ref.plugin != 0xffff);
+  ObjectRef ahtar{Handle(ahtar_ref)};
+  check("Ahtar reads his record's calc floor", bindings.GetLevel(ahtar) == 6);
+  bindings.SetLevel(ahtar, 30);
+  check("a savegame level overrides the record", bindings.GetLevel(ahtar) == 30);
+  check("an actor with no record at all is level 1", bindings.GetLevel(ObjectRef{0xdeadbeef}) == 1);
   ObjectRef rock{0x3C};
   check("default scale is 1.0", bindings.GetScale(rock) == 1.0f);
   bindings.SetScale(rock, 2.5f);

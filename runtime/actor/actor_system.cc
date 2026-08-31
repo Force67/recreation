@@ -195,6 +195,12 @@ int ActorSystem::NpcInstanceParts(ecs::Entity npc) const {
   return a ? static_cast<int>(a->parts.size()) : 0;
 }
 
+bool ActorSystem::NpcIsPerson(ecs::Entity npc) const {
+  const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
+  const Actor* a = npc_actors_.find(key);
+  return a != nullptr && a->anim_project == "character";
+}
+
 bool ActorSystem::NpcHeadWorld(ecs::Entity npc, Vec3* out) {
   const u64 key = static_cast<u64>(npc.generation) << 32 | npc.index;
   Actor* a = npc_actors_.find(key);
@@ -232,6 +238,24 @@ void ActorSystem::MovePlayer(const Vec3& feet,
     t->position[1] = feet.y;
     t->position[2] = feet.z;
     const f32 h = actor.yaw * 0.5f;
+    t->rotation[0] = 0;
+    t->rotation[1] = std::sin(h);
+    t->rotation[2] = 0;
+    t->rotation[3] = std::cos(h);
+  }
+}
+
+void ActorSystem::SetPlayerFacing(f32 yaw) {
+  if (player_actor_ < 0) {
+    // Same story as TeleportPlayer: a savegame says where the player looks
+    // while the world is still streaming, before there is a body to turn.
+    pending_yaw_ = yaw;
+    return;
+  }
+  Actor& actor = actors_[player_actor_];
+  actor.yaw = yaw;
+  if (world::Transform* t = world_.Get<world::Transform>(actor.entity)) {
+    const f32 h = yaw * 0.5f;
     t->rotation[0] = 0;
     t->rotation[1] = std::sin(h);
     t->rotation[2] = 0;
@@ -353,8 +377,14 @@ void ActorSystem::TeleportPlayer(f32 x, f32 y, f32 z) {
     return;
   if (std::getenv("RX_SKEL_DUMP"))
     RX_INFO("TeleportPlayer({:.2f}, {:.2f}, {:.2f})", x, y, z);
-  if (player_actor_ < 0)
+  if (player_actor_ < 0) {
+    // A start-game quest decides where the player begins, and it runs its opening
+    // stage while the world is still loading, before there is a body to move.
+    // Skyrim's opening does exactly that: it puts the player in the cart. Keep the
+    // last such request and honour it when the avatar spawns.
+    pending_move_ = Vec3{x, y, z};
     return;
+  }
   Actor& a = actors_[player_actor_];
   if (a.character)
     physics_.SetCharacterPosition(a.character, Vec3{x, y, z});
@@ -363,10 +393,13 @@ void ActorSystem::TeleportPlayer(f32 x, f32 y, f32 z) {
     t->position[1] = y;
     t->position[2] = z;
   }
-  // If the rx character controller is live on this entity, reset its velocity and
-  // flag the teleport so the follow camera cuts (SyncCharacterCameraAnchors bumps
-  // the anchor revision) instead of swinging across the worldspace.
-  if (auto* st = world_.Get<character::CharacterState>(a.entity)) {
+  // The rx character controller owns its own capsule and rewrites the transform
+  // from it every step, so moving ours alone lasts exactly one frame. Move the
+  // controller's too where it is live, which also cuts the follow camera across
+  // the jump instead of swinging it over the worldspace.
+  if (world_.Get<character::CharacterBody>(a.entity)) {
+    character::TeleportCharacter(world_, physics_, a.entity, Vec3{x, y, z});
+  } else if (auto* st = world_.Get<character::CharacterState>(a.entity)) {
     st->velocity = {0, 0, 0};
     st->teleported = true;
   }
@@ -375,7 +408,8 @@ void ActorSystem::TeleportPlayer(f32 x, f32 y, f32 z) {
     tr->position[1] = y;
     tr->position[2] = z;
   }
-  RX_INFO("quest: teleported player to ({:.1f}, {:.1f}, {:.1f})", x, y, z);
+  // No log here: a ride moves the player onto its seat every frame.
+  RX_DEBUG("player moved to ({:.1f}, {:.1f}, {:.1f})", x, y, z);
 }
 
 bool ActorSystem::LoadActorPart(const base::String& path, Actor& actor, i32 attach_bone) {
@@ -466,7 +500,81 @@ base::Vector<base::String> ActorSystem::FindHeadPartModels(u32 part_type, u32 ma
   return out;
 }
 
-bool ActorSystem::LoadActorTemplate(Actor* out, int soldier_kind) {
+base::Vector<bethesda::WornArmor> ActorSystem::ResolveEquippedArmor(
+    bethesda::GlobalFormId npc_base,
+    bethesda::GlobalFormId actor_ref,
+    u32* covered) {
+  base::Vector<bethesda::WornArmor> worn;
+  *covered = 0;
+  if (!ctx_.bindings)
+    return worn;
+
+  base::Vector<bethesda::GlobalFormId> equipped;
+  ctx_.bindings->EquippedForms(script::papyrus::ObjectRef{actor_ref.packed()}, equipped);
+  if (equipped.empty())
+    return worn;
+
+  // Which armature applies is a race question, and which of an armature's two
+  // models is a sex question, so both come off the actor's own NPC_ record.
+  bethesda::GlobalFormId race;
+  bool female = false;
+  bethesda::Record base_rec;
+  if (records_.Parse(npc_base, &base_rec)) {
+    if (const bethesda::Subrecord* rnam = base_rec.Find(FourCc('R', 'N', 'A', 'M'))) {
+      if (rnam->data.size() >= 4) {
+        u32 raw = 0;
+        std::memcpy(&raw, rnam->data.data(), sizeof(raw));
+        const bethesda::RecordStore::StoredRecord* stored = records_.Find(npc_base);
+        race = records_.ResolveFrom(bethesda::RawFormId{raw},
+                                    stored ? stored->winning_plugin : u16(0));
+      }
+    }
+    if (const bethesda::Subrecord* acbs = base_rec.Find(FourCc('A', 'C', 'B', 'S'))) {
+      if (acbs->data.size() >= 4) {
+        u32 flags = 0;
+        std::memcpy(&flags, acbs->data.data(), sizeof(flags));
+        female = (flags & 0x1) != 0;
+      }
+    }
+  }
+  // A resumed savegame's player is whatever chargen made them, which is rarely
+  // what the generic Player NPC_ record says. The head already asks the save
+  // (FaceBuilder's overrides); the armour has to ask the same, or a female
+  // character comes back wearing the male armature - or nothing at all, when
+  // the ARMA the record picks has no model for the body that is actually there.
+  // Queried through the member rather than faces(), which would build a face
+  // builder just to ask: if none exists yet, no save has overridden anything.
+  if (face_builder_) {
+    bethesda::GlobalFormId saved_race;
+    if (face_builder_->OverriddenRace(npc_base, &saved_race))
+      race = saved_race;
+    bool saved_female = false;
+    if (face_builder_->OverriddenSex(npc_base, &saved_female))
+      female = saved_female;
+  }
+
+  for (bethesda::GlobalFormId item : equipped) {
+    bethesda::WornArmor piece;
+    if (!bethesda::ResolveWornArmor(records_, item, race, female, &piece))
+      continue;
+    *covered |= piece.slots;
+    worn.push_back(base::move(piece));
+  }
+  return worn;
+}
+
+u32 ActorSystem::AttachWornArmor(Actor& actor, base::Span<const bethesda::WornArmor> worn) {
+  u32 attached = 0;
+  for (const bethesda::WornArmor& piece : worn) {
+    // Armour models live under meshes/ the same way body parts do; the record
+    // spells the path from there.
+    if (LoadActorPart("meshes/" + piece.model, actor))
+      ++attached;
+  }
+  return attached;
+}
+
+bool ActorSystem::LoadActorTemplate(Actor* out, int soldier_kind, u32 skip_slots) {
   const base::String skel_path = "meshes/actors/character/character assets/skeleton.nif";
   auto skel_bytes = vfs_.Read(asset::NormalizePath(skel_path));
   if (!skel_bytes) {
@@ -511,13 +619,21 @@ bool ActorSystem::LoadActorTemplate(Actor* out, int soldier_kind) {
     body_mesh = "meshes/armor/imperial/m/cuirassheavy_1.nif";
   else if (soldier_kind == 2)
     body_mesh = "meshes/armor/stormcloaks/cuirasssleeved_0.nif";
-  bool body_ok = LoadActorPart(body_mesh, *out);
-  if (!body_ok && soldier_kind != 0)
-    body_ok = LoadActorPart("meshes/actors/character/character assets/malebody_1.nif", *out);
-  bool any = body_ok;
-  any = LoadActorPart("meshes/actors/character/character assets/malehands_1.nif", *out) || any;
-  any = LoadActorPart("meshes/actors/character/character assets/malefeet_1.nif", *out) || any;
-  if (!any) {
+  const auto wears = [skip_slots](u32 slot) {
+    return (skip_slots & bethesda::BipedSlotBit(slot)) == 0;
+  };
+  bool any = false;
+  if (wears(bethesda::kBipedSlotBody)) {
+    bool body_ok = LoadActorPart(body_mesh, *out);
+    if (!body_ok && soldier_kind != 0)
+      body_ok = LoadActorPart("meshes/actors/character/character assets/malebody_1.nif", *out);
+    any = body_ok;
+  }
+  if (wears(bethesda::kBipedSlotHands))
+    any = LoadActorPart("meshes/actors/character/character assets/malehands_1.nif", *out) || any;
+  if (wears(bethesda::kBipedSlotFeet))
+    any = LoadActorPart("meshes/actors/character/character assets/malefeet_1.nif", *out) || any;
+  if (!any && skip_slots == 0) {
     RX_ERROR("no skyrim body parts loaded");
     return false;
   }
@@ -527,23 +643,31 @@ bool ActorSystem::LoadActorTemplate(Actor* out, int soldier_kind) {
   return true;
 }
 
-void ActorSystem::AttachHead(Actor& actor, bethesda::GlobalFormId npc, bool allow_groom) {
+FaceBuilder& ActorSystem::faces() {
+  if (!face_builder_)
+    face_builder_ = base::MakeUnique<FaceBuilder>(ctx_);
+  return *face_builder_;
+}
+
+void ActorSystem::AttachHead(Actor& actor,
+                             bethesda::GlobalFormId npc,
+                             bool allow_groom,
+                             u32 covered_slots) {
   i32 head_bone = actor.skeleton.Find("NPC Head [Head]");
   if (head_bone < 0)
     return;
   const Mat4 inv = head_bone < static_cast<i32>(actor.bone_model.size())
                        ? Inverse(actor.bone_model[head_bone])
                        : Mat4::Identity();
-  const bool groom = allow_groom && StrandHair;
+  const bool hooded = (covered_slots & bethesda::BipedSlotBit(bethesda::kBipedSlotHair)) != 0;
+  const bool groom = allow_groom && StrandHair && !hooded;
 
   // A named NPC: assemble + morph its real FaceGen head, attach every built part
   // rigidly to the head bone. The FaceState is transient (the GPU owns the
   // uploaded meshes; the parts reference them by id), so it is dropped after.
   if (npc.plugin != 0xffff && ctx_.records) {
-    if (!face_builder_)
-      face_builder_ = base::MakeUnique<FaceBuilder>(ctx_);
     FaceState fs;
-    if (face_builder_->AssembleNpc(npc, &fs)) {
+    if (faces().AssembleNpc(npc, &fs)) {
       fs.RebuildAndUpload();
       for (const BuiltFacePart& p : fs.parts()) {
         // The flat card hair part is replaced by the simulated groom below.
@@ -566,6 +690,8 @@ void ActorSystem::AttachHead(Actor& actor, bethesda::GlobalFormId npc, bool allo
   // Player, soldiers, or a face that failed to resolve: the default male head
   // and a hairstyle, unmorphed.
   LoadActorPart("meshes/actors/character/character assets/malehead.nif", actor, head_bone);
+  if (hooded)
+    return;
   base::Vector<base::String> hairs = FindHeadPartModels(/*hair=*/3, 24);
   if (groom && !hairs.empty()) {
     AttachHairGroom(actor, hairs[0], {0.32f, 0.24f, 0.18f}, head_bone, inv);
@@ -806,14 +932,41 @@ bool ActorSystem::SpawnPlayerActor(const Vec3& pos) {
   const bool starfield = ctx_.game == bethesda::Game::kStarfield;
   const bool fallout =
       ctx_.game == bethesda::Game::kFallout3 || ctx_.game == bethesda::Game::kFalloutNv;
+  const bool skyrim = ctx_.game == bethesda::Game::kSkyrimSe;
+
+  // What the player is wearing, resolved before the body is built: armour that
+  // fills a slot replaces the bare part under it rather than sitting on top.
+  u32 covered = 0;
+  base::Vector<bethesda::WornArmor> worn;
+  if (skyrim) {
+    // The two fixed ids every Skyrim save uses: the Player NPC_ record and the
+    // player's own reference.
+    constexpr u32 kPlayerBase = 0x00000007;
+    constexpr u32 kPlayerRef = 0x00000014;
+    worn = ResolveEquippedArmor(bethesda::GlobalFormId{0, kPlayerBase},
+                                bethesda::GlobalFormId{0, kPlayerRef}, &covered);
+  }
+
   bool loaded = starfield ? LoadStarfieldActorTemplate(&actor)
                 : fallout ? LoadFalloutActorTemplate(&actor)
-                          : LoadActorTemplate(&actor);
+                          : LoadActorTemplate(&actor, 0, covered);
   if (!loaded)
     return false;
-  // Skyrim bodies carry no head; give the player the default head + hair.
-  if (ctx_.game == bethesda::Game::kSkyrimSe)
-    AttachHead(actor, bethesda::GlobalFormId{0xffff, 0});
+  // Skyrim bodies carry no head. The player's own face is normally the plugin's
+  // generic Player record, which is not worth assembling, so the default head
+  // stands in; a loaded save carries the real one and is worth assembling.
+  if (skyrim) {
+    const bethesda::GlobalFormId player_base{0, 0x00000007};
+    const bool saved = faces().HasOverride(player_base);
+    AttachHead(actor, saved ? player_base : bethesda::GlobalFormId{0xffff, 0},
+               /*allow_groom=*/true, covered);
+  }
+  if (!worn.empty()) {
+    const u32 attached =
+        AttachWornArmor(actor, base::Span<const bethesda::WornArmor>(worn.data(), worn.size()));
+    RX_INFO("player: dressed in {} of {} equipped armour pieces, biped slots 0x{:08x}", attached,
+            worn.size(), covered);
+  }
 
   actor.entity = world_.Create();
   world_.Add(actor.entity, world::Transform{.position = {pos.x, pos.y, pos.z}});
@@ -852,6 +1005,19 @@ bool ActorSystem::SpawnPlayerActor(const Vec3& pos) {
 
   player_actor_ = static_cast<i32>(actors_.size());
   actors_.push_back(base::move(actor));
+  if (pending_move_) {
+    const Vec3 to = *pending_move_;
+    pending_move_.reset();
+    RX_INFO("player: starting where the quest put them, ({:.1f}, {:.1f}, {:.1f})", to.x, to.y,
+            to.z);
+    TeleportPlayer(to.x, to.y, to.z);
+  }
+  if (pending_yaw_) {
+    const f32 yaw = *pending_yaw_;
+    pending_yaw_.reset();
+    RX_INFO("player: facing where the save left them, {:.0f} degrees", yaw * 57.29578f);
+    SetPlayerFacing(yaw);
+  }
   return true;
 }
 

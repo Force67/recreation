@@ -1,14 +1,17 @@
-// Multiplayer chat box (bottom-left, above the gauges). A fixed pool of text
-// rows fed each frame from SetChatLines; the whole box collapses when empty. The
-// newest line sits at the bottom, oldest at the top, mirroring every chat UI.
+// Multiplayer chat, bottom-left. Fed from SetChatLines; collapses when empty,
+// newest line at the bottom. The newest row is full white and the history
+// secondary grey. A plate rather than shadows: this is a persistent block of
+// small text over arbitrary scenes.
 
-  panel chat_box { position: absolute; left: 30; bottom: 300; width: 430; layout: column; align: start; gap: 2; visibility: collapsed; padding: 8; background: #0a0c14a0; corner-radius: 6; border-color: #00000066; border-width: 1; shadow-color: #00000066; shadow-blur: 12; shadow-y: 2;
-    text chat_line0 { text: ""; font-size: 12; color: #d7deec; letter-spacing: 0; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
-    text chat_line1 { text: ""; font-size: 12; color: #d7deec; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
-    text chat_line2 { text: ""; font-size: 12; color: #d7deec; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
-    text chat_line3 { text: ""; font-size: 12; color: #d7deec; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
-    text chat_line4 { text: ""; font-size: 12; color: #d7deec; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
-    text chat_line5 { text: ""; font-size: 12; color: #d7deec; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
-    text chat_line6 { text: ""; font-size: 12; color: #d7deec; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
-    text chat_line7 { text: ""; font-size: 12; color: #e7edf7; text-shadow-color: #000000d0; text-shadow-x: 1; text-shadow-y: 1; }
+  panel chat_box {
+    position: absolute; left: 52; bottom: 300; width: 460; class: plate_w;
+    layout: column; align: start; gap: 4; visibility: collapsed; padding: 14 18 14 18;
+    text chat_line0 { class: t_dim; text: ""; font-size: 13; }
+    text chat_line1 { class: t_dim; text: ""; font-size: 13; }
+    text chat_line2 { class: t_dim; text: ""; font-size: 13; }
+    text chat_line3 { class: t_dim; text: ""; font-size: 13; }
+    text chat_line4 { class: t_dim; text: ""; font-size: 13; }
+    text chat_line5 { class: t_dim; text: ""; font-size: 13; }
+    text chat_line6 { class: t_dim; text: ""; font-size: 13; }
+    text chat_line7 { class: t_body; text: ""; font-size: 13; }
   }

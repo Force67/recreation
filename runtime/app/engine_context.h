@@ -16,6 +16,8 @@
 #include "components/script/host/managed_host.h"
 #include "components/script/script_system.h"
 #include "components/world/cell_streaming.h"
+#include "components/world/created_forms.h"
+#include "components/world/map_discovery.h"
 #include "components/world/quest_world.h"
 #include "core/math.h"
 #include "ecs/scheduler.h"
@@ -69,6 +71,9 @@ struct EngineConfig {
   // Interior cell to load instead of streaming the exterior worldspace.
   // Editor id ("WhiterunBanneredMare") or a hex load order form id ("0x...").
   base::String interior;
+  // Savegame to resume from: the world boots at the player's saved location
+  // with the save's globals, quest and actor state applied.
+  base::String load_save;
   f32 grass_density = 1.0f;  // multiplies every GRAS density, 0 disables
   // Cap on quest scripts instantiated at load (0 = all). The quest browser
   // lists what's attached; the default attaches every scripted quest.
@@ -122,6 +127,13 @@ struct EngineContext {
   bethesda::RecordStore* records = nullptr;
   bethesda::StringTable* strings = nullptr;
   dialogue::DialogueDb* dialogue = nullptr;
+  // Dialogue lines the player has already heard, and the map they have
+  // uncovered. Both survive a savegame load and grow as the player plays.
+  dialogue::SaidTopics* said_topics = nullptr;
+  world::MapDiscovery* map_discovery = nullptr;
+  // Base forms a resumed savegame invented (brewed potions, player
+  // enchantments). Null without one; nothing in the records describes these.
+  world::CreatedForms* created_forms = nullptr;
   world::QuestWorld* quest_world = nullptr;
   DebugUi* debug_ui = nullptr;
   GameUi* game_ui = nullptr;

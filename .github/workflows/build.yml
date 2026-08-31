@@ -6,6 +6,20 @@ on:
   pull_request:
   workflow_dispatch:
 
+# The engine and its libraries live in sibling repositories that this build
+# compiles from source. Checking them out without a ref takes whatever their
+# default branch points at that minute, so a run's result depends on when it
+# ran: a green commit goes red overnight because someone pushed to rx, and the
+# failure lands on whichever pull request happens to run next.
+#
+# Pin them. Bumping is a deliberate edit of these four lines, which is also the
+# commit that carries whatever source changes the new revision needs.
+env:
+  RX_REF: 82f83d25859e1e4eded17132803710d86624543b
+  KINEMA_REF: 5cee20221bff4eba4027e99068c35261bb45a60b
+  LIBULTRAGUI_REF: a993738fa2b6812b8d14b6315775973c9744875c
+  ZETANET_REF: 5fbc7549c9ec1803bccd0f6dfbc781ae43ebd1f7  # develop
+
 jobs:
   linux:
     runs-on: ubuntu-24.04
@@ -17,25 +31,28 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/zetanet
-          ref: develop
+          ref: ${{ env.ZETANET_REF }}
           path: zetanet
           submodules: recursive
       - name: libultragui
         uses: actions/checkout@v4
         with:
           repository: Force67/libultragui
+          ref: ${{ env.LIBULTRAGUI_REF }}
           path: libultragui
           submodules: recursive
       - name: rx
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
+          ref: ${{ env.RX_REF }}
           path: rx
           submodules: recursive
       - name: kinema
         uses: actions/checkout@v4
         with:
           repository: Force67/kinema
+          ref: ${{ env.KINEMA_REF }}
           path: kinema
       - name: deps
         run: |
@@ -56,6 +73,11 @@ jobs:
           -DRECREATION_RX_DIR=${{ github.workspace }}/rx
       - name: build
         run: cmake --build build
+      # The suite was being compiled and never run, so a test could go red and
+      # nothing said so. These are the format readers, the wire decoders and the
+      # savegame fuzz sweep: all deterministic, none needs game data or a GPU.
+      - name: test
+        run: ctest --test-dir build --output-on-failure -j"$(nproc)"
       - uses: actions/upload-artifact@v4
         with:
           name: recreation-linux-x64
@@ -114,25 +136,28 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/zetanet
-          ref: develop
+          ref: ${{ env.ZETANET_REF }}
           path: zetanet
           submodules: recursive
       - name: libultragui
         uses: actions/checkout@v4
         with:
           repository: Force67/libultragui
+          ref: ${{ env.LIBULTRAGUI_REF }}
           path: libultragui
           submodules: recursive
       - name: rx
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
+          ref: ${{ env.RX_REF }}
           path: rx
           submodules: recursive
       - name: kinema
         uses: actions/checkout@v4
         with:
           repository: Force67/kinema
+          ref: ${{ env.KINEMA_REF }}
           path: kinema
       - name: deps
         run: |
@@ -197,25 +222,28 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/zetanet
-          ref: develop
+          ref: ${{ env.ZETANET_REF }}
           path: zetanet
           submodules: recursive
       - name: libultragui
         uses: actions/checkout@v4
         with:
           repository: Force67/libultragui
+          ref: ${{ env.LIBULTRAGUI_REF }}
           path: libultragui
           submodules: recursive
       - name: rx
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
+          ref: ${{ env.RX_REF }}
           path: rx
           submodules: recursive
       - name: kinema
         uses: actions/checkout@v4
         with:
           repository: Force67/kinema
+          ref: ${{ env.KINEMA_REF }}
           path: kinema
       # Real-time scanning of every .obj/.lib/.exe dominates Windows build time on
       # the hosted runner; exclude the workspace for the duration of the job.
@@ -294,25 +322,28 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/zetanet
-          ref: develop
+          ref: ${{ env.ZETANET_REF }}
           path: zetanet
           submodules: recursive
       - name: libultragui
         uses: actions/checkout@v4
         with:
           repository: Force67/libultragui
+          ref: ${{ env.LIBULTRAGUI_REF }}
           path: libultragui
           submodules: recursive
       - name: rx
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
+          ref: ${{ env.RX_REF }}
           path: rx
           submodules: recursive
       - name: kinema
         uses: actions/checkout@v4
         with:
           repository: Force67/kinema
+          ref: ${{ env.KINEMA_REF }}
           path: kinema
       - name: deps
         run: |
@@ -382,19 +413,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Force67/zetanet
-          ref: develop
+          ref: ${{ env.ZETANET_REF }}
           path: zetanet
           submodules: recursive
       - name: rx
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
+          ref: ${{ env.RX_REF }}
           path: rx
           submodules: recursive
       - name: kinema
         uses: actions/checkout@v4
         with:
           repository: Force67/kinema
+          ref: ${{ env.KINEMA_REF }}
           path: kinema
       - name: deps
         run: |

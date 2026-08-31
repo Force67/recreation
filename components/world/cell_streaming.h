@@ -17,10 +17,12 @@
 #include "asset/asset_database.h"
 #include "components/bethesda/game_profile.h"
 #include "components/bethesda/load_order.h"
+#include "components/world/actor_stats_store.h"
 #include "components/world/components.h"
 #include "components/world/grass_baker.h"
 #include "components/world/land_baker.h"
 #include "components/world/quest_world.h"
+#include "components/world/saved_spawns.h"
 #include "components/world/terrain_edits.h"
 #include "core/job_system.h"
 #include "core/math.h"
@@ -70,6 +72,11 @@ class CellStreamer {
   // mapping here so quests can target them and clients can apply replicated
   // actor transforms by form id.
   void set_quest_world(QuestWorld* quest_world) { quest_world_ = quest_world; }
+
+  // Optional actor stats store: placed actors then come up carrying the level
+  // and temperament their NPC_ record authors, and whatever a resumed savegame
+  // overrode. Without it they carry the component's defaults.
+  void set_actor_stats(ActorStatsStore* stats) { actor_stats_ = stats; }
 
   // Optional job system: in-range cells then prefetch their base-model
   // conversions on worker threads (see RX_STREAM_PREFETCH), so the main-thread
@@ -173,6 +180,12 @@ class CellStreamer {
     ref_suppressor_ = base::move(fn);
   }
 
+  // Optional index of the references a resumed savegame created (see
+  // saved_spawns.h). Each cell places its share as it streams in, right after
+  // the references its records author and out of the same budget. Must outlive
+  // this streamer; unset = a save adds nothing to what the records place.
+  void set_saved_spawns(const SavedSpawnIndex* spawns) { saved_spawns_ = spawns; }
+
   // Converts + uploads a base form's world model to the shared renderer (salted
   // for this domain), exactly like a placed ref, but WITHOUT spawning an entity,
   // and returns the render mesh id used. The returned asset::Mesh (also cached in
@@ -201,6 +214,13 @@ class CellStreamer {
   bool EnterInterior(ecs::World& world, bethesda::GlobalFormId cell_id, Vec3* camera_position);
   void EnterExterior(ecs::World& world);
   bool in_interior() const { return interior_active_; }
+  // Where the player is, in the terms a map keeps: the worldspace being
+  // streamed and the cell the load ring is centred on, or the interior cell when
+  // one is loaded (invalid outside). What feeds the discovery store.
+  bethesda::GlobalFormId worldspace() const { return worldspace_; }
+  bethesda::GlobalFormId interior_cell() const { return interior_form_; }
+  i16 anchor_cell_x() const { return ring_center_x_; }
+  i16 anchor_cell_y() const { return ring_center_y_; }
   void SyncReference(ecs::World& world, u64 handle);
   u64 RuntimeHandleForSource(ecs::World& world,
                              u64 owner_handle,
@@ -259,6 +279,14 @@ class CellStreamer {
 
   // Terrain height (engine units) at an engine space x/z from LAND data.
   bool GroundHeight(f32 engine_x, f32 engine_z, f32* engine_y) const;
+
+  // How far above GroundHeight a character capsule has to be set down. The
+  // sampled 33x33 lattice and the heightfield collider do not agree to the
+  // millimetre, and a capsule that starts even a centimetre inside the ground is
+  // resolved DOWNWARD by the character solver: it leaves through the floor and
+  // falls hundreds of metres. Every placement onto terrain (boot, a savegame
+  // resume, a fast travel) leaves this much air and lets gravity close it.
+  static constexpr f32 kGroundClearance = 0.25f;
 
   // Bethesda LAND sculpting. Radius/strength/flatten target are engine metres;
   // the adapter converts them onto the canonical 32-quad game-height lattice.
@@ -339,6 +367,7 @@ class CellStreamer {
     base::Vector<render::InstanceGroupHandle> instance_groups;
     size_t instance_count = 0;
     u32 next_ref = 0;
+    u32 next_saved = 0;  // savegame-created references placed so far
     bool addressability_done = false;
     bool terrain_done = false;
     bool grass_done = false;
@@ -430,13 +459,43 @@ class CellStreamer {
   bool RefsGroundHeight(u32 grid_key,
                         const bethesda::RecordStore::ExteriorCell& cell,
                         f32* engine_y) const;
+  // The encounter zone a placed reference stands in: the one its own placement
+  // names, or the one its interior cell does. Invalid plugin when neither.
+  bethesda::GlobalFormId EncounterZoneOf(const bethesda::Record& refr,
+                                         bethesda::GlobalFormId ref,
+                                         u16 plugin) const;
+  // `re_homed` marks the call that places a reference a savegame moved into
+  // THIS cell, so the check that keeps the authoring cell off it does not also
+  // stop the cell it belongs in now (see saved_spawns.h).
   bool SpawnReference(ecs::World& world,
                       i16 grid_x,
                       i16 grid_y,
                       u64 ref_id,
                       LoadedCell& cell,
                       u32& mesh_budget,
-                      bool interior);
+                      bool interior,
+                      bool re_homed = false);
+  // A reference a resumed savegame created: same entity shape as a placed ref,
+  // but built from the base form and transform the save carries because no
+  // plugin has a REFR record for it. Returns false when the mesh budget ran out
+  // before it could be placed, so the caller retries it next tick.
+  bool SpawnSavedReference(ecs::World& world,
+                           i16 grid_x,
+                           i16 grid_y,
+                           const SavedSpawn& spawn,
+                           LoadedCell& cell,
+                           u32& mesh_budget,
+                           bool interior);
+  // Places the saved references of one cell, from cell.next_saved onwards.
+  // Returns false when a budget ran out mid-list.
+  bool SpawnSavedReferences(ecs::World& world,
+                            i16 grid_x,
+                            i16 grid_y,
+                            base::Span<const SavedSpawn> saved,
+                            LoadedCell& cell,
+                            u32& mesh_budget,
+                            u32& ref_budget,
+                            bool interior);
   // When `base_id` is a LIGH, parses its DATA (radius/colour) + FNAM fade and any
   // REFR XRDS radius override into a point light at `position` and records it on
   // the cell. No-op for other base types or when RX_PLACED_LIGHTS is off.
@@ -543,9 +602,12 @@ class CellStreamer {
   // placed refs are tracked here so a later transition can unload them.
   bool interior_active_ = false;
   LoadedCell interior_cell_;
+  bethesda::GlobalFormId interior_form_;  // which cell interior_cell_ holds
   InteriorLighting interior_lighting_;
   base::Function<void(u64, bool)> on_location_change_;  // load-door transition hook
   base::Function<bool(u64)> ref_suppressor_;  // skip a ref by form handle (persistent removal)
+  const SavedSpawnIndex* saved_spawns_ = nullptr;
+  u32 saved_spawns_spawned_ = 0;
   // Base form id -> converted mesh (null when the base has no usable model),
   // so failures are only diagnosed once.
   base::UnorderedMap<u64, const asset::Mesh*> base_meshes_;
@@ -589,8 +651,18 @@ class CellStreamer {
     bool deleted = false;
     bool moved = false;
     f32 position_offset[3] = {};
+    // A resumed savegame's own placement for this reference: the record's whole
+    // DATA triple (position then euler, game units), replacing it rather than
+    // offsetting it. A save says where a thing IS; a runtime move says how far a
+    // script pushed it from where its record puts it.
+    bool replaced = false;
+    f32 placement[6] = {};
   };
   base::UnorderedMap<u64, PropState> prop_states_;
+  ActorStatsStore* actor_stats_ = nullptr;
+  // Interior CELL -> the encounter zone it names, filled on the first actor of
+  // that cell so a dungeon's record is parsed once rather than per actor.
+  mutable base::UnorderedMap<u64, u64> cell_zones_;
   base::UnorderedMap<u64, bool> addressable_refs_;
   base::UnorderedMap<u64, bool> addressable_records_indexed_;
   bool addressable_refs_built_ = false;

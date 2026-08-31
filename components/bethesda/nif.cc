@@ -264,9 +264,19 @@ struct ShaderInfo {
   u32 flags2 = 0;
   f32 emissive[3] = {0, 0, 0};
   f32 emissive_multiple = 1;
+  f32 alpha = 1;  // material opacity, multiplied into the blend coverage
   f32 glossiness = 80;
   f32 refraction_strength = 0;  // screen distortion amount, SLSF1 refraction only
   f32 env_map_scale = -1;       // environment map reflectivity (type 1); -1 = absent
+  // Specular tint/strength and the two lighting-effect floats the Skyrim
+  // lighting shader shades with. `vanilla_lighting` says they were actually
+  // parsed (Skyrim layout only); the newer games lay the block out differently
+  // and carry the same data in their .bgsm material files.
+  bool vanilla_lighting = false;
+  f32 specular_color[3] = {1, 1, 1};
+  f32 specular_strength = 1;
+  f32 soft_lighting = 0;  // lighting effect 1, SLSF2 soft lighting wrap amount
+  f32 rim_power = 0;      // lighting effect 2, SLSF2 rim lighting falloff exponent
   bool effect = false;
   bool water = false;
   base::String effect_texture;
@@ -331,8 +341,12 @@ constexpr u32 kShaderFlag1EnvMapping = 1u << 7;
 constexpr u32 kShaderFlag1EyeEnvMapping = 1u << 17;
 constexpr u32 kShaderFlag1OwnEmit = 1u << 22;
 constexpr u32 kShaderFlag1SoftEffect = 1u << 30;
+constexpr u32 kShaderFlag1Specular = 1u << 0;
 constexpr u32 kShaderFlag2DoubleSided = 1u << 4;
 constexpr u32 kShaderFlag2GlowMap = 1u << 6;
+constexpr u32 kShaderFlag2SoftLighting = 1u << 25;
+constexpr u32 kShaderFlag2RimLighting = 1u << 26;
+constexpr u32 kShaderFlag2BackLighting = 1u << 27;
 constexpr u32 kShaderFlag2TreeAnim = 1u << 29;
 
 // Skyrim shader types whose texture set holds diffuse/normal in slots 0/1.
@@ -1198,19 +1212,29 @@ static NifConversion ConvertNifImpl(ByteSpan data,
       for (f32& v : info.emissive)
         v = r.Read<f32>();
       info.emissive_multiple = r.Read<f32>();
-      r.Skip(4 + 4);  // clamp mode, alpha
+      r.Skip(4);  // texture clamp mode
+      info.alpha = r.Read<f32>();
       info.refraction_strength = r.Read<f32>();
       info.glossiness = r.Read<f32>();
       bool base_ok = r.ok;
-      // Environment Map Scale follows the specular + lighting-effect block for
-      // the environment-map shader type (Skyrim layout; FO4 (bs >= 130) binds
-      // reflectivity through its .bgsm material instead). A parse overrun here
-      // must not drop the whole shader, so gate the emplace on base_ok.
-      if (base_ok && info.shader_type == 1 && header->bs_version < 130) {
-        r.Skip(12 + 4 + 4 + 4);  // specular color, strength, lighting effect 1/2
-        f32 scale = r.Read<f32>();
-        if (r.ok)
-          info.env_map_scale = scale;
+      // The specular tint, its strength and the two lighting-effect floats
+      // (soft lighting, rim power) follow the glossiness, then a per-type tail
+      // whose first float is the cubemap scale for the two environment shader
+      // types (Skyrim layout; FO4 (bs >= 130) drops the lighting effects and
+      // binds the rest through its .bgsm material instead). A parse overrun
+      // here must not drop the whole shader, so gate the emplace on base_ok.
+      if (base_ok && header->bs_version < 130) {
+        for (f32& v : info.specular_color)
+          v = r.Read<f32>();
+        info.specular_strength = r.Read<f32>();
+        info.soft_lighting = r.Read<f32>();
+        info.rim_power = r.Read<f32>();
+        info.vanilla_lighting = r.ok;
+        if (r.ok && (info.shader_type == 1 || info.shader_type == 16)) {
+          f32 scale = r.Read<f32>();
+          if (r.ok)
+            info.env_map_scale = scale;
+        }
       }
       if (base_ok)
         shaders.emplace(i, info);
@@ -1585,11 +1609,16 @@ static NifConversion ConvertNifImpl(ByteSpan data,
       material.two_sided = true;
       material.is_water = true;
     } else if (shader) {
-      base::String diffuse, normal, height, glow;
+      base::String diffuse, normal, height, glow, env_mask;
       // Glow (type 2) or the glow-map flag routes texture slot 2 to the
       // emissive slot; the emissive color/multiple tints it.
       bool glow_mapped =
           !shader->effect && (shader->shader_type == 2 || (shader->flags2 & kShaderFlag2GlowMap));
+      // Environment mapping: the two cubemap shader types, or the flag on any
+      // other type. Slot 5 masks which texels of the surface reflect.
+      bool env_mapped = !shader->effect &&
+                        (shader->shader_type == 1 || shader->shader_type == 16 ||
+                         (shader->flags1 & (kShaderFlag1EnvMapping | kShaderFlag1EyeEnvMapping)));
       // Refraction shapes carry the distortion normal map in slot 0; it must
       // never bind as a diffuse. They go to the screen-space transmission path
       // instead (glass, ice, heat haze) with the background showing through.
@@ -1616,6 +1645,12 @@ static NifConversion ConvertNifImpl(ByteSpan data,
           }
           if (glow_mapped && set->size() > 2 && !(*set)[2].empty()) {
             glow = NormalizeTexturePath((*set)[2]);
+          }
+          // Environment mask (_em, slot 5): the cubemap itself sits in slot 4
+          // and is not used - the engine reflects its own environment - but the
+          // mask still decides which texels reflect.
+          if (env_mapped && set->size() > 5 && !(*set)[5].empty()) {
+            env_mask = NormalizeTexturePath((*set)[5]);
           }
         }
       }
@@ -1671,25 +1706,62 @@ static NifConversion ConvertNifImpl(ByteSpan data,
           result.texture_paths.push_back(base::move(glow));
         }
       }
+      if (!env_mask.empty()) {
+        material.env_mask = asset::MakeAssetId(env_mask);
+        if (result.texture_paths.find(env_mask) == nullptr) {
+          result.texture_paths.push_back(base::move(env_mask));
+        }
+      }
       material.two_sided = (shader->flags2 & 0x10) != 0;
-      bool env_mapped = !shader->effect &&
-                        (shader->shader_type == 1 || shader->shader_type == 16 ||
-                         (shader->flags1 & (kShaderFlag1EnvMapping | kShaderFlag1EyeEnvMapping)));
+      // The property's own alpha scales the surface's coverage (ghosts, ice,
+      // gauze). Only the blend path reads it; an opaque draw ignores alpha.
+      material.base_color_factor[3] *= base::Clamp(shader->alpha, 0.0f, 1.0f);
       material.metallic_factor = 0;
       // Specular power to perceptual roughness, Karis' approximation. Env-mapped
-      // surfaces relax the matte floor so the engine's IBL/RT reflections stand
-      // in for the (unsupported) authored cubemap.
+      // surfaces relax the matte floor so their reflection stays sharp.
       f32 gloss = base::Clamp(shader->glossiness, 1.0f, 1000.0f);
       f32 rough_floor = env_mapped ? 0.05f : 0.2f;
       material.roughness_factor =
           base::Clamp(std::pow(2.0f / (gloss + 2.0f), 0.25f), rough_floor, 1.0f);
       if (env_mapped) {
-        // Environment Map Scale (parsed for type 1) drives reflectivity through
-        // metallic, since most env-mapped Skyrim surfaces are metal; cap
-        // roughness so the reflection reads.
+        // Environment Map Scale reflects the environment on top of the surface,
+        // masked by slot 5 - which is what the original does. Driving metallic
+        // with it instead (as this used to) blackened the diffuse of everything
+        // env-mapped: painted armour, ice, gems and eyes are not metal.
         f32 scale = shader->env_map_scale >= 0.0f ? shader->env_map_scale : 0.6f;
-        material.metallic_factor = base::Clamp(scale, 0.1f, 1.0f);
+        material.env_reflect = base::Clamp(scale, 0.0f, 1.0f);
         material.roughness_factor = base::Min(material.roughness_factor, 0.35f);
+      }
+      if (shader->vanilla_lighting) {
+        // Vanilla shades the highlight off the property, not a roughness map:
+        // the specular colour tints it, the strength scales it, and the normal
+        // map's alpha masks it per texel. No SLSF1 specular flag means the
+        // surface has no highlight at all, as in the original.
+        bool specular = (shader->flags1 & kShaderFlag1Specular) != 0;
+        material.specular_strength =
+            specular ? base::Clamp(shader->specular_strength, 0.0f, 4.0f) : 0.0f;
+        for (int k = 0; k < 3; ++k)
+          material.specular_color[k] = base::Clamp(shader->specular_color[k], 0.0f, 1.0f);
+        material.specular_mask_in_normal_alpha = static_cast<bool>(material.normal);
+        // Lighting effects: soft lighting wraps the key light around leaves and
+        // cloth, rim lighting draws the backlit edge, back lighting transmits
+        // straight through. The tint rides subsurface_color, which defaults to
+        // skin red - white it out for everything that is not skin or hair.
+        bool soft = (shader->flags2 & kShaderFlag2SoftLighting) != 0;
+        bool rim = (shader->flags2 & kShaderFlag2RimLighting) != 0;
+        bool back = (shader->flags2 & kShaderFlag2BackLighting) != 0;
+        if (soft)
+          material.soft_lighting = base::Clamp(shader->soft_lighting, 0.0f, 1.0f);
+        if (rim)
+          material.rim_lighting = base::Clamp(shader->rim_power, 0.5f, 8.0f);
+        if (back)
+          material.back_lighting = 0.5f;
+        if ((soft || rim || back) && shader->shader_type != 4 && shader->shader_type != 5 &&
+            shader->shader_type != 6) {
+          material.subsurface_color[0] = 1.0f;
+          material.subsurface_color[1] = 1.0f;
+          material.subsurface_color[2] = 1.0f;
+        }
       }
       // Emissive: own-emit fills a uniform emittance; a bound glow map modulates
       // the emissive-slot texture. A near-black glow color with a glow map means

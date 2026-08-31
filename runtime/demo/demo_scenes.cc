@@ -656,6 +656,8 @@ void DemoScenes::CreateImposterDemoScene() {
     seed = seed * 1664525u + 1013904223u;
     return static_cast<f32>(seed >> 8) / 16777216.0f;
   };
+  const u32 baked = config_.headless ? render::ImposterPass::kNoMesh
+                                     : renderer_.BakeImposter(tree);
   base::Vector<render::ImposterPass::Instance> instances;
   for (int i = 0; i < 4000; ++i) {
     f32 ang = next_rand() * 6.2831853f;
@@ -665,6 +667,7 @@ void DemoScenes::CreateImposterDemoScene() {
     inst.position[1] = 0.0f;
     inst.position[2] = std::sin(ang) * dist;
     inst.scale = 0.8f + next_rand() * 0.7f;
+    inst.mesh = baked == render::ImposterPass::kNoMesh ? 0 : baked;
     instances.push_back(inst);
   }
   for (int i = 0; i < 12; ++i) {
@@ -674,14 +677,8 @@ void DemoScenes::CreateImposterDemoScene() {
     world_.Add(t, world::Transform{.position = {std::cos(ang) * dist, 0.0f, std::sin(ang) * dist}});
     world_.Add(t, world::Renderable{tree.id});
   }
-  if (!config_.headless) {
-    // rx bakes the species once and names the instances by the index it hands
-    // back; the whole far field is then one SetImposterInstances call.
-    const u32 species = renderer_.BakeImposter(tree);
-    for (render::ImposterPass::Instance& inst : instances)
-      inst.mesh = species;
+  if (baked != render::ImposterPass::kNoMesh)
     renderer_.SetImposterInstances({instances.data(), instances.size()});
-  }
 
   ctx_.scene_owns_sun = true;
   renderer_.settings().sun_direction = {-0.6f, -0.5f, -0.62f};

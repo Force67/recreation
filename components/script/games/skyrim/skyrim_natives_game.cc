@@ -51,8 +51,8 @@ void RegisterGameExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
                [](VirtualMachine&, ObjectRef, Args&) { return Value::Str(""); });
   reg.Register("Game", "CalculateFavorCost",
                [](VirtualMachine&, ObjectRef, Args&) { return Value::Int(0); });
-  reg.Register("Game", "IsWordUnlocked", [](VirtualMachine&, ObjectRef, Args& a) {
-    return Value::Bool(st::GetFlag(ArgO(a, 0), "wordUnlocked", false));
+  reg.Register("Game", "IsWordUnlocked", [bindings](VirtualMachine&, ObjectRef, Args& a) {
+    return Value::Bool(Resolve(bindings).IsWordUnlocked(ArgO(a, 0)));
   });
   reg.Register("Game", "IsPlayerSungazing",
                [](VirtualMachine&, ObjectRef, Args&) { return Value::Bool(false); });
@@ -104,13 +104,14 @@ void RegisterGameExtra(papyrus::NativeRegistry& reg, SkyrimBindings* bindings) {
   reg.Register("Game", "SetSittingRotation", cmd);
   reg.Register("Game", "SetSunGazeImageSpaceModifier", cmd);
   // A word of power is first taught (it appears in the shout list) and later
-  // unlocked (usable). IsWordUnlocked reads the unlocked flag, so track both.
-  reg.Register("Game", "TeachWord", [](VirtualMachine&, ObjectRef, Args& a) {
-    st::SetFlag(ArgO(a, 0), "wordTaught", true);
+  // unlocked (usable). Both land in the binding store a loaded save fills, so a
+  // resumed game already knows every word it walled its way to.
+  reg.Register("Game", "TeachWord", [bindings](VirtualMachine&, ObjectRef, Args& a) {
+    Resolve(bindings).TeachWord(ArgO(a, 0));
     return Value();
   });
-  reg.Register("Game", "UnlockWord", [](VirtualMachine&, ObjectRef, Args& a) {
-    st::SetFlag(ArgO(a, 0), "wordUnlocked", true);
+  reg.Register("Game", "UnlockWord", [bindings](VirtualMachine&, ObjectRef, Args& a) {
+    Resolve(bindings).UnlockWord(ArgO(a, 0));
     return Value();
   });
 }

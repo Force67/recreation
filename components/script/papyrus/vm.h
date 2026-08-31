@@ -6,6 +6,7 @@
 #include <base/containers/vector.h>
 #include <base/functional/function.h>
 #include <base/memory/move.h>
+#include <base/memory/unique_pointer.h>
 #include <base/strings/xstring.h>
 
 #include "components/script/papyrus/fiber.h"
@@ -127,6 +128,13 @@ class VirtualMachine : public VmInterface {
   // to inspect live script state when bringing up a quest's fragments.
   base::Vector<base::String> MemberNames(ObjectRef self);
 
+  // Writes a member the instance's scripts already declare, and only that.
+  // Returns false for a name the instance does not have, which is how a
+  // savegame's variable for a script this load order compiles differently is
+  // counted and dropped instead of inventing a member no code ever reads.
+  // Matched case insensitively, like every other Papyrus name.
+  bool SetDeclaredMember(ObjectRef self, const base::String& name, Value value);
+
   // VmInterface, used by the interpreter.
   Value CallMethod(ObjectRef self, const base::String& method, base::Vector<Value> args) override;
   Value CallStatic(const base::String& script_type,
@@ -215,7 +223,11 @@ class VirtualMachine : public VmInterface {
 
   const NativeRegistry* natives_;
   base::Function<bool(ObjectRef, const base::String&)> type_resolver_;
-  base::UnorderedMap<base::String, LoadedScript> scripts_;  // key: lowercased type
+  // Held behind a pointer so a script loaded later cannot move the ones already
+  // there: a running function borrows its script's PexFile for the whole call,
+  // and a fragment that waits (Skyrim's opening waits inside a stage fragment)
+  // is still holding that borrow while the world streams in more scripts.
+  base::UnorderedMap<base::String, base::UniquePointer<LoadedScript>> scripts_;  // key: lower type
   base::UnorderedMap<u64, Instance> instances_;
   u64 next_handle_ = 1;
   base::Vector<base::Vector<Value>> arrays_;  // 1-based; index 0 reserved as None

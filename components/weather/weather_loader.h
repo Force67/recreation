@@ -17,6 +17,19 @@ namespace rx::weather {
 // the parameters and the authored intent are kept.
 int LoadWeathers(const bethesda::RecordStore& records, base::UnorderedMap<u64, WeatherDef>* out);
 
+// Which colour treatment a weather ended up with, reported so a caller counting
+// them does not have to repeat the rule.
+enum class WeatherGrade : u8 { kNone, kRadstorm, kColorGrade };
+
+// One WTHR, for a caller that already knows which. False when the id names no
+// WTHR record. LoadWeathers is this in a loop; it exists on its own because
+// resuming a savegame needs the one weather the save was left under and has no
+// use for the other hundred.
+bool LoadWeather(const bethesda::RecordStore& records,
+                 bethesda::GlobalFormId id,
+                 WeatherDef* out,
+                 WeatherGrade* grade = nullptr);
+
 // Builds a weighted climate (the input a WeatherSystem expects) for the named
 // worldspace: its authored CLMT weather list (WRLD CNAM -> CLMT WLST), else the
 // CLMT with the most resolvable weathers, else a synthetic spread over the

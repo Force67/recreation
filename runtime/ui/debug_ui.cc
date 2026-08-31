@@ -214,7 +214,8 @@ void DebugUi::Build(render::Renderer& renderer,
                     f32 frame_delta,
                     render::FrameView* view,
                     QuestPanel* quests,
-                    NativeTracePanel* trace) {
+                    NativeTracePanel* trace,
+                    MapPanel* map) {
   if (!initialized_)
     return;
 
@@ -365,6 +366,12 @@ void DebugUi::Build(render::Renderer& renderer,
       RenderQuestPanel(quests);
     ImGui::End();
   }
+
+  // The discovered world (F5): the map exploration the engine actually holds,
+  // one square per cell shaded by how much of it is uncovered. Not the player's
+  // map screen; this is the discovery store made visible.
+  if (map_visible_ && map && map->available)
+    RenderMapPanel(map);
 
   // Separate, independently-toggled window (F2): the recently invoked Papyrus
   // native functions, newest first, plus a busiest-natives tally.
@@ -1032,6 +1039,64 @@ void DebugUi::ScanPresetFiles() {
     preset_file_choice_ = 0;
 }
 
+void DebugUi::RenderMapPanel(MapPanel* map) {
+  ImGui::SetNextWindowPos({16, 560}, ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSize({420, 460}, ImGuiCond_FirstUseEver);
+  if (!ImGui::Begin("Discovered world (F5 hides)", &map_visible_)) {
+    ImGui::End();
+    return;
+  }
+
+  ImGui::Text("%s: %u cells, %u interiors", map->worldspace.c_str(), map->visited_cells,
+              map->visited_interiors);
+  const u32 cells = map->visited_cells;
+  ImGui::Text("%u of %u map tiles known (%.0f%% of what was walked)", map->known_tiles, cells * 256,
+              cells ? 100.0 * map->known_tiles / (cells * 256.0) : 0.0);
+  if (!map->location.empty())
+    ImGui::Text("inside %s", map->location.c_str());
+
+  const int width = map->max_x - map->min_x + 1;
+  const int height = map->max_y - map->min_y + 1;
+  if (width <= 0 || height <= 0 || map->tiles.size() < size_t(width) * size_t(height)) {
+    ImGui::TextUnformatted("nothing discovered yet");
+    ImGui::End();
+    return;
+  }
+
+  const ImVec2 origin = ImGui::GetCursorScreenPos();
+  const ImVec2 avail = ImGui::GetContentRegionAvail();
+  // Square cells, whole pixels: a half-pixel cell edge makes the grid shimmer as
+  // the window resizes.
+  f32 scale = std::min(avail.x / static_cast<f32>(width), avail.y / static_cast<f32>(height));
+  scale = std::max(1.0f, std::floor(scale));
+  ImDrawList* draw = ImGui::GetWindowDrawList();
+  draw->AddRectFilled(origin,
+                      {origin.x + width * scale, origin.y + height * scale},
+                      IM_COL32(12, 12, 14, 255));
+  for (int row = 0; row < height; ++row) {
+    for (int col = 0; col < width; ++col) {
+      const u8 known = map->tiles[size_t(row) * size_t(width) + size_t(col)];
+      if (known == 0)
+        continue;
+      // North is up: grid y grows north, screen y grows down.
+      const f32 x0 = origin.x + col * scale;
+      const f32 y0 = origin.y + (height - 1 - row) * scale;
+      const int shade = 60 + known * 195 / 255;
+      draw->AddRectFilled({x0, y0}, {x0 + scale, y0 + scale},
+                          IM_COL32(shade, shade, shade, 255));
+    }
+  }
+  if (map->player_outside && map->player_x >= map->min_x && map->player_x <= map->max_x &&
+      map->player_y >= map->min_y && map->player_y <= map->max_y) {
+    const f32 x0 = origin.x + (map->player_x - map->min_x) * scale;
+    const f32 y0 = origin.y + (map->max_y - map->player_y) * scale;
+    draw->AddRectFilled({x0, y0}, {x0 + scale, y0 + scale}, IM_COL32(220, 60, 60, 255));
+  }
+  ImGui::Dummy({width * scale, height * scale});
+  ImGui::Text("cells %d,%d to %d,%d", map->min_x, map->min_y, map->max_x, map->max_y);
+  ImGui::End();
+}
+
 void DebugUi::RenderQuestPanel(QuestPanel* quests) {
   int running = 0;
   for (const auto& q : quests->quests)
@@ -1249,7 +1314,8 @@ void DebugUi::Build(render::Renderer&,
                     f32,
                     render::FrameView*,
                     QuestPanel*,
-                    NativeTracePanel*) {}
+                    NativeTracePanel*,
+                    MapPanel*) {}
 bool DebugUi::wants_mouse() const {
   return false;
 }

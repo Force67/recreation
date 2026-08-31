@@ -51,6 +51,13 @@ enum class Func : u16 {
   kGetStage,       // CK 58: current journal stage of quest param1
   kGetStageDone,   // CK 59: whether stage param2 of quest param1 has been set
   kGetIsId,        // CK 72: the run-on ref's base form equals param1
+  // CK 403: how the run-on actor feels about actor param1, +4 lover to -4
+  // archnemesis. The index is not read off a published table: it is the only
+  // function in Skyrim's dialogue whose single parameter is an actor (167 of its
+  // 325 uses name the player), whose second parameter is never set, and whose
+  // comparison values fall inside -1..4, which is the relationship range and
+  // nothing else's.
+  kGetRelationshipRank,
 };
 
 // One CTDA comparison: function(params...) <op> value.
@@ -99,6 +106,9 @@ class ConditionContext {
   virtual float GetStage(u64 quest) const { return 0.0f; }
   // 1 if stage `stage` of `quest` has been set (run), else 0.
   virtual float GetStageDone(u64 quest, u64 stage) const { return 0.0f; }
+  // The personal rank between the run-on actor and `other`. 0, which is
+  // Acquaintance, is the right answer for a pair nobody has an opinion about.
+  virtual float GetRelationshipRank(RunOn run_on, u64 reference, u64 other) const { return 0.0f; }
 
   // Runtime value of a GLOB form, for CTDA "use global" comparisons.
   virtual float GetGlobal(u64 global) const { return 0.0f; }

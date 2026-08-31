@@ -75,11 +75,22 @@ class ItemBridge {
   // Resolves (building + caching on first use) the ItemDef id for an item base
   // form. kInvalidItemDef when the base is not a usable item. Registers the def
   // in the catalog under a stable id recorded in def_to_base_ for persistence.
-  inventory::ItemDefId DefForBase(bethesda::GlobalFormId base);
+  //
+  // `with_world_model` converts and uploads the base's NIF, which is what a
+  // dropped stack is drawn with. A savegame restores hundreds of item kinds at
+  // once and almost none of them are ever dropped, so seeding passes false and
+  // EnsureWorldModel pays the cost on the one that is.
+  inventory::ItemDefId DefForBase(bethesda::GlobalFormId base, bool with_world_model = true);
+  // Gives a def built without one its world model, so the stack can be dropped
+  // as something visible. No-op for a def that already has one.
+  void EnsureWorldModel(inventory::ItemDefId def);
   // Builds an ItemDef from a base record: name hash, world mesh + box shape via
   // the streamer, weight/value into weight/payload, mass from weight. Returns
   // false when the base carries no usable item data.
-  bool BuildDef(bethesda::GlobalFormId base, inventory::ItemDef* out);
+  bool BuildDef(bethesda::GlobalFormId base, inventory::ItemDef* out, bool with_world_model);
+  // Mirrors what a resumed savegame says the player carries into the rx
+  // Inventory the world actually plays with. Returns the number of stacks.
+  u32 SeedFromSavegame();
   // The player's Inventory component entity (creates the component lazily).
   ecs::Entity PlayerInventoryEntity();
   // Localized display name (FULL) of a record, empty when it has none.
@@ -97,6 +108,9 @@ class ItemBridge {
   // id rebinds to the same base record across sessions.
   base::UnorderedMap<u64, inventory::ItemDefId> base_to_def_;
   base::UnorderedMap<inventory::ItemDefId, bethesda::GlobalFormId> def_to_base_;
+  // Defs built without their world model (see DefForBase), so EnsureWorldModel
+  // knows which ones still owe one.
+  base::UnorderedSet<inventory::ItemDefId> defs_without_model_;
   inventory::ItemDefId next_def_id_ = 1;
   // Loose item references the player has taken; the cell streamer skips these so
   // they stay gone across streaming and reloads.

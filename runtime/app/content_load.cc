@@ -99,6 +99,11 @@ bool LoadGameData(Engine& engine) {
     return false;
   RX_INFO("{} plugins, {} records", order.plugins().size(), self->records_.record_count());
 
+  // A savegame is read here because this is the only point where the order the
+  // run actually loaded is still in hand; applying it comes later, in pieces.
+  if (!LoadSavegame(engine, order))
+    return false;
+
   // Localized string tables, base masters first so their ids win the collisions
   // a single id-keyed table cannot avoid (the main quest text lives in the base
   // game master). Plugins without string files (non-localized) are skipped.
@@ -136,6 +141,11 @@ bool LoadGameData(Engine& engine) {
   // through the provenance layer; the player teleports through a host hook since
   // it is an actor/capsule, not a registry entity.
   self->script_bindings_->set_world_sink(&self->runtime_world_sink_);
+  // Cart racing kit: point the script-facing vehicle sink at the carriage system
+  // (created in OnInitialize, before content loads), so a ridden cart can be
+  // driven from managed code. Null carriage keeps the Drive native a no-op.
+  self->runtime_vehicle_sink_.set_carriage(self->carriage_ ? &*self->carriage_ : nullptr);
+  self->script_bindings_->set_vehicle_sink(&self->runtime_vehicle_sink_);
   // Day/night clock: map the time globals (resolved by editor id, so it works
   // across Skyrim/Fallout/Starfield) onto the clock, then reseed it with the
   // game's authored TimeScale (Bethesda default 20), honouring the env overrides.
@@ -303,6 +313,7 @@ bool LoadGameData(Engine& engine) {
         self->streamer_->EnterExterior(*self->world_);  // a move back out to the worldspace
       }
     }
+    RX_INFO("quest: teleported player to ({:.1f}, {:.1f}, {:.1f})", x, y, z);
     self->actors_->TeleportPlayer(x, y, z);
   });
   // A connecting client is a passive replica: the server runs the scripts and is
@@ -387,7 +398,22 @@ bool LoadGameData(Engine& engine) {
       guest->set_local_pos_provider([self]() { return self->platform_hud_.LocalPos(); });
     });
   }
+  // The map's catalogue of named places, before the save says which of them the
+  // player has found (there is nothing to flag otherwise).
+  BuildMapMarkers(engine);
+
+  // Before the quest scripts attach: their fragments must see the save's state,
+  // not run their opening stages over it.
+  ApplySavegameState(engine);
   self->quest_->AttachQuestScripts();
+  // What the save put back onto the quest scripts that just attached. The
+  // reference scripts add to it as their cells stream in. Read on the guest
+  // thread, which is the only one that writes those counters.
+  if (self->papyrus_restore_) {
+    rx::script::PapyrusRestorer* restorer = &*self->papyrus_restore_;
+    self->scripts_->guest().Dispatch(
+        [restorer](rx::script::papyrus::VirtualMachine&) { restorer->LogRestored(); });
+  }
 
   // Load any additional games as live secondary domains before the managed world
   // boots, so C# mods see every game's content at once.
@@ -473,6 +499,13 @@ bool LoadGameData(Engine& engine) {
 
   self->streamer_ = base::MakeUnique<world::CellStreamer>(self->records_, profile, *self->assets_);
   self->ctx_.streamer = (self->streamer_ ? &*self->streamer_ : nullptr);
+  // Placed actors carry the level and temperament their record authors, plus
+  // whatever the savegame applied before this streamer existed.
+  self->streamer_->set_actor_stats(&self->actor_stats_);
+  // References the save created come in with the cell they stand in, out of the
+  // same budget as the records' own. Empty without a save, so this costs
+  // nothing on a new game.
+  self->streamer_->set_saved_spawns(&self->saved_spawns_);
   // Forward load-door cell transitions to the managed world (LocationChanged), so
   // mods react to where the player is. Runs on the main thread; drained next frame.
   if (self->managed_) {
@@ -548,9 +581,15 @@ bool LoadGameData(Engine& engine) {
   // --interior takes precedence when both are given.
   if (self->config_.interior.empty() && Interior.get())
     self->config_.interior = Interior.get();
+  // A save resumes where it was written: its cell wins over both the default
+  // start cell and the game's default worldspace.
+  ApplySavegameLocation(engine);
   if (!self->config_.interior.empty())
     return LoadInterior(engine);
-  if (!self->streamer_->SelectWorldspace(profile.exterior_worldspace))
+  const base::String& worldspace =
+      self->save_ && !self->save_->worldspace.empty() ? self->save_->worldspace
+                                                      : profile.exterior_worldspace;
+  if (!self->streamer_->SelectWorldspace(worldspace))
     return false;
 
   // Without an explicit --cell, start in the game's content-dense cell so the
@@ -626,7 +665,12 @@ bool LoadGameData(Engine& engine) {
   self->camera_.speed = 30.0f;
   RX_INFO("camera start: cell {},{} at ({:.1f}, {:.1f}, {:.1f})", self->config_.start_cell_x,
           self->config_.start_cell_y, start.x, start.y, start.z);
-  self->actors_->MaybeSpawnWorldPlayer({start.x, ground, start.z});  // on the terrain, not 10m up
+  // On the terrain, not 10 m up like the camera, and a little clear of it: a
+  // capsule set down exactly on the heightfield starts inside it and is resolved
+  // downward, out through the floor (see CellStreamer::kGroundClearance).
+  self->actors_->MaybeSpawnWorldPlayer(
+      {start.x, ground + world::CellStreamer::kGroundClearance, start.z});
+  PlaceSavegamePlayer(engine);
   self->showcase_regions_.push_back({{start.x, ground, start.z},
                                      base::String(profile.name),
                                      (self->streamer_ ? &*self->streamer_ : nullptr)});
@@ -863,6 +907,7 @@ bool LoadInterior(Engine& engine) {
   RX_INFO("interior {}: {} npcs loaded", self->config_.interior,
           self->streamer_->spawned_npc_count());
   self->actors_->MaybeSpawnWorldPlayer(start);
+  PlaceSavegamePlayer(engine);
   return true;
 }
 

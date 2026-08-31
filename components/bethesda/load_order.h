@@ -92,6 +92,11 @@ class RecordStore {
   using ExteriorGrid = base::UnorderedMap<u32, ExteriorCell>;
   const ExteriorGrid* ExteriorCells(GlobalFormId worldspace) const;
 
+  // The worldspace and grid coordinate an exterior CELL sits at. False for an
+  // interior cell, which has no grid. The savegame's map-visited bits arrive
+  // keyed by cell form id and mean nothing until they are placed on a grid.
+  bool CellGridLocation(GlobalFormId cell, GlobalFormId* worldspace, i16* x, i16* y) const;
+
   // Finds a worldspace by editor id, e.g. "Tamriel". Invalid plugin 0xffff
   // when not found.
   GlobalFormId FindWorldspace(base::StringRef editor_id) const;
@@ -111,6 +116,12 @@ class RecordStore {
   // 0xffff) when the ref is not an interior child (e.g. an exterior load
   // door). Lets a load door discover the interior to stream on entry.
   GlobalFormId InteriorCellOfRef(GlobalFormId ref) const;
+
+  // The worldspace a persistent exterior reference hangs off, or invalid when
+  // the ref is not one. Only persistent refs are indexed: a temporary ref's
+  // worldspace is its cell's, which CellGridLocation already answers. Map
+  // markers are persistent, and this is what puts one on the right map.
+  GlobalFormId WorldspaceOfRef(GlobalFormId ref) const;
 
   // The placed actor reference (ACHR) a base NPC_ form is placed as, or invalid
   // when none. Built lazily on first call by scanning every ACHR (a one-time
@@ -137,6 +148,7 @@ class RecordStore {
   base::UnorderedMap<u64, CellGridSlot> cell_grid_;      // CELL id -> grid slot
   base::UnorderedMap<u64, base::Vector<u64>> interior_;  // CELL id -> refs
   base::UnorderedMap<u64, u64> ref_interior_cell_;       // interior REFR id -> CELL id
+  base::UnorderedMap<u64, u64> ref_worldspace_;          // persistent REFR id -> WRLD id
   // base NPC_ id -> placed ACHR ref id, lazily built (see PlacedRefForBase).
   mutable base::UnorderedMap<u64, u64> base_to_achr_;
   mutable bool base_to_achr_built_ = false;

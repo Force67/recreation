@@ -1,43 +1,40 @@
-// Managed-gameplay gauge stack (oxygen, radiation, ...), above the vitals. A
-// fixed pool (kHudGaugeRows) of label + bar rows; each row's text, fill width,
-// colour and visibility are driven each frame from SetHudGauges. All collapsed
-// until filled.
+// Managed-gameplay gauges, stacked under the vitals. A fixed pool
+// (kHudGaugeRows); label, fill width, colour and visibility come from
+// SetHudGauges. Hand-written rather than an ui_meter instance because the row
+// wrapper GameUi collapses has to hold the label too. Unstyled gauges default
+// to white so a module cannot break the palette by omission.
 
-  panel hud_gauges { position: absolute; left: 30; bottom: 100; layout: column; align: start; gap: 9;
-    panel hud_gauge0 { layout: column; align: start; gap: 3; visibility: collapsed;
-      text hud_gauge0_lbl { text: ""; font-size: 11; color: #cfd6e6; letter-spacing: 1; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      panel hud_gauge0_track { width: 210; height: 9; overflow: hidden; background: #0c0e16cc; corner-radius: 5; border-color: #00000077; border-width: 1; shadow-color: #00000066; shadow-blur: 10; shadow-y: 2;
-        panel hud_gauge0_fill { width: 100%; height: 100%; corner-radius: 5; background: #5d92e8; }
-      }
-    }
-    panel hud_gauge1 { layout: column; align: start; gap: 3; visibility: collapsed;
-      text hud_gauge1_lbl { text: ""; font-size: 11; color: #cfd6e6; letter-spacing: 1; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      panel hud_gauge1_track { width: 210; height: 9; overflow: hidden; background: #0c0e16cc; corner-radius: 5; border-color: #00000077; border-width: 1; shadow-color: #00000066; shadow-blur: 10; shadow-y: 2;
-        panel hud_gauge1_fill { width: 100%; height: 100%; corner-radius: 5; background: #5d92e8; }
-      }
-    }
-    panel hud_gauge2 { layout: column; align: start; gap: 3; visibility: collapsed;
-      text hud_gauge2_lbl { text: ""; font-size: 11; color: #cfd6e6; letter-spacing: 1; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      panel hud_gauge2_track { width: 210; height: 9; overflow: hidden; background: #0c0e16cc; corner-radius: 5; border-color: #00000077; border-width: 1; shadow-color: #00000066; shadow-blur: 10; shadow-y: 2;
-        panel hud_gauge2_fill { width: 100%; height: 100%; corner-radius: 5; background: #5d92e8; }
-      }
-    }
-    panel hud_gauge3 { layout: column; align: start; gap: 3; visibility: collapsed;
-      text hud_gauge3_lbl { text: ""; font-size: 11; color: #cfd6e6; letter-spacing: 1; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      panel hud_gauge3_track { width: 210; height: 9; overflow: hidden; background: #0c0e16cc; corner-radius: 5; border-color: #00000077; border-width: 1; shadow-color: #00000066; shadow-blur: 10; shadow-y: 2;
-        panel hud_gauge3_fill { width: 100%; height: 100%; corner-radius: 5; background: #5d92e8; }
-      }
-    }
-    panel hud_gauge4 { layout: column; align: start; gap: 3; visibility: collapsed;
-      text hud_gauge4_lbl { text: ""; font-size: 11; color: #cfd6e6; letter-spacing: 1; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      panel hud_gauge4_track { width: 210; height: 9; overflow: hidden; background: #0c0e16cc; corner-radius: 5; border-color: #00000077; border-width: 1; shadow-color: #00000066; shadow-blur: 10; shadow-y: 2;
-        panel hud_gauge4_fill { width: 100%; height: 100%; corner-radius: 5; background: #5d92e8; }
-      }
-    }
-    panel hud_gauge5 { layout: column; align: start; gap: 3; visibility: collapsed;
-      text hud_gauge5_lbl { text: ""; font-size: 11; color: #cfd6e6; letter-spacing: 1; text-shadow-color: #000000c0; text-shadow-x: 1; text-shadow-y: 1; }
-      panel hud_gauge5_track { width: 210; height: 9; overflow: hidden; background: #0c0e16cc; corner-radius: 5; border-color: #00000077; border-width: 1; shadow-color: #00000066; shadow-blur: 10; shadow-y: 2;
-        panel hud_gauge5_fill { width: 100%; height: 100%; corner-radius: 5; background: #5d92e8; }
-      }
-    }
+  panel hud_gauges {
+    position: absolute; left: 52; top: 104; layout: column; align: start; gap: 10;
+
+    panel hud_gauge0 { layout: row; align: center; gap: 16; visibility: collapsed;
+      text hud_gauge0_lbl { class: t_micro2; text: ""; width: 84; }
+      panel hud_gauge0_track { width: 220; height: 9; overflow: hidden;
+        background: #0a0a0acc; border-color: #000000aa; border-width: 1;
+        panel hud_gauge0_fill { width: 100%; height: 100%; background: #ffffff; } } }
+    panel hud_gauge1 { layout: row; align: center; gap: 16; visibility: collapsed;
+      text hud_gauge1_lbl { class: t_micro2; text: ""; width: 84; }
+      panel hud_gauge1_track { width: 220; height: 9; overflow: hidden;
+        background: #0a0a0acc; border-color: #000000aa; border-width: 1;
+        panel hud_gauge1_fill { width: 100%; height: 100%; background: #ffffff; } } }
+    panel hud_gauge2 { layout: row; align: center; gap: 16; visibility: collapsed;
+      text hud_gauge2_lbl { class: t_micro2; text: ""; width: 84; }
+      panel hud_gauge2_track { width: 220; height: 9; overflow: hidden;
+        background: #0a0a0acc; border-color: #000000aa; border-width: 1;
+        panel hud_gauge2_fill { width: 100%; height: 100%; background: #ffffff; } } }
+    panel hud_gauge3 { layout: row; align: center; gap: 16; visibility: collapsed;
+      text hud_gauge3_lbl { class: t_micro2; text: ""; width: 84; }
+      panel hud_gauge3_track { width: 220; height: 9; overflow: hidden;
+        background: #0a0a0acc; border-color: #000000aa; border-width: 1;
+        panel hud_gauge3_fill { width: 100%; height: 100%; background: #ffffff; } } }
+    panel hud_gauge4 { layout: row; align: center; gap: 16; visibility: collapsed;
+      text hud_gauge4_lbl { class: t_micro2; text: ""; width: 84; }
+      panel hud_gauge4_track { width: 220; height: 9; overflow: hidden;
+        background: #0a0a0acc; border-color: #000000aa; border-width: 1;
+        panel hud_gauge4_fill { width: 100%; height: 100%; background: #ffffff; } } }
+    panel hud_gauge5 { layout: row; align: center; gap: 16; visibility: collapsed;
+      text hud_gauge5_lbl { class: t_micro2; text: ""; width: 84; }
+      panel hud_gauge5_track { width: 220; height: 9; overflow: hidden;
+        background: #0a0a0acc; border-color: #000000aa; border-width: 1;
+        panel hud_gauge5_fill { width: 100%; height: 100%; background: #ffffff; } } }
   }
