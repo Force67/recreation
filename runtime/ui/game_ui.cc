@@ -710,7 +710,10 @@ void GameUi::Build(Window& window,
 
   // The legal notice: counts itself down, and any key, pad button or click takes
   // it away early. It swallows that input so the press does not also land on
-  // whatever it is covering.
+  // whatever it is covering: the guards below read the state the frame STARTED
+  // in, because the dismissing press is still set in `in.pressed` after this
+  // clears the flag, and would otherwise activate a row of the menu underneath.
+  const bool legal_was_open = impl->legal_open;
   if (impl->legal_open) {
     impl->ui.set_ui_scale(base::Min(impl->host.window_width / kLegalDesignWidth,
                                     impl->host.window_height / kLegalDesignHeight));
@@ -831,7 +834,7 @@ void GameUi::Build(Window& window,
   }
   // Keyboard focus nav: Tab cycles, Enter/Space activate (ugui uses GLFW codes).
   const int shift_mod = in.key(Key::kLeftShift) ? 0x0001 : 0;
-  if (!impl->legal_open) {
+  if (!legal_was_open) {
     if (in.key_pressed(Key::kTab))
       q.PushKey(258, 0, true, false, shift_mod);
     if (in.key_pressed(Key::kReturn))
@@ -843,7 +846,7 @@ void GameUi::Build(Window& window,
   // navigation. Their rows are all one widget deep and carry no focus index.
   // The interpreter path takes navigation through the movies' own components,
   // which reaches whichever screen is up without the host knowing which.
-  if (!impl->legal_open && ui::VanillaRuntime::Enabled()) {
+  if (!legal_was_open && ui::VanillaRuntime::Enabled()) {
     const char* navigation = nullptr;
     if (in.key_pressed(Key::kArrowUp) || pad_pressed[static_cast<int>(GamepadButton::kDpadUp)])
       navigation = "up";
