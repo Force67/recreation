@@ -55,6 +55,9 @@ namespace rx {
 static base::Option<bool> HideDebugUi{"hide.debug.ui", false, "RX_HIDE_DEBUG_UI"};
 static base::Option<bool> MenuCapture{"menu.capture", false, "RX_MENU_CAPTURE"};
 static base::Option<const char*> MenuAutoplay{"menu.autoplay", nullptr, "RX_MENU_AUTOPLAY"};
+// One more Steam install directory to search, for a layout the standard
+// locations miss (a second drive's copy, a portable install, a test rig).
+static base::Option<const char*> SteamRoot{"steam.root", nullptr, "RX_STEAM_ROOT"};
 
 // Gold001, the currency record a Skyrim inventory counts money in.
 static constexpr u32 kGoldFormId = 0x0000000f;
@@ -319,6 +322,72 @@ base::String GameKeyArt(bethesda::Game game) {
   return {};
 }
 
+// Every Steam library on this machine, as ".../steamapps/common" directories.
+// Games live wherever the player put them, so guessing paths only ever works on
+// the machine the guess was written on: the list comes from Steam's own
+// libraryfolders.vdf, which records each library root the player has added,
+// including ones on other drives. The install locations below exist only to
+// find that file. RX_STEAM_ROOT names one more, for an install none of the
+// standard locations covers.
+base::Vector<base::String> SteamCommonRoots() {
+  namespace fs = std::filesystem;
+  base::Vector<base::String> roots;
+  std::error_code ec;
+  auto add = [&](const fs::path& p) {
+    if (p.empty() || !fs::exists(p, ec))
+      return;
+    base::String s = p.string().c_str();
+    for (const base::String& have : roots)
+      if (have == s)
+        return;
+    roots.push_back(base::move(s));
+  };
+
+  base::Vector<fs::path> installs;
+  if (const char* extra = SteamRoot.get(); extra != nullptr && *extra)
+    installs.push_back(fs::path(extra));
+#if defined(_WIN32)
+  for (const char* var : {"ProgramFiles(x86)", "ProgramFiles"})
+    if (const char* pf = std::getenv(var))
+      installs.push_back(fs::path(pf) / "Steam");
+#elif defined(__APPLE__)
+  if (const char* home = std::getenv("HOME"))
+    installs.push_back(fs::path(home) / "Library" / "Application Support" / "Steam");
+#else
+  if (const char* home = std::getenv("HOME")) {
+    installs.push_back(fs::path(home) / ".local" / "share" / "Steam");
+    installs.push_back(fs::path(home) / ".steam" / "steam");
+    installs.push_back(fs::path(home) / ".steam" / "root");
+    installs.push_back(fs::path(home) / ".var" / "app" / "com.valvesoftware.Steam" / "data" /
+                       "Steam");  // flatpak
+  }
+#endif
+
+  for (const fs::path& install : installs) {
+    add(install / "steamapps" / "common");
+    std::ifstream vdf((install / "steamapps" / "libraryfolders.vdf").string().c_str());
+    if (!vdf)
+      continue;
+    for (std::string line; std::getline(vdf, line);) {
+      const size_t key = line.find("\"path\"");
+      if (key == std::string::npos)
+        continue;
+      const size_t open = line.find('"', key + 6);
+      if (open == std::string::npos)
+        continue;
+      const size_t close = line.find('"', open + 1);
+      if (close == std::string::npos)
+        continue;
+      std::string path = line.substr(open + 1, close - open - 1);
+      // The only escape a library path carries is the doubled Windows separator.
+      for (size_t p = path.find("\\\\"); p != std::string::npos; p = path.find("\\\\", p + 1))
+        path.erase(p, 1);
+      add(fs::path(path) / "steamapps" / "common");
+    }
+  }
+  return roots;
+}
+
 }  // namespace
 
 void ResolveUniverses(Engine& engine) {
@@ -335,12 +404,9 @@ void ResolveUniverses(Engine& engine) {
       {bethesda::Game::kFallout4, "Fallout 4", "RX_FALLOUT4_DATA", "Fallout 4/Data"},
       {bethesda::Game::kStarfield, "Starfield", "RX_STARFIELD_DATA", "Starfield/Data"},
   };
-  // Steam "common" roots to scan when no explicit path is configured.
-  const char* roots[] = {
-      "/speed/SteamLibrary/steamapps/common",
-      "/home/vince/.local/share/Steam/steamapps/common",
-      "/home/vince/.steam/steam/steamapps/common",
-  };
+  // Where to look when no explicit path is configured.
+  const base::Vector<base::String> roots = SteamCommonRoots();
+  RX_INFO("steam libraries: {}", roots.size());
   auto from_config = [&](bethesda::Game g) -> base::Pair<base::String, base::String> {
     if (self->config_.game == g && !self->config_.data_dir.empty())
       return {self->config_.data_dir, self->config_.plugins_txt};
@@ -364,9 +430,9 @@ void ResolveUniverses(Engine& engine) {
       if (const char* e = std::getenv(specs[i].env))
         u.data_dir = e;        // env override
     if (u.data_dir.empty()) {  // Steam scan
-      for (const char* root : roots) {
+      for (const base::String& root : roots) {
         std::error_code ec;
-        fs::path p = fs::path(root) / specs[i].subdir;
+        fs::path p = fs::path(root.c_str()) / specs[i].subdir;
         if (fs::exists(p.c_str(), ec)) {
           u.data_dir = p.string();
           break;
