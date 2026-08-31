@@ -427,7 +427,6 @@ void GameUi::OpenFirstRun() {
     return;
   impl_->first_run_open = true;
   impl_->fr_step = 0;
-  impl_->fr_dropdown = -1;
   // Debug aid: RECREATION_FIRST_RUN_STEP=<0..4> opens the wizard on that page
   // (so a headless capture can grab any page, not just the welcome screen).
   if (const char* s = FirstRunStep.get()) {
@@ -779,6 +778,48 @@ void GameUi::Build(Window& window,
     }
     if (in.wheel != 0.0f)
       q.PushScroll({0.0f, in.wheel});
+  }
+
+  // Test hook: RX_UI_CLICK="fr_begin,fr_chk0,..." clicks each named widget in
+  // turn, one every RX_UI_CLICK_STRIDE frames (default 12), by pushing a real
+  // press and release at the widget's centre. That is the mouse's own path -
+  // ugui hit-tests the deepest child and the routers walk back up - so it
+  // exercises the click routing rather than calling a handler directly, and it
+  // is what drives the onboarding flow in a headless capture.
+  if (const char* script = UiClick.get(); script != nullptr && *script) {
+    if (impl->click_script.empty()) {
+      base::String name;
+      for (const char* c = script;; ++c) {
+        if (*c == ',' || *c == '\0') {
+          if (!name.empty())
+            impl->click_script.push_back(name);
+          name.clear();
+          if (*c == '\0')
+            break;
+        } else {
+          name += *c;
+        }
+      }
+    }
+    const int stride = base::Max(1, UiClickStride.get());
+    if (++impl->click_frame >= stride) {
+      impl->click_frame = 0;
+      if (impl->click_index < static_cast<int>(impl->click_script.size())) {
+        const base::String& name = impl->click_script[impl->click_index++];
+        const ugui::wid w = impl->ui.FindWidget(name.c_str());
+        const ugui::Transform* t =
+            w.valid() ? impl->ui.world().Get<ugui::Transform>(w) : nullptr;
+        if (t == nullptr) {
+          RX_WARN("ui click: no widget '{}'", name);
+        } else {
+          const ugui::Vec2 at{t->rect.x + t->rect.w * 0.5f, t->rect.y + t->rect.h * 0.5f};
+          q.PushMove(at);
+          q.PushButton(ugui::MouseButton::kLeft, true);
+          q.PushButton(ugui::MouseButton::kLeft, false);
+          RX_INFO("ui click: {} at {:.0f},{:.0f}", name, at.x, at.y);
+        }
+      }
+    }
   }
 
   // Feed gamepad + keyboard navigation into ugui's focus ring so menus with

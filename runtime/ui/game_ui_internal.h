@@ -96,6 +96,10 @@ constexpr f32 kLegalSeconds = 5.0f;
 constexpr f32 kFrontendDesignWidth = 1920.0f;
 constexpr f32 kFrontendDesignHeight = 1080.0f;
 inline base::Option<const char*> FirstRunStep{"first.run.step", nullptr, "RECREATION_FIRST_RUN_STEP"};
+// Test hook: a comma-separated list of widget names to click in order, one
+// every UiClickStride frames. Drives the front-end flows headlessly.
+inline base::Option<const char*> UiClick{"ui.click", nullptr, "RX_UI_CLICK"};
+inline base::Option<int> UiClickStride{"ui.click.stride", 12, "RX_UI_CLICK_STRIDE"};
 
 // Scrolling compass geometry. 8 marks per 360deg turn, 3 turns so the strip
 // always covers the window whatever the heading; the engine slides it by
@@ -179,6 +183,7 @@ constexpr int kMenuSpineTicks = 10;  // pooled load-order ticks per tile
 constexpr int kMenuPips = 8;         // pooled page pips
 constexpr int kMenuModRows = 16;     // pooled rows on the Mods sub-screen
 constexpr int kFirstRunSteps = 5;  // welcome, locate, preferences, mods, ready
+constexpr f32 kFirstRunPageFade = 0.16f;  // seconds a page turn takes to settle
 constexpr int kFirstRunGames = 3;  // game rows on the locate page
 
 // Editor icon glyphs, composed from panels: the UI font (Noto Sans) has no
@@ -278,6 +283,10 @@ struct GameUi::Impl {
   size_t stats_page = 0;
   bool prev_mouse[3] = {};
   TouchPointerState touch_pointer;
+  // RX_UI_CLICK playback: the parsed name list and where it has got to.
+  base::Vector<base::String> click_script;
+  int click_index = 0;
+  int click_frame = 0;
   float pointer_scale_x = 1.0f;
   float pointer_scale_y = 1.0f;
   bool prev_pad[static_cast<int>(GamepadButton::kCount)] = {};  // gamepad edge tracking
@@ -369,9 +378,10 @@ struct GameUi::Impl {
   // games / mods dir into fr_view and consumes the request raised below.
   bool first_run_open = false;
   int fr_step = 0;                        // 0 welcome .. 4 ready
-  int fr_mode = 0;                        // default-mode dropdown selection
+  int fr_anim_step = -1;                  // page the turn animation is playing for
+  f32 fr_anim_from = 0.0f;                // ui_time that turn started
+  int fr_mode = 0;                        // default-mode selection
   int fr_diff = 1;                        // difficulty dropdown selection
-  int fr_dropdown = -1;                   // open popover: -1 none, 0 mode, 1 difficulty
   bool fr_check[3] = {true, true, true};  // enable mods / diagnostics / updates
   FirstRunView fr_view;
   FirstRunRequest fr_request;
