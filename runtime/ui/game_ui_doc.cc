@@ -17,11 +17,15 @@ const char* const kUiFragments[kUiFragmentCount] = {
     "first_run.ugui", "legal.ugui",
 };
 
-// Directory holding the .ugui fragments: RECREATION_UI_DIR, else the compiled-in
-// source path, else a cwd-relative fallback.
+// Directory holding the .ugui fragments: RECREATION_UI_DIR, else a "screens"
+// folder beside the executable (how a shipped build carries them), else the
+// compiled-in source path, else a cwd-relative fallback.
 fs::path UiDir() {
   if (const char* env = UiDirOpt.get(); env && *env)
     return env;
+  std::error_code ec;
+  if (fs::path beside = ExecutableDirectory() / "screens"; fs::is_directory(beside, ec))
+    return beside;
 #ifdef RECREATION_UI_DIR_DEFAULT
   return fs::path(RECREATION_UI_DIR_DEFAULT);
 #else
@@ -162,6 +166,19 @@ base::String BuildUi() {
 }
 
 
+// The engine's own Roboto, shipped beside the executable in fonts/ (see the
+// packaging step). Last resort for every face below: a machine with no system
+// font -- a bare wine prefix, a container, a stripped Windows install -- would
+// otherwise render the whole interface blank, which looks like a bug in the UI
+// rather than a missing file.
+base::String BundledFont(const char* file) {
+  std::error_code ec;
+  const fs::path path = ExecutableDirectory() / "fonts" / file;
+  if (!fs::is_regular_file(path, ec))
+    return {};
+  return path.string().c_str();
+}
+
 const char* FindFont() {
   static base::String resolved;
   if (const char* env = UiFont.get(); env && fs::exists(env)) {
@@ -191,6 +208,8 @@ const char* FindFont() {
 #if defined(_WIN32)
       "C:/Windows/Fonts/segoeui.ttf",
       "C:/Windows/Fonts/arial.ttf",
+      "C:/Windows/Fonts/tahoma.ttf",
+      "C:/Windows/Fonts/verdana.ttf",
 #else
       "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
       "/usr/share/fonts/TTF/DejaVuSans.ttf",
@@ -204,7 +223,8 @@ const char* FindFont() {
       return resolved.c_str();
     }
   }
-  return nullptr;
+  resolved = BundledFont("Roboto-Regular.ttf");
+  return resolved.empty() ? nullptr : resolved.c_str();
 }
 
 // The monospace face for technical/data text (load-order indices, ids, paths).
@@ -235,6 +255,8 @@ const char* FindMonoFont() {
   static const char* candidates[] = {
 #if defined(_WIN32)
       "C:/Windows/Fonts/consola.ttf",
+      "C:/Windows/Fonts/CascadiaMono.ttf",
+      "C:/Windows/Fonts/cour.ttf",
 #else
       "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
       "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
@@ -247,6 +269,8 @@ const char* FindMonoFont() {
       return resolved.c_str();
     }
   }
+  // No bundled monospace face; markup asking for `font: mono` falls back to
+  // sans, which is what this returning null means.
   return nullptr;
 }
 
@@ -296,6 +320,7 @@ const char* FindBoldFont() {
 #if defined(_WIN32)
       "C:/Windows/Fonts/segoeuib.ttf",
       "C:/Windows/Fonts/arialbd.ttf",
+      "C:/Windows/Fonts/tahomabd.ttf",
 #else
       "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
       "/usr/share/fonts/TTF/LiberationSans-Bold.ttf",
@@ -309,7 +334,8 @@ const char* FindBoldFont() {
       return resolved.c_str();
     }
   }
-  return nullptr;
+  resolved = BundledFont("Roboto-Bold.ttf");
+  return resolved.empty() ? nullptr : resolved.c_str();
 }
 
 

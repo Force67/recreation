@@ -22,6 +22,7 @@
 #include <filesystem>
 
 #include "core/log.h"
+#include "core/paths.h"
 #include "render/core/presets.h"
 #include "render/core/settings_ini.h"
 #include "render/rhi/vulkan_interop.h"
@@ -36,11 +37,16 @@ base::Option<bool> HideDebugUi{"hide.debug.ui", false, "RX_HIDE_DEBUG_UI"};
 // compiled-in engine/render/presets source path.
 base::Option<const char*> PresetsDirOpt{"presets.dir", nullptr, "RX_PRESETS_DIR"};
 
-// Directory holding the .ini render presets: RX_PRESETS_DIR, else the
+// Directory holding the .ini render presets: RX_PRESETS_DIR, else a "presets"
+// folder beside the executable (how a shipped build carries them), else the
 // compiled-in source path, else a cwd-relative fallback.
 std::filesystem::path PresetDir() {
   if (const char* env = PresetsDirOpt.get(); env && *env)
     return env;
+  std::error_code ec;
+  if (std::filesystem::path beside = ExecutableDirectory() / "presets";
+      std::filesystem::is_directory(beside, ec))
+    return beside;
 #ifdef RECREATION_PRESETS_DIR_DEFAULT
   return std::filesystem::path(RECREATION_PRESETS_DIR_DEFAULT);
 #else
