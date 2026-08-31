@@ -8,6 +8,8 @@
 #
 #   scripts/build-windows.sh              # configure (if needed) + build
 #   scripts/build-windows.sh configure    # (re)run cmake configure only
+#   scripts/build-windows.sh test         # build, then ctest the PEs under wine
+#   scripts/build-windows.sh package      # assemble dist/win, a runnable tree
 #   scripts/build-windows.sh run [args]   # build, then launch under wine
 #
 # Env: WINER_ROOT           winer checkout (default ../winer)
@@ -75,11 +77,17 @@ host_rxpack() {
   echo "$exe"
 }
 
+# RX_USD is off because tinyusdz does not cross-compile: it builds itself with
+# -fno-exceptions and its own Windows path throws, and it reaches for std::malloc
+# without including <cstdlib>. USD scene loading is an authoring feature the game
+# does not need, so this build goes without rather than patching a vendored
+# download.
 configure() {
   dev cmake -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$WINER_ROOT/cmake/llvm-mingw.cmake" \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DRX_RXPACK="$(host_rxpack)" \
+    -DCMAKE_CROSSCOMPILING_EMULATOR="$WINER_ROOT/scripts/xrun.sh" \
     -DRECREATION_ZETANET_DIR="$ZETANET" \
     -DRECREATION_NANOBUF_DIR="$NANOBUF" \
     -DRECREATION_RX_DIR="$RX" \
@@ -89,6 +97,7 @@ configure() {
     -DRECREATION_NRD=OFF \
     -DRECREATION_FSR3=OFF \
     -DRECREATION_AUDIO_FFMPEG=OFF \
+    -DRX_USD=OFF \
     "$@"
 }
 
@@ -125,6 +134,13 @@ package() {
 cmd="${1:-build}"; shift || true
 case "$cmd" in
   configure) configure "$@" ;;
+  test)
+    # ctest runs each Windows test through CMAKE_CROSSCOMPILING_EMULATOR, which
+    # is winer's xrun.sh, so the regression suite exercises the real PEs.
+    [ -f "$BUILD_DIR/CMakeCache.txt" ] || configure
+    dev cmake --build "$BUILD_DIR" -j"$JOBS"
+    ( export XRUN_DESKTOP=0; cd "$BUILD_DIR"; dev ctest "$@" )
+    ;;
   package)
     [ -f "$BUILD_DIR/runtime/recreation.exe" ] || { echo "build first" >&2; exit 1; }
     package
@@ -139,5 +155,5 @@ case "$cmd" in
     dev cmake --build "$BUILD_DIR" -j"$JOBS"
     exec "$WINER_ROOT/scripts/xrun.sh" "$BUILD_DIR/runtime/recreation.exe" "$@"
     ;;
-  *) echo "usage: ${0##*/} [configure|build|run [args]]" >&2; exit 1 ;;
+  *) echo "usage: ${0##*/} [configure|build|test|package|run [args]]" >&2; exit 1 ;;
 esac
