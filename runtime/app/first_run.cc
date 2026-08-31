@@ -14,9 +14,10 @@
 #include "runtime/app/engine.h"
 #include "runtime/app/engine_internal.h"
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(popen)
 // MSVC names the pipe helpers _popen/_pclose; the folder picker shells out the
-// same way on every platform (PowerShell on Windows).
+// same way on every platform (PowerShell on Windows). mingw's <stdio.h> already
+// maps the posix spellings onto them, and redefining them there is an error.
 static FILE* popen(const char* cmd, const char* mode) {
   return _popen(cmd, mode);
 }
