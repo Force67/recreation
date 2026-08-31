@@ -123,7 +123,7 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
     impl_->vanilla_strings = ui::LoadVanillaStrings(ui::VanillaScreenDir());
   impl_->StartVanillaVms();
   if (UsingVanillaUi()) {
-    for (const char* fragment : {"topbar", "crosshair", "vitals", "readout", "quest"})
+    for (const char* fragment : {"topbar", "crosshair", "vitals", "readout", "questtracker"})
       impl_->SetVisible(fragment, false);
   }
   // The legal notice comes up over everything and is the first thing seen.
@@ -1042,8 +1042,11 @@ void GameUi::Build(Window& window,
   }
 
   // --- Quest HUD ---
+  // The only HUD fragment driven every frame rather than on an edge, so it is
+  // also the only one that needs the vanilla gate here: hiding it once at
+  // startup would not survive the next quest update.
   const bool has_quest = !impl->quest.title.empty();
-  impl->SetVisible("questtracker", has_quest);
+  impl->SetVisible("questtracker", has_quest && !UsingVanillaUi());
   if (has_quest)
     impl->SetText("quest_title", impl->quest.title.c_str());
   for (int i = 0; i < kQuestObjectiveRows; ++i) {
