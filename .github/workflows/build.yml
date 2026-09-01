@@ -17,7 +17,7 @@ on:
 env:
   RX_REF: 82f83d25859e1e4eded17132803710d86624543b
   KINEMA_REF: 5cee20221bff4eba4027e99068c35261bb45a60b
-  LIBULTRAGUI_REF: a30defca7980702cc9159b59de31297a6bc1b14d  # fix/focus-ring-visibility: opacity inherits
+  LIBULTRAGUI_REF: 1e5f02d636155775c780ef84948cb57c15350e68  # main: arrow-key focus navigation
   ZETANET_REF: 5fbc7549c9ec1803bccd0f6dfbc781ae43ebd1f7  # develop
 
 jobs:
