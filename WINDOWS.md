@@ -89,13 +89,15 @@ Both render. They are not equally complete.
 overlay all draw. On Windows that is a first-class target — every desktop
 driver ships Vulkan — so this is the backend to use.
 
-**D3D12** is the default when the backend is built, and it renders the scene
-correctly, but three things are missing and each says so in the log:
+**D3D12** is the default when the backend is built. It renders the scene and
+the imgui debug overlay; three things are still missing, and each says so in the
+log:
 
-- **No HUD and no debug overlay.** Both UI backends record raw Vulkan
-  (`runtime/ui/gui_backend.cc`, `runtime/ui/debug_ui.cc`). `engine/render/util/imgui_renderer.h`
-  is the RHI-based replacement for the overlay and nothing equivalent exists yet
-  for ultragui.
+- **No HUD or menus.** ultragui's backend (`runtime/ui/gui_backend.cc`) records
+  raw Vulkan and bails on anything else, so the game interface is absent. The
+  debug overlay used to be in the same position and is not any more: it draws
+  through `engine/render/util/imgui_renderer.h`, the RHI backend, and an
+  equivalent for ultragui is the work that would close this.
 - **No mesh-shader or virtual-geometry passes.** Those shaders read buffers
   through device addresses (`vk::RawBufferLoad`), which has no DXIL spelling;
   they are on `RX_SHADER_NO_DXIL` and the engine falls back.
