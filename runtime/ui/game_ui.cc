@@ -129,6 +129,11 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   // The legal notice comes up over everything and is the first thing seen.
   impl_->legal_open = bool(ShowLegal);
   impl_->SetVisible("legal", impl_->legal_open);
+  // The guided demo's card belongs to the TourDeRecreation gamemode, which
+  // drives it entirely through the SDK's widget API. Nothing here touches it
+  // again; it is only collapsed once, because markup cannot start hidden and it
+  // would otherwise sit over the front screen until the managed world booted.
+  impl_->SetVisible("tour_card", false);
 
   // Hot reload: when enabled, the .ugui fragments are polled for edits and the
   // tree is rebuilt in place (see GameUi::Build). Off by default.

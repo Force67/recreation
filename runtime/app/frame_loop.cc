@@ -144,6 +144,18 @@ void Engine::ServerSimulateActors(f32 /*dt*/) {
 // OnInitialize).
 void Engine::OnSimulate(f32 raw_frame_delta) {
   const f32 frame_delta = LongestStep(raw_frame_delta);
+  // Age the world, and lift the bring-up grace once the start-up quests have had
+  // their turn. Until then their MovePlayer calls are ignored, which is what
+  // keeps a freshly spawned player on the ground they spawned on rather than
+  // inside whichever interior a quest alias happened to name last. See the
+  // on_move_player hook in content_load.cc.
+  if (!quest_moves_allowed_.load(std::memory_order_relaxed)) {
+    world_age_ += frame_delta;
+    if (world_age_ >= kQuestMoveGraceSeconds) {
+      quest_moves_allowed_.store(true, std::memory_order_relaxed);
+      RX_INFO("world settled after {:.1f}s; quest player-moves are live", world_age_);
+    }
+  }
 #if RECREATION_HAS_NET
   // Apply a requested live mod reload; drained on the main thread where the Vfs
   // is not being read (a fresh mount is picked up by next frame's streaming).

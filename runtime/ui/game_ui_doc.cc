@@ -14,7 +14,7 @@ const char* const kUiFragments[kUiFragmentCount] = {
     "mp_prompt.ugui", "nametag.ugui",    "journal.ugui",    "war_map.ugui",
     "player_map.ugui",
     "dialogue.ugui",  "container.ugui",  "pause_menu.ugui", "main_menu.ugui",
-    "first_run.ugui", "loading.ugui",  "legal.ugui",
+    "first_run.ugui", "loading.ugui",  "tour.ugui",       "legal.ugui",
 };
 
 // Directory holding the .ugui fragments: RECREATION_UI_DIR, else the compiled-in
@@ -155,6 +155,7 @@ base::String BuildUi() {
   s += LoadUiFragment("main_menu.ugui");
   s += LoadUiFragment("first_run.ugui");  // out-of-box wizard, overlays the menu
   s += LoadUiFragment("loading.ugui");    // covers everything while a world loads
+  s += LoadUiFragment("tour.ugui");       // the guided demo's card, driven by a mod
   for (const ui::VanillaScreen& screen : VanillaScreens())
     s += screen.markup;               // translated Scaleform, on top of everything
   s += LoadUiFragment("legal.ugui");  // the startup notice, over all of it

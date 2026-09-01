@@ -218,6 +218,12 @@ struct PlayerMapState {
   bool boot_applied = false;  // the RX_PLAYER_MAP / RX_FAST_TRAVEL hooks ran
 };
 
+// How long after a world comes up quest player-moves stay ignored. Long enough
+// to cover the start-up quests wiring up their aliases (they land in the first
+// second or two here, with headroom for a slower machine), short enough that a
+// player cannot walk anywhere meaningful before it lifts.
+constexpr f32 kQuestMoveGraceSeconds = 8.0f;
+
 // The phases a universe load walks, in the order the loading screen's rail
 // lists them. Bringing a universe online is one long blocking call, so each
 // phase reports itself (ReportLoadPhase) and the report is what draws a frame.
@@ -434,6 +440,13 @@ class Engine : public app::Application {
   // EndLoadingScreen, with the counts each phase found so far so a later phase
   // does not blank them out again. load_started_ is a steady-clock reading in
   // seconds, kept as a plain double so this header need not pull in <chrono>.
+  // Bring-up grace for quest player-moves (see the on_move_player hook in
+  // content_load.cc). world_age_ counts seconds since the world came up, on the
+  // main thread; the flag it raises is read from the script guest thread, hence
+  // the atomic. Both reset every time a world loads.
+  f32 world_age_ = 0.0f;
+  std::atomic<bool> quest_moves_allowed_{false};
+
   bool load_screen_up_ = false;
   f64 load_started_ = 0.0;
   base::String load_title_;

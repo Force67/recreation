@@ -309,6 +309,25 @@ bool LoadGameData(Engine& engine) {
     // the player off it mid-demo.
     if (CwFieldBattle || CwSiegeDemo)
       return;
+    // Bring-up grace: ignore quest player-moves for the first few seconds of a
+    // world's life.
+    //
+    // Skyrim starts 269 quests at once, and several of them call MovePlayer
+    // while wiring up their aliases and markers -- to a marker's interior, to
+    // interior-local coordinates near the origin, to whatever their setup needs.
+    // None of it is a destination anyone asked to go to. Honouring them dragged
+    // the streamer through three interiors in a row and left the player at
+    // exterior coordinates inside the last one: no sky, no cells, a black
+    // screen. Every launch that spawns a player hit it, which is every launch
+    // from the front screen, so it was the first thing a new player saw after
+    // pressing PLAY.
+    //
+    // Only bring-up is suppressed. Once the world has settled, a real scripted
+    // teleport works exactly as it did.
+    if (!self->quest_moves_allowed_.load(std::memory_order_relaxed)) {
+      RX_INFO("quest: ignoring a start-up player move to ({:.1f}, {:.1f}, {:.1f})", x, y, z);
+      return;
+    }
     // When a quest warps the player to a reference inside an interior cell (the
     // Helgen keep, say), stream that cell first so the player lands in a loaded
     // world rather than at interior-local coordinates floating in the exterior.
@@ -736,6 +755,11 @@ bool LoadGameData(Engine& engine) {
     }
     self->editor_->SetPlaceDomains(base::move(domains));
   }
+  // The world is up: start the bring-up grace that keeps start-up quests from
+  // teleporting the player off their spawn (see the on_move_player hook above).
+  self->world_age_ = 0.0f;
+  self->quest_moves_allowed_.store(false, std::memory_order_relaxed);
+
   ReportLoadPhase(engine, LoadPhase::kWorld, "Ready", "", 1.0f);
   return true;
 }

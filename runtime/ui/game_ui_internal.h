@@ -220,7 +220,7 @@ base::String BuildTopbarSection();
 base::String BuildUi();
 base::String LoadUiFragment(const char* name);
 fs::path UiDir();
-constexpr int kUiFragmentCount = 21;
+constexpr int kUiFragmentCount = 22;
 extern const char* const kUiFragments[kUiFragmentCount];
 
 // Screens translated from the games' own Scaleform movies by tools/swfdump
