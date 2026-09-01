@@ -108,6 +108,10 @@ inline base::Option<const char*> UiKey{"ui.key", nullptr, "RX_UI_KEY"};
 // Arrow keys move focus between the interactive widgets of whatever ugui screen
 // is up, and Enter activates. RX_UI_KEYBOARD_NAV=0 hands the arrows back.
 inline base::Option<bool> UiKeyboardNav{"ui.keyboard.nav", true, "RX_UI_KEYBOARD_NAV"};
+// RX_UI_TRACE=1: log typed text and where focus was when it arrived. The one
+// way to tell "the host never saw the keystroke" apart from "ugui had focus on
+// something that cannot take text", which look identical from the outside.
+inline base::Option<bool> UiTrace{"ui.trace", false, "RX_UI_TRACE"};
 
 // Scrolling compass geometry. 8 marks per 360deg turn, 3 turns so the strip
 // always covers the window whatever the heading; the engine slides it by

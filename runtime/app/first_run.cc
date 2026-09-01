@@ -195,6 +195,12 @@ void LoadSetupConfig(Engine& engine) {
     self->config_.mods_dir = it->second;
     self->first_run_mods_dir_ = it->second;
   }
+  // The name the wizard collected. Without this the setup wrote it and nothing
+  // ever read it back, so the front screen kept showing the account name.
+  // A --name on the command line was an explicit choice this run and wins.
+  if (const auto it = kv.find("username");
+      it != kv.end() && !it->second.empty() && self->config_.player_name.empty())
+    self->config_.player_name = it->second;
 }
 
 // True once the wizard has been completed (setup.ini exists with done=1).
@@ -368,6 +374,11 @@ void Engine::UpdateFirstRun(f32 dt) {
         config_.known_games.push_back(d);
       }
       config_.mods_dir = first_run_mods_dir_.empty() ? DefaultModsDir() : first_run_mods_dir_;
+      // Apply the name now, not just persist it: the front screen this hands off
+      // to reads config_.player_name, and waiting for a restart to show the name
+      // someone just typed is the kind of thing that reads as "it did not work".
+      if (!req.username.empty())
+        config_.player_name = req.username;
       WriteSetupIni(data_dirs, config_.mods_dir, req);
       first_run_active_ = false;
       game_ui_.CloseFirstRun();

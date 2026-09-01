@@ -993,6 +993,31 @@ void GameUi::Build(Window& window,
   // screen (its own grid selection, engine-side in UpdateMainMenu) and a
   // translated vanilla movie (its own component navigation, just below).
   const int shift_mod = in.key(Key::kLeftShift) ? 0x0001 : 0;
+  // Ask the platform for typed characters while, and only while, one of our
+  // text fields has focus.
+  //
+  // This has to be re-asserted every frame. imgui's SDL3 backend drives
+  // SDL_StartTextInput/SDL_StopTextInput from whether an IMGUI widget wants
+  // text, and stops it on the whole window when none does -- which is every
+  // frame here, since the debug overlay is up but idle. The result was a text
+  // field that focused, drew its caret, took clicks and never saw a single
+  // character, while mouse and key events kept working perfectly.
+  {
+    const ugui::wid focused = impl->ui.input().focused_widget();
+    const ugui::WidgetNode* node =
+        focused.valid() ? impl->ui.world().Get<ugui::WidgetNode>(focused) : nullptr;
+    window.SetTextInputActive(node != nullptr && node->kind == ugui::WidgetKind::kTextInput);
+  }
+  // Traced OUTSIDE the gate below, deliberately: a gate that is shut and text
+  // that never arrives look identical from inside it.
+  if (UiTrace && in.text_len > 0) {
+    const ugui::wid f = impl->ui.input().focused_widget();
+    const ugui::WidgetNode* n = f.valid() ? impl->ui.world().Get<ugui::WidgetNode>(f) : nullptr;
+    RX_INFO("ui text: {} byte(s) \"{}\" -> focus {} (legal {} menu {} vanilla {})",
+            static_cast<int>(in.text_len), in.text,
+            n != nullptr && !n->name.empty() ? n->name.c_str() : "none", legal_was_open,
+            impl->main_menu_open, ui::VanillaRuntime::Enabled());
+  }
   if (!legal_was_open && !impl->main_menu_open && !ui::VanillaRuntime::Enabled()) {
     struct ArrowKey {
       Key key;
@@ -1010,6 +1035,18 @@ void GameUi::Build(Window& window,
       q.PushKey(258, 0, true, false, shift_mod);
     if (in.key_pressed(Key::kReturn))
       q.PushKey(257, 0, true, false, 0);
+  }
+
+  // Text editing is NOT part of that gate.
+  //
+  // The exclusions above are about who owns the NAVIGATION keys: the front
+  // screen and a translated Scaleform movie both drive their own selection from
+  // the arrows, so letting ugui move focus at the same time would run two
+  // cursors. Typed characters answer to none of that -- they go to whatever
+  // holds focus, which is a text field or nothing at all. Sharing the gate cost
+  // an evening: the vanilla runtime is enabled on this build, so every keystroke
+  // was decoded correctly and then dropped one line before it reached ugui.
+  if (!legal_was_open) {
     if (in.key_pressed(Key::kBackspace))
       q.PushKey(259, 0, true, false, 0);  // GLFW_KEY_BACKSPACE
     // Typed characters, for the text fields. ugui edits its own inputs (caret,
