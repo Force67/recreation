@@ -13,6 +13,7 @@
 #include <base/memory/move.h>
 #include <base/memory/unique_pointer.h>
 #include <base/option.h>
+#include <base/strings/to_string.h>
 #include <base/strings/xstring.h>
 
 #include "asset/gltf_loader.h"
@@ -86,6 +87,11 @@ bool LoadGameData(Engine& engine) {
   const auto& profile = bethesda::GameProfile::For(self->game_);
   RX_INFO("detected {}", profile.name);
 
+  // Every phase below reports itself so the loading screen advances and a frame
+  // is presented; this call never returns to the host loop, so the reports are
+  // the only thing that draws. See runtime/app/loading_screen.cc.
+  ReportLoadPhase(engine, LoadPhase::kArchives, base::String("Mounting ") + profile.name,
+                  self->config_.data_dir);
   MountArchives(engine);
   // Loose files mount last so they win over archives.
   self->vfs_->Mount(asset::MakeLooseFileProvider(self->config_.data_dir.c_str()));
@@ -95,6 +101,10 @@ bool LoadGameData(Engine& engine) {
   bethesda::RegisterConverters(*self->assets_, profile);
 
   auto order = bethesda::LoadOrder::FromPluginsTxt(self->config_.plugins_txt, profile);
+  self->load_plugins_ = base::ToString(order.plugins().size());
+  ReportLoadPhase(engine, LoadPhase::kRecords,
+                  "Reading " + base::ToString(order.plugins().size()) + " plugins",
+                  "Every form the load order defines, in load order");
   if (!self->records_.LoadAll(self->config_.data_dir, order, profile))
     return false;
   RX_INFO("{} plugins, {} records", order.plugins().size(), self->records_.record_count());
@@ -107,6 +117,8 @@ bool LoadGameData(Engine& engine) {
   // Localized string tables, base masters first so their ids win the collisions
   // a single id-keyed table cannot avoid (the main quest text lives in the base
   // game master). Plugins without string files (non-localized) are skipped.
+  ReportLoadPhase(engine, LoadPhase::kText, "Loading the game's text",
+                  "Localized strings, base masters first");
   for (size_t i = 0; i < order.plugins().size(); ++i)
     self->strings_.Load(*self->vfs_, order.plugins()[i], profile.string_language,
                         static_cast<u16>(i));
@@ -114,6 +126,8 @@ bool LoadGameData(Engine& engine) {
 
   // Index dialogue topics by quest so an NPC conversation opens without
   // rescanning every DIAL.
+  ReportLoadPhase(engine, LoadPhase::kText, "Indexing conversations",
+                  "Every dialogue topic, keyed by the quest that owns it", 0.5f);
   self->dialogue_.Build(self->records_);
   RX_INFO("dialogue: {} topics indexed", self->dialogue_.topic_count());
 
@@ -131,6 +145,8 @@ bool LoadGameData(Engine& engine) {
   // The Papyrus guest: a separate, single-threaded world that runs game scripts
   // off the main thread. Form natives read the RecordStore; actor values and
   // inventory are backed by the bindings' own stores.
+  ReportLoadPhase(engine, LoadPhase::kScripts, "Standing up the script world",
+                  "Papyrus runs beside the engine, on its own thread");
   self->script_bindings_ =
       base::MakeUnique<rx::script::skyrim::RecordBackedSkyrimBindings>(&self->records_);
   self->ctx_.bindings = (self->script_bindings_ ? &*self->script_bindings_ : nullptr);
@@ -400,11 +416,14 @@ bool LoadGameData(Engine& engine) {
   }
   // The map's catalogue of named places, before the save says which of them the
   // player has found (there is nothing to flag otherwise).
+  ReportLoadPhase(engine, LoadPhase::kScripts, "Marking the map", "", 0.4f);
   BuildMapMarkers(engine);
 
   // Before the quest scripts attach: their fragments must see the save's state,
   // not run their opening stages over it.
   ApplySavegameState(engine);
+  ReportLoadPhase(engine, LoadPhase::kScripts, "Attaching quest scripts",
+                  "Each quest gets the script the game shipped with it", 0.6f);
   self->quest_->AttachQuestScripts();
   // What the save put back onto the quest scripts that just attached. The
   // reference scripts add to it as their cells stream in. Read on the guest
@@ -421,6 +440,8 @@ bool LoadGameData(Engine& engine) {
 
   // Bring up the managed (C#) scripting world over the same guest, so user mods
   // and Skyrim soft logic run alongside Papyrus. Optional and gracefully absent.
+  ReportLoadPhase(engine, LoadPhase::kWorld, "Starting the mod runtime",
+                  "C# gameplay modules and any mods you have installed");
   BootManagedScripting(engine);
   {
     auto* scripts = (self->scripts_ ? &*self->scripts_ : nullptr);
@@ -497,6 +518,8 @@ bool LoadGameData(Engine& engine) {
     return true;
   }
 
+  ReportLoadPhase(engine, LoadPhase::kWorld, "Building the world",
+                  "Cells stream in around you as you move", 0.4f);
   self->streamer_ = base::MakeUnique<world::CellStreamer>(self->records_, profile, *self->assets_);
   self->ctx_.streamer = (self->streamer_ ? &*self->streamer_ : nullptr);
   // Placed actors carry the level and temperament their record authors, plus
@@ -713,6 +736,7 @@ bool LoadGameData(Engine& engine) {
     }
     self->editor_->SetPlaceDomains(base::move(domains));
   }
+  ReportLoadPhase(engine, LoadPhase::kWorld, "Ready", "", 1.0f);
   return true;
 }
 
@@ -913,7 +937,35 @@ bool LoadInterior(Engine& engine) {
 
 void LoadExtraDomains(Engine& engine) {
   Engine* const self = &engine;
+  // The menu folds every located game into extra_domains so ResolveUniverses
+  // can offer them all, and EnterUniverse then promotes one of them to primary
+  // without taking it back out. Loading it again here would mount a second copy
+  // of the same archives, records, strings, dialogue and script VM: on this box
+  // that was 1.17M Skyrim records read twice and tens of seconds of a fresh
+  // player's first launch spent on a duplicate nothing reads.
+  base::Vector<const ExtraDomainConfig*> pending;
   for (const ExtraDomainConfig& cfg : self->config_.extra_domains) {
+    if (cfg.game == self->game_ || cfg.data_dir == self->config_.data_dir) {
+      RX_INFO("secondary domain {} is the primary game; not mounting it twice",
+              bethesda::GameProfile::For(cfg.game).name);
+      continue;
+    }
+    pending.push_back(&cfg);
+  }
+
+  // By far the longest phase of a load: each neighbouring game is a whole
+  // second bring-up (archives, records, strings, dialogue, its own microvm).
+  // Reporting per domain is what keeps the bar moving through it.
+  const int domains = static_cast<int>(pending.size());
+  int done = 0;
+  for (const ExtraDomainConfig* entry : pending) {
+    const ExtraDomainConfig& cfg = *entry;
+    ReportLoadPhase(engine, LoadPhase::kDomains,
+                    "Mounting " + bethesda::GameProfile::For(cfg.game).name,
+                    "World " + base::ToString(done + 1) + " of " + base::ToString(domains) +
+                        " beside the one you are entering",
+                    domains > 0 ? static_cast<f32>(done) / static_cast<f32>(domains) : 0.0f);
+    ++done;
     auto domain = base::MakeUnique<ContentDomain>();
     // A multiplayer client mirrors the host, so secondary domains are replicas
     // there too: their scripts read content but do not drive authoritative state.

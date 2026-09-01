@@ -218,6 +218,19 @@ struct PlayerMapState {
   bool boot_applied = false;  // the RX_PLAYER_MAP / RX_FAST_TRAVEL hooks ran
 };
 
+// The phases a universe load walks, in the order the loading screen's rail
+// lists them. Bringing a universe online is one long blocking call, so each
+// phase reports itself (ReportLoadPhase) and the report is what draws a frame.
+enum class LoadPhase {
+  kArchives,  // mount the game's .bsa/.ba2 and its loose files
+  kRecords,   // read the load order's plugins into the record store
+  kText,      // localized strings + the dialogue index
+  kScripts,   // Papyrus guest, bindings, quests, weather, audio
+  kDomains,   // the other games mounted beside this one (--add-game)
+  kWorld,     // cell streamer, player spawn, first cells resident
+  kCount,
+};
+
 // The game: recreation's app::Application. Owns the gameplay layer (actors,
 // interaction, quest, npc, demos, weather, networking, data loading, the camera
 // and the UI) and drives it from the app::Host callbacks; the generic
@@ -298,6 +311,10 @@ class Engine : public app::Application {
   friend void EnterUniverse(Engine&, int, bool, bool, const base::String&);
   friend void SetupFirstRun(Engine&);
   friend void LoadSetupConfig(Engine&);
+  friend void BeginLoadingScreen(Engine&, const base::String&);
+  friend void ReportLoadPhase(Engine&, LoadPhase, const base::String&, const base::String&, f32);
+  friend void PresentLoadingFrame(Engine&);
+  friend void EndLoadingScreen(Engine&);
 #if RECREATION_HAS_NET
   friend bool StartNetworking(Engine&);
   friend void ReloadMods(Engine&);
@@ -410,6 +427,15 @@ class Engine : public app::Application {
   // is clean. Idle at 0.
   int menu_capture_countdown_ = 0;
   base::String menu_capture_path_;
+  // Loading screen (loading_screen.cc): up between BeginLoadingScreen and
+  // EndLoadingScreen, with the counts each phase found so far so a later phase
+  // does not blank them out again. load_started_ is a steady-clock reading in
+  // seconds, kept as a plain double so this header need not pull in <chrono>.
+  bool load_screen_up_ = false;
+  f64 load_started_ = 0.0;
+  base::String load_title_;
+  base::String load_records_;
+  base::String load_plugins_;
 
   // The app::Host owns the window/jobs/frame-timer/clock and drives the loop;
   // these are non-owning views cached from Services at OnInitialize.
@@ -769,6 +795,24 @@ void EnterUniverse(Engine& engine,
 void LoadSetupConfig(Engine& engine);
 bool FirstRunComplete();
 void SetupFirstRun(Engine& engine);
+// The loading screen (loading_screen.cc). BeginLoadingScreen puts it up and
+// presents it; ReportLoadPhase moves it on AND draws a frame, which is the whole
+// point: LoadGameData never returns to the host loop, so the load itself has to
+// be what animates the screen. `detail` is the phase's own sentence and `note` a
+// quieter line under it; `within` (0..1) is how far through its own phase the
+// caller is, for the phases that run long enough to need it. EndLoadingScreen
+// takes it away. All no-ops in a headless run.
+void BeginLoadingScreen(Engine& engine, const base::String& title);
+void ReportLoadPhase(Engine& engine,
+                     LoadPhase phase,
+                     const base::String& detail,
+                     const base::String& note = "",
+                     f32 within = 0.0f);
+// Pumps the window and presents one frame of whatever the loading screen
+// currently says. ReportLoadPhase calls it; a step that runs long without a
+// phase change of its own can call it directly to keep the window alive.
+void PresentLoadingFrame(Engine& engine);
+void EndLoadingScreen(Engine& engine);
 #if RECREATION_HAS_NET
 // Opens the authoritative server or replica client session and wires the
 // replication sinks between the net layer and the script/quest systems.

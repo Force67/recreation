@@ -184,7 +184,7 @@ void LoadSetupConfig(Engine& engine) {
     d.game = spec.game;
     d.data_dir = it->second;
     d.plugins_txt = it->second + "/../plugins.txt";
-    self->config_.extra_domains.push_back(d);
+    self->config_.known_games.push_back(d);
   }
   if (const auto it = kv.find("mods_dir"); it != kv.end() && !it->second.empty()) {
     self->config_.mods_dir = it->second;
@@ -316,8 +316,10 @@ void Engine::UpdateFirstRun(f32 dt) {
       break;
     }
     case FirstRunRequest::Kind::kLaunch: {
-      // Fold the located universes into config_.extra_domains so the SetupMainMenu
-      // that follows re-resolves to the same paths, and gather them for the ini.
+      // Record the located universes so the SetupMainMenu that follows resolves
+      // to the same paths, and gather them for the ini. known_games, not
+      // extra_domains: these are the games the player owns, not games to mount
+      // all at once (see EngineConfig).
       base::Array<base::String, 3> data_dirs;
       for (int i = 0; i < 3; ++i) {
         const MenuUniverse& u = menu_universes_[i];
@@ -328,7 +330,7 @@ void Engine::UpdateFirstRun(f32 dt) {
         d.game = kGameSpecs[i].game;
         d.data_dir = u.data_dir;
         d.plugins_txt = u.plugins_txt.empty() ? (u.data_dir + "/../plugins.txt") : u.plugins_txt;
-        config_.extra_domains.push_back(d);
+        config_.known_games.push_back(d);
       }
       config_.mods_dir = first_run_mods_dir_.empty() ? DefaultModsDir() : first_run_mods_dir_;
       WriteSetupIni(data_dirs, config_.mods_dir, req);

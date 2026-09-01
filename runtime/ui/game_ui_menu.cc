@@ -751,6 +751,71 @@ bool GameUi::Impl::RouteFirstRunClick(ugui::wid target) {
   return true;
 }
 
+// The loading screen. Everything on it comes from the engine's per-phase report
+// except the tip, which is this screen's own business: the load is the one
+// moment a new player is guaranteed to be reading, so it spends it teaching the
+// keys instead of turning a spinner. Every key named here is a real default
+// binding (runtime/input/game_input.cc).
+void GameUi::Impl::ApplyLoading() {
+  SetVisible("loading", loading_open);
+  if (!loading_open)
+    return;
+
+  struct Tip {
+    const char* key;
+    const char* text;
+  };
+  static const Tip kTips[] = {
+      {"E", "Activate what you are looking at: talk, open, pick up."},
+      {"T", "Swap between walking the world and flying the camera through it."},
+      {"M", "Open the world map. Places you have been are marked on it."},
+      {"J", "Open the journal: every quest you are carrying, and where it stands."},
+      {"C", "Third person. The camera pulls back off your shoulder."},
+      {"F4", "Open the map editor and place, move or delete anything, live."},
+      {"F3", "Open the quest debugger to watch stages and objectives fire."},
+      {"F1", "Show the engine overlay: frame times, streaming, what is resident."},
+      {"Esc", "Pause. Settings, controls and the way back to the front screen."},
+  };
+  constexpr int kTipCount = static_cast<int>(sizeof(kTips) / sizeof(kTips[0]));
+
+  constexpr u32 kFg = 0xffffffffu, kDim = 0x9a9a9affu, kDim2 = 0x5e5e5effu;
+
+  const int step = base::Clamp(loading.step, 0, kLoadingPhases - 1);
+  const base::String step_no = "0" + base::ToString(step + 1);
+  SetText("ld_meta", loading.title);
+  SetText("ld_title", loading.title);
+  SetText("ld_bignum", step_no);
+  SetText("ld_phase", loading.phase);
+  SetText("ld_sub", loading.detail);
+  SetText("ld_records", loading.records.empty() ? base::String("-") : loading.records);
+  SetText("ld_plugins", loading.plugins.empty() ? base::String("-") : loading.plugins);
+  SetText("ld_elapsed", base::ToString(static_cast<int>(loading.elapsed)) + "s");
+  SetText("ld_build", mm_stats.build.empty() ? base::String("") : ("v" + mm_stats.build));
+
+  for (int i = 0; i < kLoadingPhases; ++i) {
+    const bool active = i == step, done = i < step;
+    SetVisible(Pooled("ld_navsel", i), active);
+    SetVisible(Pooled("ld_navplate", i), active);
+    SetTextColor(Pooled("ld_navnum", i), Rgba(active ? kFg : (done ? kDim : kDim2)));
+    SetTextColor(Pooled("ld_navlbl", i), Rgba(active ? kFg : (done ? kDim : kDim2)));
+  }
+
+  // The bar never sits at zero: a load that has only just started still has to
+  // read as started, or the screen looks as stuck as the freeze it replaced.
+  const int pct = base::Clamp(static_cast<int>(loading.progress * 100.0f), 1, 100);
+  SetStyleField(
+      "ld_prog", [](ugui::Style& s, float v) { s.width = ugui::Length::Pct(v); },
+      static_cast<float>(pct));
+  SetText("ld_prog_t", base::ToString(pct) + "%");
+
+  if (ui_time - ld_tip_from >= kLoadingTipSeconds) {
+    ld_tip_from = ui_time;
+    ld_tip = (ld_tip + 1) % kTipCount;
+    SetText("ld_tipk", kTips[ld_tip].key);
+    SetText("ld_tip", kTips[ld_tip].text);
+  }
+}
+
 
 }  // namespace rx
 

@@ -463,6 +463,34 @@ void GameUi::SetFirstRunView(const FirstRunView& view) {
     impl_->fr_view = view;
 }
 
+void GameUi::OpenLoading(const base::String& title) {
+  if (!impl_->initialized)
+    return;
+  impl_->loading_open = true;
+  impl_->loading = LoadingView{};
+  impl_->loading.title = title;
+  // A negative last-tip time makes the first Apply pick a tip immediately, so
+  // the screen is never up with an empty hint line.
+  impl_->ld_tip_from = -kLoadingTipSeconds;
+  impl_->ApplyLoading();
+}
+
+void GameUi::CloseLoading() {
+  if (!impl_->initialized)
+    return;
+  impl_->loading_open = false;
+  impl_->ApplyLoading();
+}
+
+bool GameUi::loading_open() const {
+  return impl_->initialized && impl_->loading_open;
+}
+
+void GameUi::SetLoadingView(const LoadingView& view) {
+  if (impl_->initialized)
+    impl_->loading = view;
+}
+
 FirstRunRequest GameUi::PollFirstRunRequest() {
   FirstRunRequest r;
   if (impl_->initialized) {
@@ -683,7 +711,8 @@ void GameUi::Build(Window& window,
   // Scaleform movie is. Without it a 1440p or 4K display draws that composition
   // at its authored size in the top-left corner with the rest of the screen
   // empty. In-world UI keeps the raw backbuffer space it measures against.
-  const bool frontend = impl->legal_open || impl->first_run_open || impl->main_menu_open;
+  const bool frontend = impl->legal_open || impl->first_run_open || impl->main_menu_open ||
+                        impl->loading_open;
   impl->ui.set_ui_scale(frontend ? base::Min(impl->host.window_width / kFrontendDesignWidth,
                                              impl->host.window_height / kFrontendDesignHeight)
                                  : 0.0f);
@@ -1278,6 +1307,9 @@ void GameUi::Build(Window& window,
   // First-run setup wizard (the out-of-box experience, above even the menu).
   impl->ApplyFirstRun();
 
+  // The loading screen, which covers all of it while a universe comes online.
+  impl->ApplyLoading();
+
   // Produce the draw list (input routing + layout + paint, no GPU work).
   const ugui::DrawData& dd = impl->ui.RenderDrawData();
   impl->draw_data = &dd;
@@ -1419,6 +1451,12 @@ void GameUi::SetFirstRunView(const FirstRunView&) {}
 FirstRunRequest GameUi::PollFirstRunRequest() {
   return {};
 }
+void GameUi::OpenLoading(const base::String&) {}
+void GameUi::CloseLoading() {}
+bool GameUi::loading_open() const {
+  return false;
+}
+void GameUi::SetLoadingView(const LoadingView&) {}
 
 }  // namespace rx
 

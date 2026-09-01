@@ -291,6 +291,21 @@ struct FirstRunRequest {
   bool check_updates = true;
 };
 
+// What the loading screen shows while a universe is brought online. Bringing
+// one online blocks the main loop for tens of seconds, so the load reports
+// itself through this: which of the fixed phases is running, what it has found
+// so far, and how far along the whole job is.
+struct LoadingView {
+  base::String title;    // the universe being entered
+  base::String phase;    // the phase's own sentence, e.g. "Reading 5 plugins"
+  base::String detail;   // a quieter second line under it
+  base::String records;  // record count found so far ("-" until known)
+  base::String plugins;  // plugin count in the load order
+  int step = 0;          // which phase of the rail is running
+  f32 progress = 0.0f;   // 0..1 over the whole load
+  f32 elapsed = 0.0f;    // seconds since the load began
+};
+
 // The rebindable controls shown in the pause menu's Settings sub-view. The
 // engine rebuilds this from its InputMap each frame; the rows are a fixed,
 // curated set of gameplay actions. A row marked `capturing` is awaiting an input
@@ -589,6 +604,14 @@ class GameUi {
   void FirstRunBack();
   void SetFirstRunView(const FirstRunView& view);
   FirstRunRequest PollFirstRunRequest();
+
+  // The loading screen, shown while a universe is brought online. The load is
+  // one long blocking call, so the engine opens this, then pushes a view and
+  // presents a frame at each phase boundary (Engine::ReportLoadPhase).
+  void OpenLoading(const base::String& title);
+  void CloseLoading();
+  bool loading_open() const;
+  void SetLoadingView(const LoadingView& view);
 
  private:
   struct Impl;

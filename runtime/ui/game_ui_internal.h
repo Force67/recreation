@@ -185,6 +185,8 @@ constexpr int kMenuModRows = 16;     // pooled rows on the Mods sub-screen
 constexpr int kFirstRunSteps = 5;  // welcome, locate, preferences, mods, ready
 constexpr f32 kFirstRunPageFade = 0.16f;  // seconds a page turn takes to settle
 constexpr int kFirstRunGames = 3;  // game rows on the locate page
+constexpr int kLoadingPhases = 6;         // rows on the loading screen's phase rail
+constexpr f32 kLoadingTipSeconds = 6.0f;  // how long each "while you wait" tip holds
 
 // Editor icon glyphs, composed from panels: the UI font (Noto Sans) has no
 // symbol set, so toolbar / tree / inspector icons are drawn as little stacks of
@@ -218,7 +220,7 @@ base::String BuildTopbarSection();
 base::String BuildUi();
 base::String LoadUiFragment(const char* name);
 fs::path UiDir();
-constexpr int kUiFragmentCount = 20;
+constexpr int kUiFragmentCount = 21;
 extern const char* const kUiFragments[kUiFragmentCount];
 
 // Screens translated from the games' own Scaleform movies by tools/swfdump
@@ -386,6 +388,13 @@ struct GameUi::Impl {
   FirstRunView fr_view;
   FirstRunRequest fr_request;
 
+  // Loading screen state. The engine owns everything shown here and pushes it
+  // through SetLoadingView; the screen only rotates its own tip.
+  bool loading_open = false;
+  LoadingView loading;
+  int ld_tip = 0;             // which "while you wait" tip is up
+  f32 ld_tip_from = -1000.0f;  // ui_time the current tip came up
+
   // Drives every main-menu widget from the state above each frame; collapses the
   // whole overlay when closed. Launch boots the focused tile, if it is playable.
   void ApplyMainMenu();
@@ -402,6 +411,10 @@ struct GameUi::Impl {
   // the primary button share AdvanceFirstRun). fr_located() counts found games.
   void ApplyFirstRun();
   bool RouteFirstRunClick(ugui::wid target);
+
+  // Loading screen: drive the phase rail, the progress readout and the rotating
+  // key tip from the view the engine pushed.
+  void ApplyLoading();
   void AdvanceFirstRun();
   void RetreatFirstRun();
   int fr_located() const {

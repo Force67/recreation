@@ -413,6 +413,9 @@ void ResolveUniverses(Engine& engine) {
     for (const auto& d : self->config_.extra_domains)
       if (d.game == g && !d.data_dir.empty())
         return {d.data_dir, d.plugins_txt};
+    for (const auto& d : self->config_.known_games)
+      if (d.game == g && !d.data_dir.empty())
+        return {d.data_dir, d.plugins_txt};
     return {"", ""};
   };
   for (int i = 0; i < 3; ++i) {
@@ -556,7 +559,13 @@ void EnterUniverse(Engine& engine,
   self->game_ui_.CloseMainMenu();
   self->main_menu_active_ = false;
   self->debug_ui_.SetVisible(!HideDebugUi);
-  if (!LoadGameData(engine)) {  // boots the managed world, so the game's C# module installs
+  // LoadGameData does not return to the host loop, so the loading screen has to
+  // go up before it and be driven from inside it (loading_screen.cc). Without
+  // this the window freezes for the length of the load.
+  BeginLoadingScreen(engine, u.name);
+  const bool loaded = LoadGameData(engine);
+  EndLoadingScreen(engine);
+  if (!loaded) {
     RX_ERROR("failed to load universe {}", u.name);
     return;
   }
