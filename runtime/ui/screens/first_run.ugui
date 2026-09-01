@@ -488,13 +488,20 @@
               // like a field or nobody clicks it: an underline alone reads as a
               // divider, so this carries a plate, a border that lifts on hover
               // and focus, and a placeholder. Click it or arrow to it, then type.
-              panel fr_name_box { layout: row; align: center; width: 100%; height: 52;
-                margin: 16 0 0 0; padding: 0 18 0 18; cursor: pointer;
+              // The plate IS the input, not a panel wrapped around one. A
+              // wrapper looks identical and breaks the thing entirely: ugui
+              // hit-tests the deepest widget, so a click anywhere the inner
+              // input does not physically cover -- the padding, the empty space
+              // above and below a vertically centred field -- lands on the
+              // wrapper, moves focus there, and every keystroke afterwards goes
+              // to a widget that cannot take text. Style the input directly and
+              // the whole box is the target.
+              input fr_name { width: 100%; height: 52; margin: 16 0 0 0;
+                padding: 0 18 0 18; font-size: 16; color: #ffffff;
                 background: #0a0a0a; border-color: #ffffff33; border-width: 1;
+                placeholder: "Type a name";
                 :hover { border-color: #ffffff8c; }
-                :focused { border-color: #ffffff; }
-                input fr_name { flex-grow: 1; font-size: 16; color: #ffffff;
-                  background: #00000000; placeholder: "Type a name"; } }
+                :focused { border-color: #ffffff; } }
               text fr_name_hint { class: t_faint; margin: 12 0 0 0;
                 text: "Leave it blank and your system account name is used."; }
 
