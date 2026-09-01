@@ -239,6 +239,10 @@
               vulkan-tools
               (nanocFor pkgs)         # nanobuf schema compiler, for nanobuf_regen
               (vkd3dFor pkgs)         # native D3D12-on-Vulkan, for the d3d12 rhi backend
+              # mbedTLS (zetanet's crypto backend wherever there is no system
+              # OpenSSL, i.e. every cross build) generates its PSA driver
+              # wrappers with a python script that needs these two.
+              (pkgs.python3.withPackages (ps: with ps; [ jsonschema jinja2 ]))
               vkrun
               swrun
             ];

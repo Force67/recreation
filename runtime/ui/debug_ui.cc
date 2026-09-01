@@ -12,7 +12,6 @@
 #include <SDL3/SDL.h>
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
-#include <imgui_impl_vulkan.h>
 
 #include <algorithm>
 #include <cctype>
@@ -22,6 +21,7 @@
 #include <filesystem>
 
 #include "core/log.h"
+#include "core/paths.h"
 #include "render/core/presets.h"
 #include "render/core/settings_ini.h"
 #include "render/rhi/vulkan_interop.h"
@@ -36,11 +36,16 @@ base::Option<bool> HideDebugUi{"hide.debug.ui", false, "RX_HIDE_DEBUG_UI"};
 // compiled-in engine/render/presets source path.
 base::Option<const char*> PresetsDirOpt{"presets.dir", nullptr, "RX_PRESETS_DIR"};
 
-// Directory holding the .ini render presets: RX_PRESETS_DIR, else the
+// Directory holding the .ini render presets: RX_PRESETS_DIR, else a "presets"
+// folder beside the executable (how a shipped build carries them), else the
 // compiled-in source path, else a cwd-relative fallback.
 std::filesystem::path PresetDir() {
   if (const char* env = PresetsDirOpt.get(); env && *env)
     return env;
+  std::error_code ec;
+  if (std::filesystem::path beside = ExecutableDirectory() / "presets";
+      std::filesystem::is_directory(beside, ec))
+    return beside;
 #ifdef RECREATION_PRESETS_DIR_DEFAULT
   return std::filesystem::path(RECREATION_PRESETS_DIR_DEFAULT);
 #else
@@ -128,16 +133,15 @@ bool DebugUi::Initialize(Window& window, render::Renderer& renderer) {
   render::Device* device = renderer.device();
   if (!sdl_window || !device || device->is_stub())
     return false;
-  // imgui_impl_vulkan records raw Vulkan; on other backends the overlay is off.
-  const render::VulkanHandles vk = render::GetVulkanHandles(*device);
-  if (vk.device == VK_NULL_HANDLE)
-    return false;
 
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
   ImGuiIO& io = ImGui::GetIO();
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_DockingEnable;
   io.IniFilename = nullptr;  // no imgui.ini litter next to the binary
+  // The two responsibilities render::ImGuiRenderer leaves to the app, because it
+  // deliberately calls no global ImGui:: function of its own.
+  io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures | ImGuiBackendFlags_RendererHasVtxOffset;
   ImGui::StyleColorsDark();
 
   // Font 0 stays the small default UI face; font 1 (if a system TTF is found) is
@@ -146,26 +150,12 @@ bool DebugUi::Initialize(Window& window, render::Renderer& renderer) {
   if (const char* title_path = FindTitleFont())
     title_font_ = io.Fonts->AddFontFromFileTTF(title_path, 116.0f);
 
-  if (!ImGui_ImplSDL3_InitForVulkan(sdl_window))
+  // InitForOther, not InitForVulkan: the platform half only needs the window,
+  // and the render half is no longer tied to one graphics api.
+  if (!ImGui_ImplSDL3_InitForOther(sdl_window))
     return false;
 
-  swapchain_format_ = render::GetVkFormat(renderer.swapchain_format());
-  ImGui_ImplVulkan_InitInfo info{};
-  info.ApiVersion = VK_API_VERSION_1_3;
-  info.Instance = vk.instance;
-  info.PhysicalDevice = vk.physical_device;
-  info.Device = vk.device;
-  info.QueueFamily = vk.graphics_family;
-  info.Queue = vk.graphics_queue;
-  info.DescriptorPoolSize = 64;  // backend manages its own pool
-  info.MinImageCount = base::Max(2u, renderer.swapchain_image_count());
-  info.ImageCount = base::Max(2u, renderer.swapchain_image_count());
-  info.UseDynamicRendering = true;
-  info.PipelineInfoMain.PipelineRenderingCreateInfo = {
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR};
-  info.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-  info.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &swapchain_format_;
-  if (!ImGui_ImplVulkan_Init(&info)) {
+  if (!imgui_renderer_.Initialize(*device, renderer.swapchain_format())) {
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
     return false;
@@ -180,14 +170,15 @@ bool DebugUi::Initialize(Window& window, render::Renderer& renderer) {
     visible_ = trace_visible_ = quests_visible_ = false;
   window_ = &window;
   initialized_ = true;
-  RX_INFO("imgui {} initialized (vulkan dynamic rendering)", IMGUI_VERSION);
+  RX_INFO("imgui {} initialized ({} rhi backend)", IMGUI_VERSION,
+          render::BackendName(device->caps().backend));
   return true;
 }
 
 void DebugUi::Shutdown() {
   if (!initialized_)
     return;
-  ImGui_ImplVulkan_Shutdown();
+  imgui_renderer_.Shutdown();
   ImGui_ImplSDL3_Shutdown();
   ImGui::DestroyContext();
   initialized_ = false;
@@ -196,7 +187,6 @@ void DebugUi::Shutdown() {
 void DebugUi::BeginFrame() {
   if (!initialized_)
     return;
-  ImGui_ImplVulkan_NewFrame();
   ImGui_ImplSDL3_NewFrame();
   ImGui::NewFrame();
 }
@@ -418,8 +408,8 @@ void DebugUi::Build(render::Renderer& renderer,
 
   ImGui::Render();
   if (visible_ || ImGui::GetDrawData()->TotalVtxCount > 0) {
-    view->ui_draw = [](render::CommandList& cmd) {
-      ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), render::GetVkCommandBuffer(cmd));
+    view->ui_draw = [this](render::CommandList& cmd) {
+      imgui_renderer_.Render(ImGui::GetDrawData(), cmd);
     };
   }
 }

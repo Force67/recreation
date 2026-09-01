@@ -41,6 +41,7 @@
 #include <sstream>
 
 #include "core/log.h"
+#include "core/paths.h"
 #include "core/window.h"
 #include "render/core/renderer.h"
 #include "render/rhi/vulkan_interop.h"
