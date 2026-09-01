@@ -423,6 +423,13 @@ class Engine : public app::Application {
   base::Vector<base::String> menu_entry_art_;
   base::String menu_mode_id_;
   base::Vector<base::String> menu_mode_ids_;
+  // The guided demo, offered from the menu's top nav rather than the play grid
+  // (a staged manifest with kind "tour"). Empty id means none is staged and the
+  // nav entry stays collapsed.
+  base::String menu_tour_id_;
+  base::String menu_tour_title_;
+  int menu_tour_universe_ = 0;
+  bool menu_tour_available_ = false;
   bool main_menu_active_ = false;
   // First-run out-of-box wizard: owns the screen on a fresh install until the
   // player finishes setup, at which point it hands off to the main menu. The

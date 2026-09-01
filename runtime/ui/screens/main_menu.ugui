@@ -29,6 +29,17 @@
       panel { layout: row; align: end; justify: space-between; width: 100%;
         text { class: t_mast; font-size: 32; letter-spacing: 13; text: "Recreation"; }
         panel { layout: row; align: center; gap: 16; margin: 0 -10 0 0;
+          // The guided demo leads the nav and is the one entry at full white:
+          // it is not a utility beside Mods and Settings, it is the answer to
+          // "what is this", which is the first thing a new player wants. The
+          // rule under it marks it as the live element the way the rest of the
+          // front-end does. Collapsed by ApplyMainMenu when none is staged.
+          panel mm_util_tour { cursor: pointer; padding: 6 10; position: relative;
+            :hover { background: #ffffff14; }
+            panel { position: absolute; left: 10; right: 10; bottom: 2; height: 1;
+              background: #ffffff; }
+            text mm_util_tour_t { font-size: 11; letter-spacing: 4;
+              text-transform: uppercase; color: #ffffff; text: "Tour"; } }
           panel mm_util_mods { cursor: pointer; padding: 6 10;
             :hover { background: #ffffff0a; }
             text { font-size: 11; letter-spacing: 4; text-transform: uppercase;

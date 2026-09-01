@@ -373,6 +373,15 @@ void GameUi::Impl::ApplyMainMenu() {
   SetVisible("mm_pnet", mm_stats.players_online > 0);
   setText("mm_pcount", base::ToString(mm_stats.players_online));
 
+  // The guided demo in the nav: shown only when one is staged, dimmed to the
+  // disabled value when its world was never located (it is still worth seeing
+  // the entry, so a player knows the tour exists and why it cannot run).
+  SetVisible("mm_util_tour", !mm_tour_title.empty());
+  if (!mm_tour_title.empty()) {
+    setText("mm_util_tour_t", mm_tour_title);
+    SetTextColor("mm_util_tour_t", Rgba(mm_tour_available ? 0xffffffffu : 0xffffff3du));
+  }
+
   // Build/version stamp.
   setText("mm_build", mm_stats.build.empty() ? "" : ("v" + mm_stats.build));
 
@@ -480,6 +489,13 @@ bool GameUi::Impl::RouteMainMenuClick(ugui::wid target) {
       using K = MainMenuRequest::Kind;
       if (name == "mm_back") {
         mm_screen = 0;
+        return true;
+      }
+      if (name == "mm_util_tour") {
+        // The engine owns which mode and which world the tour is; the menu only
+        // says that it was asked for.
+        if (mm_tour_available)
+          mm_request.kind = K::kEnterTour;
         return true;
       }
       if (name == "mm_util_mods") {

@@ -364,6 +364,8 @@ struct GameUi::Impl {
   int mm_entry = 0;
   base::Vector<base::String> mm_universe_names{"Skyrim", "Fallout 4", "Starfield"};
   base::Vector<bool> mm_available{true, true, true};
+  base::String mm_tour_title;        // guided demo in the top nav; empty = none staged
+  bool mm_tour_available = false;    // its world is located, so it can be launched
   base::Vector<base::String> mm_mods;
   base::Vector<MenuNewsItem> mm_news;
   u64 mm_backdrop[kMenuUniverses] = {0, 0, 0};

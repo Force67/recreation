@@ -468,6 +468,13 @@ void GameUi::SetFirstRunView(const FirstRunView& view) {
     impl_->fr_view = view;
 }
 
+void GameUi::SetMainMenuTour(const base::String& title, bool available) {
+  if (!impl_->initialized)
+    return;
+  impl_->mm_tour_title = title;
+  impl_->mm_tour_available = available;
+}
+
 void GameUi::OpenLoading(const base::String& title) {
   if (!impl_->initialized)
     return;
@@ -1434,6 +1441,7 @@ int GameUi::selected_entry() const {
   return -1;
 }
 void GameUi::SetMainMenuUniverses(const base::Vector<base::String>&, const base::Vector<bool>&) {}
+void GameUi::SetMainMenuTour(const base::String&, bool) {}
 void GameUi::SetMainMenuBackdrop(int, u64) {}
 void GameUi::SetMainMenuStats(const MainMenuStats&) {}
 void GameUi::SetMainMenuMods(const base::Vector<base::String>&) {}

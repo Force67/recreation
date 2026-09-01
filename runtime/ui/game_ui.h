@@ -248,7 +248,15 @@ struct MenuNewsItem {
 // universe makes that game the primary content domain, which boots its C#
 // gameplay module (SkyrimMod / Fallout / StarfieldMod gate on the primary).
 struct MainMenuRequest {
-  enum class Kind { kNone, kEnterUniverse, kHostServer, kJoinServer, kQuit, kOpenUrl };
+  enum class Kind {
+    kNone,
+    kEnterUniverse,
+    kEnterTour,  // the guided demo from the top nav; the engine knows which
+    kHostServer,
+    kJoinServer,
+    kQuit,
+    kOpenUrl
+  };
   // Set alongside kEnterUniverse when a MODE tile was launched: the manifest id
   // the managed host should arm once the domain is up. Empty means the base
   // game, with whatever modes mount themselves as they do today.
@@ -588,6 +596,9 @@ class GameUi {
   void SetMainMenuMods(const base::Vector<base::String>& mods);
   // The NEWS rail entries, most-recent first.
   void SetMainMenuNews(const base::Vector<MenuNewsItem>& news);
+  // The guided demo offered in the top nav: its display name, and whether the
+  // world it runs in is actually located. An empty title collapses the entry.
+  void SetMainMenuTour(const base::String& title, bool available);
   // The universe column currently selected (0 Skyrim, 1 Fallout 4, 2 Starfield).
   int selected_universe() const;
   // Consume the pending request (kNone if none). Called by the engine each frame.

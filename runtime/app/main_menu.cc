@@ -226,6 +226,14 @@ bool ReadManifest(const base::String& path, GameModeManifest& out) {
   return !out.id.empty();
 }
 
+// Whether a staged manifest is something the player can choose, as opposed to a
+// game's own base ruleset ("ruleset"), which is always on and never offered.
+// Both kinds below arm the same way; they differ only in where the menu puts
+// them: "mode" is a tile in the play grid, "tour" is an entry in the top nav.
+bool IsSelectableMode(const GameModeManifest& m) {
+  return m.kind == "mode" || m.kind == "tour";
+}
+
 // Collects the manifests staged in <managed dir>/gamemodes, sorted by id so the
 // grid does not reshuffle with directory order. An assembly with no manifest is
 // reported rather than quietly dropped: a mistyped manifest name would otherwise
@@ -476,8 +484,12 @@ void BuildMenuEntries(Engine& engine) {
     self->menu_entry_art_.push_back(GameKeyArt(u.game));
   }
   int mounted = 0;
+  self->menu_tour_id_.clear();
+  self->menu_tour_title_.clear();
+  self->menu_tour_universe_ = 0;
+  self->menu_tour_available_ = false;
   for (const GameModeManifest& m : ScanGameModes()) {
-    if (m.kind != "mode")  // a per-game base ruleset, not something to pick
+    if (!IsSelectableMode(m))  // a per-game base ruleset, not something to pick
       continue;
     // Every mode is optional content the managed side must leave dormant unless
     // it was armed, including one whose domain resolves to no tile below.
@@ -488,6 +500,16 @@ void BuildMenuEntries(Engine& engine) {
         universe = i;
     if (universe < 0) {
       RX_WARN("gamemodes: {} runs in unknown domain {}", m.id, m.domain);
+      continue;
+    }
+    // A tour is not a world to choose between, it is how you find out what any
+    // of this is, so it belongs at the top of the screen and not as one more
+    // grey tile at the end of the grid. Same arming path, different shelf.
+    if (m.kind == "tour") {
+      self->menu_tour_id_ = m.id;
+      self->menu_tour_title_ = m.title.empty() ? m.id : m.title;
+      self->menu_tour_universe_ = universe;
+      self->menu_tour_available_ = self->menu_universes_[universe].available;
       continue;
     }
     GameUi::MenuEntry e;
@@ -503,6 +525,7 @@ void BuildMenuEntries(Engine& engine) {
     self->menu_entry_art_.push_back(m.art);
     ++mounted;
   }
+  self->game_ui_.SetMainMenuTour(self->menu_tour_title_, self->menu_tour_available_);
   self->game_ui_.SetMainMenuEntries(self->menu_entries_);
   RX_INFO("menu: {} launch entries ({} game modes mounted)", self->menu_entries_.size(), mounted);
 }
@@ -518,7 +541,7 @@ void ArmConfiguredGameMode(Engine& engine) {
   self->menu_mode_ids_.clear();
   bool staged = false;
   for (const GameModeManifest& manifest : ScanGameModes()) {
-    if (manifest.kind != "mode")
+    if (!IsSelectableMode(manifest))
       continue;
     self->menu_mode_ids_.push_back(manifest.id);
     staged |= manifest.id == self->config_.game_mode;
@@ -654,6 +677,12 @@ void Engine::UpdateMainMenu(f32 dt) {
     case MainMenuRequest::Kind::kEnterUniverse:
       menu_mode_id_ = req.mode_id;  // empty for a base game tile
       EnterUniverse(*this, req.universe, false, false, "");
+      break;
+    case MainMenuRequest::Kind::kEnterTour:
+      // The nav entry carries no ids; BuildMenuEntries already resolved which
+      // mode the tour is and which world it runs in.
+      menu_mode_id_ = menu_tour_id_;
+      EnterUniverse(*this, menu_tour_universe_, false, false, "");
       break;
     case MainMenuRequest::Kind::kHostServer:
       EnterUniverse(*this, req.universe, true, true, "");
