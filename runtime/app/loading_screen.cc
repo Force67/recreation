@@ -1,4 +1,5 @@
 #include <chrono>
+#include <thread>
 
 #include <base/algorithm.h>
 #include <base/option.h>
@@ -36,6 +37,10 @@ namespace rx {
 static base::Option<const char*> LoadShot{"load.shot", nullptr, "RX_LOAD_SHOT"};
 static base::Option<int> LoadShotPhase{"load.shot.phase", static_cast<int>(LoadPhase::kDomains),
                                        "RX_LOAD_SHOT_PHASE"};
+// Shortest time the loading screen stays up, however fast the load was.
+// RX_LOAD_MIN_SECONDS=0 turns the hold off (a capture run that wants the world
+// as soon as it exists).
+static base::Option<float> LoadMinimumSeconds{"load.min.seconds", 2.5f, "RX_LOAD_MIN_SECONDS"};
 
 namespace {
 
@@ -96,15 +101,25 @@ void PresentLoadingFrame(Engine& engine) {
     return;
   }
 
+  // Real time between presents, not a nominal 1/60: the gap between two phase
+  // reports is however long that phase took, and the UI clock (which paces the
+  // page fades and the tip rotation) has to agree with the wall clock or the
+  // screen ages at a rate that has nothing to do with the load. Clamped so one
+  // twenty-second phase does not hand the UI a twenty-second step.
+  static f64 last_present = 0.0;
+  const f64 now = NowSeconds();
+  const f32 delta =
+      last_present > 0.0 ? base::Clamp(static_cast<f32>(now - last_present), 0.0f, 0.1f) : 1.0f / 60.0f;
+  last_present = now;
+
   static render::FrameView view;
   view.Clear();
-  view.frame_delta_seconds = 1.0f / 60.0f;
+  view.frame_delta_seconds = delta;
   // Nothing of the world is up yet, but the camera still has to be a valid
   // basis or the view matrix is degenerate.
   view.camera.eye = self->camera_.position();
   view.camera.target = self->camera_.target();
-  self->game_ui_.Build(*self->window_, *self->renderer_, self->camera_, view.frame_delta_seconds,
-                       &view);
+  self->game_ui_.Build(*self->window_, *self->renderer_, self->camera_, delta, &view);
   self->renderer_->RenderFrame(view);
 }
 
@@ -173,9 +188,37 @@ void EndLoadingScreen(Engine& engine) {
   Engine* const self = &engine;
   if (!self->load_screen_up_)
     return;
+  const f64 loaded_in = NowSeconds() - self->load_started_;
+
+  // Hold the screen if the load beat it.
+  //
+  // The good problem: dropping the duplicate domain mounts took a Skyrim load
+  // from 63 seconds to under two, and a screen that explains what is happening
+  // is no use if it appears and vanishes before a word of it can be read. A
+  // load that finished early waits out the difference here, so the phase rail,
+  // the counts and the key tip are legible at least once. A load that took
+  // longer than the minimum never enters this loop and is not delayed at all.
+  //
+  // The wait is spent presenting, not sleeping through: the window keeps
+  // pumping (so it stays responsive) and the elapsed readout keeps counting, so
+  // the screen is alive rather than a frozen last frame. No input skips it --
+  // the click that pressed PLAY is often still down at this point and would
+  // dismiss the screen the instant it appeared, which is the bug this fixes.
+  const f64 minimum = base::Max(0.0f, LoadMinimumSeconds.get());
+  bool held = false;
+  while (NowSeconds() - self->load_started_ < minimum) {
+    held = true;
+    // Re-reporting the final phase refreshes the elapsed readout and presents.
+    ReportLoadPhase(engine, LoadPhase::kWorld, "Ready", "", 1.0f);
+    // ~120 Hz. Without this the loop spins the GPU flat out on a run with vsync
+    // off, which is most of them.
+    std::this_thread::sleep_for(std::chrono::milliseconds(8));
+  }
+
   self->load_screen_up_ = false;
   self->game_ui_.CloseLoading();
-  RX_INFO("loaded {} in {:.1f}s", self->load_title_, NowSeconds() - self->load_started_);
+  RX_INFO("loaded {} in {:.1f}s{}", self->load_title_, loaded_in,
+          held ? " (screen held to the minimum)" : "");
 }
 
 }  // namespace rx
