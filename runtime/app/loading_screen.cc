@@ -1,5 +1,4 @@
 #include <chrono>
-#include <thread>
 
 #include <base/algorithm.h>
 #include <base/option.h>
@@ -41,6 +40,10 @@ static base::Option<int> LoadShotPhase{"load.shot.phase", static_cast<int>(LoadP
 // RX_LOAD_MIN_SECONDS=0 turns the hold off (a capture run that wants the world
 // as soon as it exists).
 static base::Option<float> LoadMinimumSeconds{"load.min.seconds", 2.5f, "RX_LOAD_MIN_SECONDS"};
+// Safety cap on the hold that waits for the world to stream in. A map that
+// never reports caught-up (a hole in the LAND, an interior the streamer is
+// still chewing) must not strand the player behind the card forever.
+static base::Option<float> LoadMaxHoldSeconds{"load.max.hold", 20.0f, "RX_LOAD_MAX_HOLD"};
 
 namespace {
 
@@ -140,17 +143,19 @@ void BeginLoadingScreen(Engine& engine, const base::String& title) {
   PresentLoadingFrame(engine);
 }
 
-void ReportLoadPhase(Engine& engine,
+// Fill the screen's view from a phase report. Does NOT present: the caller
+// decides, because the two callers differ. A phase report during the load has
+// to present (nothing else is drawing), while the per-frame hold afterwards
+// must not (the host loop is drawing again, and a second submit per frame would
+// just be waste).
+void PushLoadingView(Engine& engine,
                      LoadPhase phase,
                      const base::String& detail,
                      const base::String& note,
                      f32 within) {
   Engine* const self = &engine;
-  if (!self->load_screen_up_)
-    return;
-
-  const int index = base::Clamp(static_cast<int>(phase), 0,
-                                static_cast<int>(LoadPhase::kCount) - 1);
+  const int index =
+      base::Clamp(static_cast<int>(phase), 0, static_cast<int>(LoadPhase::kCount) - 1);
   const PhaseSpan& span = kPhaseSpans[index];
 
   // The counts are sticky: kRecords learns them and every later phase keeps
@@ -168,8 +173,22 @@ void ReportLoadPhase(Engine& engine,
   view.progress = span.begin + (span.end - span.begin) * base::Clamp(within, 0.0f, 1.0f);
   view.elapsed = static_cast<f32>(NowSeconds() - self->load_started_);
   self->game_ui_.SetLoadingView(view);
+}
+
+void ReportLoadPhase(Engine& engine,
+                     LoadPhase phase,
+                     const base::String& detail,
+                     const base::String& note,
+                     f32 within) {
+  Engine* const self = &engine;
+  if (!self->load_screen_up_)
+    return;
+
+  PushLoadingView(engine, phase, detail, note, within);
   PresentLoadingFrame(engine);
 
+  const int index =
+      base::Clamp(static_cast<int>(phase), 0, static_cast<int>(LoadPhase::kCount) - 1);
   // Test hook: grab this screen once, on the phase asked for. CaptureScreenshot
   // is deferred to the NEXT RenderFrame, so the request is followed by another
   // present to make it land.
@@ -184,41 +203,58 @@ void ReportLoadPhase(Engine& engine,
   }
 }
 
+void HoldLoadingUntilStreamed(Engine& engine) {
+  Engine* const self = &engine;
+  if (!self->load_screen_up_)
+    return;
+  self->load_wait_stream_ = true;
+  RX_INFO("loaded {} in {:.1f}s; holding for the world to stream in",
+          self->load_title_, NowSeconds() - self->load_started_);
+}
+
+void TickLoadingScreen(Engine& engine, f32 dt) {
+  (void)dt;
+  Engine* const self = &engine;
+  if (!self->load_screen_up_ || !self->load_wait_stream_)
+    return;
+
+  // The world is not ready when LoadGameData returns.
+  //
+  // That call builds the streamer and asks for the first cells; it does not
+  // wait for them. Taking the screen down at that point drops the player into a
+  // world that then assembles itself in front of them for several seconds --
+  // terrain, buildings and NPCs popping in around a camera that is already
+  // live. So the card stays up until the streamer says it has caught up.
+  //
+  // This runs from the host loop rather than blocking like the phases above,
+  // and it has to: cells are streamed BY that loop, so a blocking wait here
+  // would hold the screen forever on a world that could never finish.
+  const f64 elapsed = NowSeconds() - self->load_started_;
+  const f64 minimum = base::Max(0.0f, LoadMinimumSeconds.get());
+  const bool streamed = self->streamer_ && self->streamer_->caught_up();
+  const bool timed_out = elapsed >= LoadMaxHoldSeconds.get();
+
+  if ((streamed && elapsed >= minimum) || timed_out) {
+    RX_INFO("world streamed in after {:.1f}s{}", elapsed, timed_out ? " [timeout]" : "");
+    EndLoadingScreen(engine);
+    return;
+  }
+
+  // Keep the screen honest while it waits: the last rail row stays lit and the
+  // readout counts the cells as they land, so a long stream-in reads as work
+  // happening rather than a hang.
+  const size_t cells = self->streamer_ ? self->streamer_->loaded_cell_count() : 0;
+  PushLoadingView(engine, LoadPhase::kWorld, "Streaming the world around you",
+                  base::ToString(static_cast<u64>(cells)) + " cells resident", 1.0f);
+}
+
 void EndLoadingScreen(Engine& engine) {
   Engine* const self = &engine;
   if (!self->load_screen_up_)
     return;
-  const f64 loaded_in = NowSeconds() - self->load_started_;
-
-  // Hold the screen if the load beat it.
-  //
-  // The good problem: dropping the duplicate domain mounts took a Skyrim load
-  // from 63 seconds to under two, and a screen that explains what is happening
-  // is no use if it appears and vanishes before a word of it can be read. A
-  // load that finished early waits out the difference here, so the phase rail,
-  // the counts and the key tip are legible at least once. A load that took
-  // longer than the minimum never enters this loop and is not delayed at all.
-  //
-  // The wait is spent presenting, not sleeping through: the window keeps
-  // pumping (so it stays responsive) and the elapsed readout keeps counting, so
-  // the screen is alive rather than a frozen last frame. No input skips it --
-  // the click that pressed PLAY is often still down at this point and would
-  // dismiss the screen the instant it appeared, which is the bug this fixes.
-  const f64 minimum = base::Max(0.0f, LoadMinimumSeconds.get());
-  bool held = false;
-  while (NowSeconds() - self->load_started_ < minimum) {
-    held = true;
-    // Re-reporting the final phase refreshes the elapsed readout and presents.
-    ReportLoadPhase(engine, LoadPhase::kWorld, "Ready", "", 1.0f);
-    // ~120 Hz. Without this the loop spins the GPU flat out on a run with vsync
-    // off, which is most of them.
-    std::this_thread::sleep_for(std::chrono::milliseconds(8));
-  }
-
   self->load_screen_up_ = false;
+  self->load_wait_stream_ = false;
   self->game_ui_.CloseLoading();
-  RX_INFO("loaded {} in {:.1f}s{}", self->load_title_, loaded_in,
-          held ? " (screen held to the minimum)" : "");
 }
 
 }  // namespace rx

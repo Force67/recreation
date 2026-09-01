@@ -613,11 +613,15 @@ void EnterUniverse(Engine& engine,
   // this the window freezes for the length of the load.
   BeginLoadingScreen(engine, u.name);
   const bool loaded = LoadGameData(engine);
-  EndLoadingScreen(engine);
   if (!loaded) {
+    EndLoadingScreen(engine);
     RX_ERROR("failed to load universe {}", u.name);
     return;
   }
+  // The screen stays up past the load: the world is still streaming in, and
+  // dropping the player into it now means watching it assemble itself.
+  // TickLoadingScreen takes it down once the streamer has caught up.
+  HoldLoadingUntilStreamed(engine);
   // Opt-in (RX_MENU_CAPTURE): grab a clean frame of this world for the menu
   // backdrop cache once it has streamed in, so a later menu shows the real scene.
   // Off by default, since a mid-stream grab can catch an unsettled frame.

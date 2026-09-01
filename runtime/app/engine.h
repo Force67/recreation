@@ -321,6 +321,9 @@ class Engine : public app::Application {
   friend void BeginLoadingScreen(Engine&, const base::String&);
   friend void ReportLoadPhase(Engine&, LoadPhase, const base::String&, const base::String&, f32);
   friend void PresentLoadingFrame(Engine&);
+  friend void PushLoadingView(Engine&, LoadPhase, const base::String&, const base::String&, f32);
+  friend void HoldLoadingUntilStreamed(Engine&);
+  friend void TickLoadingScreen(Engine&, f32);
   friend void EndLoadingScreen(Engine&);
 #if RECREATION_HAS_NET
   friend bool StartNetworking(Engine&);
@@ -456,6 +459,9 @@ class Engine : public app::Application {
   std::atomic<bool> quest_moves_allowed_{false};
 
   bool load_screen_up_ = false;
+  // Set once LoadGameData has returned and the screen is only still up to cover
+  // the world streaming in around the player. Ticked by TickLoadingScreen.
+  bool load_wait_stream_ = false;
   f64 load_started_ = 0.0;
   base::String load_title_;
   base::String load_records_;
@@ -840,6 +846,21 @@ void ReportLoadPhase(Engine& engine,
 // currently says. ReportLoadPhase calls it; a step that runs long without a
 // phase change of its own can call it directly to keep the window alive.
 void PresentLoadingFrame(Engine& engine);
+// Refreshes what the screen says WITHOUT submitting a frame, for the per-frame
+// hold below: once the host loop is turning again it does the drawing, and a
+// second submit per frame would only be waste.
+void PushLoadingView(Engine& engine,
+                     LoadPhase phase,
+                     const base::String& detail,
+                     const base::String& note = "",
+                     f32 within = 0.0f);
+// Keeps the screen up after the load returns, to cover the world streaming in.
+// Called once from EnterUniverse; TickLoadingScreen then takes it down.
+void HoldLoadingUntilStreamed(Engine& engine);
+// Per frame while the screen is up: refreshes it and decides when to close.
+// Unlike everything above this runs from the host loop, which is the point --
+// cells only stream while that loop turns.
+void TickLoadingScreen(Engine& engine, f32 dt);
 void EndLoadingScreen(Engine& engine);
 #if RECREATION_HAS_NET
 // Opens the authoritative server or replica client session and wires the

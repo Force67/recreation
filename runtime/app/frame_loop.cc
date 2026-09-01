@@ -418,6 +418,11 @@ void Engine::OnUpdate(f32 raw_frame_delta) {
         }
       }
       TickMenuCapture();  // grab a clean backdrop frame after entering a universe
+      // The loading screen outlives the load itself, covering the world as it
+      // streams in; this is what eventually takes it down. It has to run from
+      // here rather than block inside the load, because the cells it waits for
+      // are streamed by this very loop.
+      TickLoadingScreen(*this, frame_delta);
       debug_ui_.BeginFrame();
       UpdateCamera(frame_delta);
       UpdateSettings();          // pause-menu controls: rebind capture + sensitivity
