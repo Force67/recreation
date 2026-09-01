@@ -63,6 +63,10 @@ struct EngineConfig {
   // mounted Fallout 4 and Starfield and a fresh player waited 40 seconds for
   // two worlds they had not asked for.
   base::Vector<ExtraDomainConfig> known_games;
+  // A game mode to arm at boot (--game-mode <id>), the command-line equivalent
+  // of picking its tile on the front screen. Empty means no mode: the domain's
+  // base ruleset only.
+  base::String game_mode;
   base::String gltf_path;   // standalone gltf/glb scene (e.g. sponza)
   base::String demo_scene;  // "water" = empty map with a water sheet
   // Open the NEXUS main menu instead of loading content directly; the player

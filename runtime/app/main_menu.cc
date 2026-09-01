@@ -507,6 +507,32 @@ void BuildMenuEntries(Engine& engine) {
   RX_INFO("menu: {} launch entries ({} game modes mounted)", self->menu_entries_.size(), mounted);
 }
 
+void ArmConfiguredGameMode(Engine& engine) {
+  Engine* const self = &engine;
+  if (self->config_.game_mode.empty() || !self->menu_mode_id_.empty())
+    return;  // nothing asked for, or the front screen already picked one
+  // Fill the selectable set as well as the pick. A mode only stays dormant
+  // because the managed host knows it was selectable and not chosen; without
+  // this list every staged mode would load at once and --game-mode would arm
+  // nothing in particular.
+  self->menu_mode_ids_.clear();
+  bool staged = false;
+  for (const GameModeManifest& manifest : ScanGameModes()) {
+    if (manifest.kind != "mode")
+      continue;
+    self->menu_mode_ids_.push_back(manifest.id);
+    staged |= manifest.id == self->config_.game_mode;
+  }
+  if (!staged) {
+    RX_WARN("--game-mode {}: not staged in the gamemodes directory; running without it",
+            self->config_.game_mode);
+    self->menu_mode_ids_.clear();
+    return;
+  }
+  self->menu_mode_id_ = self->config_.game_mode;
+  RX_INFO("arming game mode {} from the command line", self->menu_mode_id_);
+}
+
 void SetupMainMenu(Engine& engine) {
   Engine* const self = &engine;
   self->main_menu_active_ = true;

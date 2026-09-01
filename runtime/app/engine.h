@@ -314,6 +314,7 @@ class Engine : public app::Application {
   friend void ResolveUniverses(Engine&);
   friend void BuildMenuEntries(Engine&);
   friend void SetupMainMenu(Engine&);
+  friend void ArmConfiguredGameMode(Engine&);
   friend void EnterUniverse(Engine&, int, bool, bool, const base::String&);
   friend void SetupFirstRun(Engine&);
   friend void LoadSetupConfig(Engine&);
@@ -797,6 +798,10 @@ void BootManagedScripting(Engine& engine);
 void ResolveUniverses(Engine& engine);
 void BuildMenuEntries(Engine& engine);
 void SetupMainMenu(Engine& engine);
+// Arms the mode named by --game-mode, so a gamemode can be launched straight
+// from the command line instead of only by clicking its tile. A no-op when the
+// flag is absent or the front screen already made a pick.
+void ArmConfiguredGameMode(Engine& engine);
 void EnterUniverse(Engine& engine,
                    int idx,
                    bool multiplayer,

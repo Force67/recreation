@@ -461,6 +461,7 @@ bool LoadGameData(Engine& engine) {
   // and Skyrim soft logic run alongside Papyrus. Optional and gracefully absent.
   ReportLoadPhase(engine, LoadPhase::kWorld, "Starting the mod runtime",
                   "C# gameplay modules and any mods you have installed");
+  ArmConfiguredGameMode(engine);  // --game-mode, before the managed host is told
   BootManagedScripting(engine);
   {
     auto* scripts = (self->scripts_ ? &*self->scripts_ : nullptr);

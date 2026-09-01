@@ -47,7 +47,7 @@ public sealed class TourDirector : GameBehaviour
     // patch of fog with nothing to demonstrate. Instead it waits for the player
     // to actually have neighbours, and gives up after Settle so a genuinely bare
     // spot still gets a tour rather than nothing at all.
-    public int MinNeighbours { get; init; } = 12;
+    public int MinNeighbours { get; init; } = 6;
     public float Settle { get; init; } = 25f;
 
     // The ring the tour builds: how many props, how far out, how high.
@@ -55,7 +55,10 @@ public sealed class TourDirector : GameBehaviour
     public float RingRadius { get; init; } = 420f;   // game units, ~6 m
     public float RingLift { get; init; } = 90f;      // ~1.3 m, about chest height
     public float RingBob { get; init; } = 34f;       // how far each prop rides up and down
-    public float SearchRadius { get; init; } = 1400f;  // ~20 m of neighbours to clone
+    // How far to look for things to clone. Generous on purpose: a spawn point can
+    // easily be a bare hillside with one neighbour inside 20 m, and a tour that
+    // reports "nothing nearby" on open is a tour nobody watches twice.
+    public float SearchRadius { get; init; } = 6000f;  // ~85 m
     // How much further out one press of the key pushes the ring.
     public float NudgeStep { get; init; } = 120f;
 
@@ -73,6 +76,7 @@ public sealed class TourDirector : GameBehaviour
     private float _elapsed;      // seconds inside the current stop
     private float _sinceStart;   // seconds since the behaviour started
     private float _sincePoll;    // seconds since the last "is there a world yet" check
+    private int _neighbours;     // references found by that check
     private bool _running;
     private bool _finished;
 
@@ -123,17 +127,20 @@ public sealed class TourDirector : GameBehaviour
     private bool ReadyToOpen()
     {
         if (_sinceStart < LeadIn) return false;
+        _sincePoll += Time.DeltaTime;
+        bool polled = _sincePoll >= 0.5f;
+        if (polled)
+        {
+            _sincePoll = 0f;
+            _neighbours = Game.Player.RefsNear(SearchRadius).Length;
+        }
         if (_sinceStart >= Settle)
         {
-            Debug.Trace($"[tour] opening on a bare spot after {Settle:0.#}s");
+            Debug.Trace($"[tour] opening after {Settle:0.#}s with {_neighbours} references nearby");
             return true;
         }
-        _sincePoll += Time.DeltaTime;
-        if (_sincePoll < 0.5f) return false;
-        _sincePoll = 0f;
-        int neighbours = Game.Player.RefsNear(SearchRadius).Length;
-        if (neighbours < MinNeighbours) return false;
-        Debug.Trace($"[tour] world settled: {neighbours} references nearby");
+        if (!polled || _neighbours < MinNeighbours) return false;
+        Debug.Trace($"[tour] world settled: {_neighbours} references nearby");
         return true;
     }
 
