@@ -100,6 +100,13 @@ inline base::Option<const char*> FirstRunStep{"first.run.step", nullptr, "RECREA
 // every UiClickStride frames. Drives the front-end flows headlessly.
 inline base::Option<const char*> UiClick{"ui.click", nullptr, "RX_UI_CLICK"};
 inline base::Option<int> UiClickStride{"ui.click.stride", 12, "RX_UI_CLICK_STRIDE"};
+// RX_UI_KEY="down,down,enter": drives the focus ring rather than aiming at a
+// widget by name, which is the only way to exercise keyboard navigation.
+// Shares RX_UI_CLICK_STRIDE.
+inline base::Option<const char*> UiKey{"ui.key", nullptr, "RX_UI_KEY"};
+// Arrow keys move focus between the interactive widgets of whatever ugui screen
+// is up, and Enter activates. RX_UI_KEYBOARD_NAV=0 hands the arrows back.
+inline base::Option<bool> UiKeyboardNav{"ui.keyboard.nav", true, "RX_UI_KEYBOARD_NAV"};
 
 // Scrolling compass geometry. 8 marks per 360deg turn, 3 turns so the strip
 // always covers the window whatever the heading; the engine slides it by
@@ -289,6 +296,10 @@ struct GameUi::Impl {
   base::Vector<base::String> click_script;
   int click_index = 0;
   int click_frame = 0;
+  // RX_UI_KEY playback, the keyboard-navigation counterpart of the above.
+  base::Vector<base::String> key_script;
+  int key_index = 0;
+  int key_frame = 0;
   float pointer_scale_x = 1.0f;
   float pointer_scale_y = 1.0f;
   bool prev_pad[static_cast<int>(GamepadButton::kCount)] = {};  // gamepad edge tracking

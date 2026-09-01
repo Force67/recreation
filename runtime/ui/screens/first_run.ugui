@@ -55,6 +55,7 @@
         panel { width: 396; layout: column;
           panel fr_nav0 { height: 82; position: relative; layout: row; align: center;
             cursor: pointer;
+            :focused { background: #ffffff1f; }
             panel fr_navplate0 { position: absolute; left: 0; top: 0; bottom: 0; right: 0;
               background: #17191c; background-end: #17191c00; gradient-angle: 90; }
             panel fr_navsel0 { position: absolute; left: 0; top: 0; bottom: 0; width: 2;
@@ -66,6 +67,7 @@
                 text { class: t_micro2; text: "What this is"; } } } }
           panel fr_nav1 { height: 82; position: relative; layout: row; align: center;
             cursor: pointer;
+            :focused { background: #ffffff1f; }
             panel fr_navplate1 { position: absolute; left: 0; top: 0; bottom: 0; right: 0;
               background: #17191c; background-end: #17191c00; gradient-angle: 90; }
             panel fr_navsel1 { position: absolute; left: 0; top: 0; bottom: 0; width: 2;
@@ -77,6 +79,7 @@
                 text { class: t_micro2; text: "Where your data lives"; } } } }
           panel fr_nav2 { height: 82; position: relative; layout: row; align: center;
             cursor: pointer;
+            :focused { background: #ffffff1f; }
             panel fr_navplate2 { position: absolute; left: 0; top: 0; bottom: 0; right: 0;
               background: #17191c; background-end: #17191c00; gradient-angle: 90; }
             panel fr_navsel2 { position: absolute; left: 0; top: 0; bottom: 0; width: 2;
@@ -88,6 +91,7 @@
                 text { class: t_micro2; text: "Mode and difficulty"; } } } }
           panel fr_nav3 { height: 82; position: relative; layout: row; align: center;
             cursor: pointer;
+            :focused { background: #ffffff1f; }
             panel fr_navplate3 { position: absolute; left: 0; top: 0; bottom: 0; right: 0;
               background: #17191c; background-end: #17191c00; gradient-angle: 90; }
             panel fr_navsel3 { position: absolute; left: 0; top: 0; bottom: 0; width: 2;
@@ -99,6 +103,7 @@
                 text { class: t_micro2; text: "Mods and downloads"; } } } }
           panel fr_nav4 { height: 82; position: relative; layout: row; align: center;
             cursor: pointer;
+            :focused { background: #ffffff1f; }
             panel fr_navplate4 { position: absolute; left: 0; top: 0; bottom: 0; right: 0;
               background: #17191c; background-end: #17191c00; gradient-angle: 90; }
             panel fr_navsel4 { position: absolute; left: 0; top: 0; bottom: 0; width: 2;
@@ -155,12 +160,14 @@
               panel fr_begin { height: 46; padding: 0 40 0 40; cursor: pointer;
                 layout: row; align: center; justify: center; background: #e8e8e8;
                 :hover { background: #ffffff; }
+                :focused { background: #ffffff; }
                 text { font-size: 12; letter-spacing: 5; text-transform: uppercase;
                   color: #000000; text: "Begin setup"; } }
               panel fr_skip { height: 46; padding: 0 24 0 24; cursor: pointer;
                 layout: row; align: center; justify: center;
                 background: #0a0a0a; border-color: #ffffff1c; border-width: 1;
                 :hover { border-color: #ffffff8c; }
+                :focused { border-color: #ffffff8c; }
                 text { font-size: 12; letter-spacing: 5; text-transform: uppercase;
                   color: #9a9a9a; text: "Skip for now"; } } }
           }
@@ -194,6 +201,7 @@
                 layout: row; align: center; justify: center;
                 background: #0a0a0a; border-color: #ffffff33; border-width: 1;
                 :hover { border-color: #ffffff; }
+                :focused { border-color: #ffffff; }
                 text { class: t_micro2; color: #9a9a9a; text: "Browse"; } } }
             panel { class: rule_dim; width: 100%; max-width: 1000; }
             panel fr_row1 { layout: row; align: center; gap: 22; width: 100%; max-width: 1000;
@@ -208,6 +216,7 @@
                 layout: row; align: center; justify: center;
                 background: #0a0a0a; border-color: #ffffff33; border-width: 1;
                 :hover { border-color: #ffffff; }
+                :focused { border-color: #ffffff; }
                 text { class: t_micro2; color: #9a9a9a; text: "Browse"; } } }
             panel { class: rule_dim; width: 100%; max-width: 1000; }
             panel fr_row2 { layout: row; align: center; gap: 22; width: 100%; max-width: 1000;
@@ -222,6 +231,7 @@
                 layout: row; align: center; justify: center;
                 background: #0a0a0a; border-color: #ffffff33; border-width: 1;
                 :hover { border-color: #ffffff; }
+                :focused { border-color: #ffffff; }
                 text { class: t_micro2; color: #9a9a9a; text: "Browse"; } } }
             panel { class: rule; width: 100%; max-width: 1000; }
 
@@ -232,12 +242,14 @@
               panel fr_next1 { height: 46; padding: 0 40 0 40; cursor: pointer;
                 layout: row; align: center; justify: center; background: #e8e8e8;
                 :hover { background: #ffffff; }
+                :focused { background: #ffffff; }
                 text fr_next1_t { font-size: 12; letter-spacing: 5; text-transform: uppercase;
                   color: #000000; text: "Continue"; } }
               panel fr_back1 { height: 46; padding: 0 24 0 24; cursor: pointer;
                 layout: row; align: center; justify: center;
                 background: #0a0a0a; border-color: #ffffff1c; border-width: 1;
                 :hover { border-color: #ffffff8c; }
+                :focused { border-color: #ffffff8c; }
                 text { font-size: 12; letter-spacing: 5; text-transform: uppercase;
                   color: #9a9a9a; text: "Back"; } } }
           }
@@ -263,6 +275,7 @@
                     cursor: pointer; layout: row; align: center; justify: center;
                     background: #0d0d0d;
                     :hover { background: #17191c; }
+                :focused { background: #2f3338; }
                     panel fr_modebar0 { position: absolute; left: 0; right: 0; top: 0; height: 2;
                       background: #ffffff; }
                     text fr_modelbl0 { font-size: 11; letter-spacing: 3; text-transform: uppercase;
@@ -271,6 +284,7 @@
                     cursor: pointer; layout: row; align: center; justify: center;
                     background: #0d0d0d;
                     :hover { background: #17191c; }
+                :focused { background: #2f3338; }
                     panel fr_modebar1 { position: absolute; left: 0; right: 0; top: 0; height: 2;
                       background: #ffffff; }
                     text fr_modelbl1 { font-size: 11; letter-spacing: 3; text-transform: uppercase;
@@ -279,6 +293,7 @@
                     cursor: pointer; layout: row; align: center; justify: center;
                     background: #0d0d0d;
                     :hover { background: #17191c; }
+                :focused { background: #2f3338; }
                     panel fr_modebar2 { position: absolute; left: 0; right: 0; top: 0; height: 2;
                       background: #ffffff; }
                     text fr_modelbl2 { font-size: 11; letter-spacing: 3; text-transform: uppercase;
@@ -287,6 +302,7 @@
                     cursor: pointer; layout: row; align: center; justify: center;
                     background: #0d0d0d;
                     :hover { background: #17191c; }
+                :focused { background: #2f3338; }
                     panel fr_modebar3 { position: absolute; left: 0; right: 0; top: 0; height: 2;
                       background: #ffffff; }
                     text fr_modelbl3 { font-size: 11; letter-spacing: 3; text-transform: uppercase;
@@ -302,6 +318,7 @@
                     cursor: pointer; layout: row; align: center; justify: center;
                     background: #0d0d0d;
                     :hover { background: #17191c; }
+                :focused { background: #2f3338; }
                     panel fr_diffbar0 { position: absolute; left: 0; right: 0; top: 0; height: 2;
                       background: #ffffff; }
                     text fr_difflbl0 { font-size: 11; letter-spacing: 3; text-transform: uppercase;
@@ -310,6 +327,7 @@
                     cursor: pointer; layout: row; align: center; justify: center;
                     background: #0d0d0d;
                     :hover { background: #17191c; }
+                :focused { background: #2f3338; }
                     panel fr_diffbar1 { position: absolute; left: 0; right: 0; top: 0; height: 2;
                       background: #ffffff; }
                     text fr_difflbl1 { font-size: 11; letter-spacing: 3; text-transform: uppercase;
@@ -318,6 +336,7 @@
                     cursor: pointer; layout: row; align: center; justify: center;
                     background: #0d0d0d;
                     :hover { background: #17191c; }
+                :focused { background: #2f3338; }
                     panel fr_diffbar2 { position: absolute; left: 0; right: 0; top: 0; height: 2;
                       background: #ffffff; }
                     text fr_difflbl2 { font-size: 11; letter-spacing: 3; text-transform: uppercase;
@@ -326,6 +345,7 @@
                     cursor: pointer; layout: row; align: center; justify: center;
                     background: #0d0d0d;
                     :hover { background: #17191c; }
+                :focused { background: #2f3338; }
                     panel fr_diffbar3 { position: absolute; left: 0; right: 0; top: 0; height: 2;
                       background: #ffffff; }
                     text fr_difflbl3 { font-size: 11; letter-spacing: 3; text-transform: uppercase;
@@ -334,6 +354,7 @@
 
               panel fr_chk0 { layout: row; align: center; justify: space-between; width: 100%;
                 height: 74; cursor: pointer;
+                :focused { background: #ffffff1f; }
                 panel { layout: column; gap: 6;
                   text { class: t_body; text: "Enable mods by default"; }
                   text { class: t_faint; text: "Load installed modules when a world starts"; } }
@@ -343,6 +364,7 @@
               panel { class: rule_dim; width: 100%; }
               panel fr_chk1 { layout: row; align: center; justify: space-between; width: 100%;
                 height: 74; cursor: pointer;
+                :focused { background: #ffffff1f; }
                 panel { layout: column; gap: 6;
                   text { class: t_body; text: "Share anonymous diagnostics"; }
                   text { class: t_faint; text: "Crash and performance counters. Nothing personal leaves the machine"; } }
@@ -352,6 +374,7 @@
               panel { class: rule_dim; width: 100%; }
               panel fr_chk2 { layout: row; align: center; justify: space-between; width: 100%;
                 height: 74; cursor: pointer;
+                :focused { background: #ffffff1f; }
                 panel { layout: column; gap: 6;
                   text { class: t_body; text: "Check for updates on launch"; }
                   text { class: t_faint; text: "Engine and protocol releases"; } }
@@ -364,12 +387,14 @@
               panel fr_next2 { height: 46; padding: 0 40 0 40; cursor: pointer;
                 layout: row; align: center; justify: center; background: #e8e8e8;
                 :hover { background: #ffffff; }
+                :focused { background: #ffffff; }
                 text { font-size: 12; letter-spacing: 5; text-transform: uppercase;
                   color: #000000; text: "Continue"; } }
               panel fr_back2 { height: 46; padding: 0 24 0 24; cursor: pointer;
                 layout: row; align: center; justify: center;
                 background: #0a0a0a; border-color: #ffffff1c; border-width: 1;
                 :hover { border-color: #ffffff8c; }
+                :focused { border-color: #ffffff8c; }
                 text { font-size: 12; letter-spacing: 5; text-transform: uppercase;
                   color: #9a9a9a; text: "Back"; } } }
           }
@@ -396,6 +421,7 @@
                   layout: row; align: center; justify: center;
                   background: #0a0a0a; border-color: #ffffff33; border-width: 1;
                   :hover { border-color: #ffffff; }
+                :focused { border-color: #ffffff; }
                   text { class: t_micro2; color: #9a9a9a; text: "Browse"; } } }
 
               panel { class: rule; width: 100%; margin: 40 0 0 0; }
@@ -419,12 +445,14 @@
               panel fr_next3 { height: 46; padding: 0 40 0 40; cursor: pointer;
                 layout: row; align: center; justify: center; background: #e8e8e8;
                 :hover { background: #ffffff; }
+                :focused { background: #ffffff; }
                 text { font-size: 12; letter-spacing: 5; text-transform: uppercase;
                   color: #000000; text: "Continue"; } }
               panel fr_back3 { height: 46; padding: 0 24 0 24; cursor: pointer;
                 layout: row; align: center; justify: center;
                 background: #0a0a0a; border-color: #ffffff1c; border-width: 1;
                 :hover { border-color: #ffffff8c; }
+                :focused { border-color: #ffffff8c; }
                 text { font-size: 12; letter-spacing: 5; text-transform: uppercase;
                   color: #9a9a9a; text: "Back"; } } }
           }
@@ -470,12 +498,14 @@
               panel fr_launch { height: 52; padding: 0 52 0 52; cursor: pointer;
                 layout: row; align: center; justify: center; background: #e8e8e8;
                 :hover { background: #ffffff; }
+                :focused { background: #ffffff; }
                 text { font-size: 13; letter-spacing: 6; text-transform: uppercase;
                   color: #000000; text: "Enter Recreation"; } }
               panel fr_back4 { height: 52; padding: 0 26 0 26; cursor: pointer;
                 layout: row; align: center; justify: center;
                 background: #0a0a0a; border-color: #ffffff1c; border-width: 1;
                 :hover { border-color: #ffffff8c; }
+                :focused { border-color: #ffffff8c; }
                 text { font-size: 12; letter-spacing: 5; text-transform: uppercase;
                   color: #9a9a9a; text: "Back"; } } }
           }

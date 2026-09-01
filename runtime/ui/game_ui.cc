@@ -104,6 +104,10 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
     return false;
   }
   impl_->ui.set_texture_backend(&impl_->backend);
+  // Arrow-key focus navigation over every screen authored in markup. ugui finds
+  // the ring itself (authored tab-index where there is one, everything
+  // interactive where there is not), so no screen has to opt in.
+  impl_->ui.input().set_keyboard_navigation(bool(UiKeyboardNav));
 
   // The screens name the game's own typeface, so those fonts have to be
   // registered before the tree that asks for them is built.
@@ -863,6 +867,58 @@ void GameUi::Build(Window& window,
     }
   }
 
+  // Test hook: RX_UI_KEY="down,down,enter" presses each named key in turn on
+  // the same stride as RX_UI_CLICK. The click driver above aims at a widget by
+  // name, which is exactly what keyboard navigation must NOT need - this drives
+  // the focus ring the way a player does, so a screen can be walked without
+  // knowing what is on it.
+  if (const char* script = UiKey.get(); script != nullptr && *script) {
+    if (impl->key_script.empty()) {
+      base::String name;
+      for (const char* c = script;; ++c) {
+        if (*c == ',' || *c == '\0') {
+          if (!name.empty())
+            impl->key_script.push_back(name);
+          name.clear();
+          if (*c == '\0')
+            break;
+        } else {
+          name += *c;
+        }
+      }
+    }
+    const int stride = base::Max(1, UiClickStride.get());
+    if (++impl->key_frame >= stride) {
+      impl->key_frame = 0;
+      if (impl->key_index < static_cast<int>(impl->key_script.size())) {
+        const base::String& name = impl->key_script[impl->key_index++];
+        // ugui speaks GLFW key codes.
+        const int code = name == "up"      ? 265
+                         : name == "down"  ? 264
+                         : name == "left"  ? 263
+                         : name == "right" ? 262
+                         : name == "tab"   ? 258
+                         : name == "enter" ? 257
+                         : name == "space" ? 32
+                                           : 0;
+        if (code == 0) {
+          RX_WARN("ui key: unknown key '{}'", name);
+        } else {
+          q.PushKey(code, 0, true, false, 0);
+          // Where the PREVIOUS press left the focus. Reported here rather than
+          // straight after the push because the queue is drained later in this
+          // frame; naming the widget is the only way to tell navigation apart
+          // from a screen that simply is not focusable.
+          const ugui::wid focused = impl->ui.input().focused_widget();
+          const ugui::WidgetNode* node =
+              focused.valid() ? impl->ui.world().Get<ugui::WidgetNode>(focused) : nullptr;
+          RX_INFO("ui key: {} (focus was {})", name,
+                  node != nullptr && !node->name.empty() ? node->name.c_str() : "none");
+        }
+      }
+    }
+  }
+
   // Feed gamepad + keyboard navigation into ugui's focus ring so menus with
   // tab-index'd widgets (pause / settings) are navigable by pad and keyboard.
   // ugui drives nav/activation internally from these queued events.
@@ -921,9 +977,28 @@ void GameUi::Build(Window& window,
     q.PushGamepadAxis(ugui::GamepadAxis::kLeftX, pad.axis(GamepadAxis::kLeftX));
     q.PushGamepadAxis(ugui::GamepadAxis::kLeftY, pad.axis(GamepadAxis::kLeftY));
   }
-  // Keyboard focus nav: Tab cycles, Enter/Space activate (ugui uses GLFW codes).
+  // Keyboard focus nav: the arrows move focus, Tab cycles, Enter activates
+  // (ugui speaks GLFW key codes). ugui finds the focus ring itself, so this
+  // reaches every screen authored in markup without the host naming any of them.
+  //
+  // Held back for two owners that drive these same keys themselves, because
+  // letting both run moves two cursors and activates twice: the NEXUS front
+  // screen (its own grid selection, engine-side in UpdateMainMenu) and a
+  // translated vanilla movie (its own component navigation, just below).
   const int shift_mod = in.key(Key::kLeftShift) ? 0x0001 : 0;
-  if (!legal_was_open) {
+  if (!legal_was_open && !impl->main_menu_open && !ui::VanillaRuntime::Enabled()) {
+    struct ArrowKey {
+      Key key;
+      int glfw;
+    };
+    static constexpr ArrowKey kArrows[] = {
+        {Key::kArrowUp, 265}, {Key::kArrowDown, 264},
+        {Key::kArrowLeft, 263}, {Key::kArrowRight, 262},
+    };
+    for (const ArrowKey& arrow : kArrows) {
+      if (in.key_pressed(arrow.key))
+        q.PushKey(arrow.glfw, 0, true, false, 0);
+    }
     if (in.key_pressed(Key::kTab))
       q.PushKey(258, 0, true, false, shift_mod);
     if (in.key_pressed(Key::kReturn))
