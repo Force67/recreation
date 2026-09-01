@@ -422,6 +422,9 @@ class Engine : public app::Application {
   // mods directory the wizard collects is held here until it is persisted.
   bool first_run_active_ = false;
   base::String first_run_mods_dir_;
+  // What the wizard should tell the player went wrong (an empty string means
+  // nothing did). Cleared by the next browse that works.
+  base::String first_run_notice_;
   // Deferred capture of the entered world into the backdrop cache: counts down
   // after EnterUniverse, hiding the HUD for the grab frame so the cached scene
   // is clean. Idle at 0.

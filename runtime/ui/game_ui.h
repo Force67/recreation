@@ -273,6 +273,10 @@ struct FirstRunView {
   base::Vector<Game> games;  // up to three, column order
   base::String mods_dir;     // current mods directory
   base::String space_label = "50 GB";
+  // What just went wrong, in words the player can act on. A folder pick that
+  // does not hold the game used to fail into the log only: the dialog closed,
+  // the row did not change, and nothing said why.
+  base::String notice;
 };
 
 // A request the first-run wizard raises for the engine to act on, mirroring

@@ -618,9 +618,17 @@ void GameUi::Impl::ApplyFirstRun() {
   // can be pressed, an inert plate when it cannot.
   SetBackground("fr_next1", Rgba(located > 0 ? 0xe8e8e8ffu : 0x141414ffu));
   SetTextColor("fr_next1_t", Rgba(located > 0 ? 0x000000ffu : kOff));
-  setText("fr_lochint", located > 0
-                            ? base::String("Ready. The rest can be added later from Settings.")
-                            : base::String("Locate at least one game to continue."));
+  // A failed browse outranks the standing hint and is stated at full white, so
+  // a folder pick that found nothing cannot look like one that worked.
+  if (!fr_view.notice.empty()) {
+    setText("fr_lochint", fr_view.notice);
+    SetTextColor("fr_lochint", Rgba(kFg));
+  } else {
+    setText("fr_lochint", located > 0
+                              ? base::String("Ready. The rest can be added later from Settings.")
+                              : base::String("Locate at least one game to continue."));
+    SetTextColor("fr_lochint", Rgba(kDim2));
+  }
 
   // Page 3: two segmented selectors + the toggles. The chosen cell takes the
   // 2px rule and full-white label; the rest sit at 60%.

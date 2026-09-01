@@ -251,16 +251,25 @@ void Engine::UpdateFirstRun(f32 dt) {
   // Shared by the browse click and the auto-browse test hook below.
   auto accept_folder = [this](int idx, const base::String& picked) {
     if (idx < 0 || idx >= 3 || picked.empty())
-      return;
+      return;  // cancelled the dialog: nothing happened, say nothing
     MenuUniverse& u = menu_universes_[idx];
     const base::String data = ResolvePickedDataDir(u.game, picked);
     if (data.empty()) {
+      // The pick did not hold the game. Name the file that was looked for, so
+      // the player can tell "wrong folder" from "wrong game" without a log.
+      const auto& profile = bethesda::GameProfile::For(u.game);
+      const base::String master =
+          profile.base_masters.empty() ? base::String("its master file")
+                                       : base::String(profile.base_masters[0].c_str());
+      first_run_notice_ = "No " + master + " in that folder. Pick the Data folder of your " +
+                          u.name + " install, or the install itself.";
       RX_WARN("first-run: {} not found under {}", u.name, picked);
       return;
     }
     u.data_dir = data;
     u.plugins_txt = data + "/../plugins.txt";
     u.available = true;
+    first_run_notice_.clear();
     RX_INFO("first-run: located {} at {}", u.name, data);
   };
 
@@ -292,6 +301,7 @@ void Engine::UpdateFirstRun(f32 dt) {
     view.games.push_back(g);
   }
   view.mods_dir = first_run_mods_dir_;
+  view.notice = first_run_notice_;
   game_ui_.SetFirstRunView(view);
 
   // Test hook: RX_FIRSTRUN_AUTOLAUNCH advances one page per frame to the end and
