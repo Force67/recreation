@@ -592,7 +592,6 @@ void GameUi::Impl::ApplyFirstRun() {
       page, [](ugui::Style& s, float v) { s.margin.left = v; }, (1.0f - ease) * 20.0f);
 
   const base::String step_no = "0" + base::ToString(fr_step + 1);
-  setText("fr_meta", "Step " + step_no + " of 05");
   setText("fr_bignum", step_no);
   setText("fr_build", mm_stats.build.empty() ? base::String("") : ("v" + mm_stats.build));
 
@@ -605,12 +604,6 @@ void GameUi::Impl::ApplyFirstRun() {
     SetTextColor(Pooled("fr_navnum", i), Rgba(active ? kFg : (done ? kDim : kDim2)));
     SetTextColor(Pooled("fr_navlbl", i), Rgba(active ? kFg : (done ? kDim : kDim2)));
   }
-  const int pct = ((fr_step + 1) * 100) / kFirstRunSteps;
-  SetStyleField(
-      "fr_prog", [](ugui::Style& s, float v) { s.width = ugui::Length::Pct(v); },
-      static_cast<float>(pct));
-  setText("fr_prog_t", base::ToString(pct) + "%");
-
   // Page 1: how many of the three the scan already found.
   setText("fr_w_games",
           base::ToString(located) + " of " + base::ToString(games) + " games found");
@@ -657,15 +650,27 @@ void GameUi::Impl::ApplyFirstRun() {
     SetBackground(Pooled("fr_modeopt", k), Rgba(m ? 0x17191cffu : 0x0d0d0dffu));
     SetBackground(Pooled("fr_diffopt", k), Rgba(d ? 0x17191cffu : 0x0d0d0dffu));
   }
-  for (int i = 0; i < 3; ++i) {
+  for (int i = 0; i < kFirstRunChecks; ++i) {
     SetBorderColor(Pooled("fr_chkbox", i), Rgba(fr_check[i] ? kFg : 0xffffff33u));
     SetVisible(Pooled("fr_chkmk", i), fr_check[i]);
   }
 
-  // Page 4: mods dir + recommended space.
+  // Page 4: mods dir + the free-space line inside the note.
   setText("fr_modspath_t", mods_dir);
   if (!fr_view.space_label.empty())
-    setText("fr_space", fr_view.space_label);
+    setText("fr_space", "Keep about " + fr_view.space_label + " free for downloaded content.");
+
+  // Page 5: the name field belongs to ugui, which owns the caret and the edits;
+  // read it back rather than trying to drive it from here.
+  if (ugui::wid name_field = ui.FindWidget("fr_name"); name_field.valid()) {
+    if (const ugui::TextInputContent* c = ui.world().Get<ugui::TextInputContent>(name_field))
+      fr_username = base::String(c->text.c_str());
+  }
+  // The community link is inert until an invite is configured, rather than
+  // pretending to be a button that goes nowhere.
+  const bool has_invite = !fr_view.community_url.empty();
+  setText("fr_discord_t", has_invite ? "Open invite" : "Not set up yet");
+  SetTextColor("fr_discord_t", Rgba(has_invite ? kDim : kOff));
 
   // Page 5: what setup is about to write, in its own words.
   base::String names;
@@ -682,6 +687,13 @@ void GameUi::Impl::ApplyFirstRun() {
   setText("fr_sum_mods", base::String(fr_check[0] ? "Enabled" : "Disabled") + "  ·  " + mods_dir);
   setText("fr_sum_diag", fr_check[1] ? "Shared anonymously" : "Not shared");
   setText("fr_sum_upd", fr_check[2] ? "Checked on launch" : "Never checked");
+  const base::String shown_name =
+      fr_username.empty() ? (mm_stats.account.empty() ? base::String("Your account name")
+                                                      : mm_stats.account)
+                          : fr_username;
+  setText("fr_sum_name",
+          shown_name + (fr_check[3] ? "  ·  presence on" : "  ·  presence off"));
+  SetTextColor("fr_sum_name", Rgba(fr_username.empty() ? kDim : kFg));
 }
 
 void GameUi::Impl::AdvanceFirstRun() {
@@ -698,6 +710,8 @@ void GameUi::Impl::AdvanceFirstRun() {
   fr_request.enable_mods = fr_check[0];
   fr_request.share_diagnostics = fr_check[1];
   fr_request.check_updates = fr_check[2];
+  fr_request.rich_presence = fr_check[3];
+  fr_request.username = fr_username;
 }
 
 void GameUi::Impl::RetreatFirstRun() {
@@ -727,8 +741,15 @@ bool GameUi::Impl::RouteFirstRunClick(ugui::wid target) {
         return true;
       }
       if (name == "fr_back1" || name == "fr_back2" || name == "fr_back3" || name == "fr_back4" ||
-          name == "fr_skip") {
+          name == "fr_back5" || name == "fr_skip") {
         RetreatFirstRun();
+        return true;
+      }
+      if (name == "fr_discord") {
+        if (!fr_view.community_url.empty()) {
+          fr_request.kind = K::kOpenUrl;
+          fr_request.url = fr_view.community_url;
+        }
         return true;
       }
       // The step list doubles as navigation, but only backwards: a page ahead
@@ -737,7 +758,7 @@ bool GameUi::Impl::RouteFirstRunClick(ugui::wid target) {
         fr_step = i;
         return true;
       }
-      if (name == "fr_next1" || name == "fr_next2" || name == "fr_next3") {
+      if (name == "fr_next1" || name == "fr_next2" || name == "fr_next3" || name == "fr_next4") {
         AdvanceFirstRun();
         return true;
       }
@@ -762,7 +783,7 @@ bool GameUi::Impl::RouteFirstRunClick(ugui::wid target) {
         fr_diff = k;
         return true;
       }
-      if (int i = pref("fr_chk"); i >= 0 && i < 3) {
+      if (int i = pref("fr_chk"); i >= 0 && i < kFirstRunChecks) {
         fr_check[i] = !fr_check[i];
         return true;
       }

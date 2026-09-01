@@ -29,6 +29,7 @@
 #include <ugui/ultragui.h>
 #include <ugui/widgets/image.h>
 #include <ugui/widgets/text.h>
+#include <ugui/widgets/text_input.h>
 #include <ugui/widgets/widget.h>
 #include <ugui/widgets/widget_registry.h>
 
@@ -189,9 +190,10 @@ constexpr int kMenuTiles = 8;        // pooled tiles: two rows, and one page
 constexpr int kMenuSpineTicks = 10;  // pooled load-order ticks per tile
 constexpr int kMenuPips = 8;         // pooled page pips
 constexpr int kMenuModRows = 16;     // pooled rows on the Mods sub-screen
-constexpr int kFirstRunSteps = 5;  // welcome, locate, preferences, mods, ready
+constexpr int kFirstRunSteps = 6;  // welcome, locate, play, storage, profile, summary
 constexpr f32 kFirstRunPageFade = 0.16f;  // seconds a page turn takes to settle
-constexpr int kFirstRunGames = 3;  // game rows on the locate page
+constexpr int kFirstRunGames = 3;   // game rows on the locate page
+constexpr int kFirstRunChecks = 4;  // toggles: mods, diagnostics, updates, presence
 constexpr int kLoadingPhases = 6;         // rows on the loading screen's phase rail
 constexpr f32 kLoadingTipSeconds = 6.0f;  // how long each "while you wait" tip holds
 
@@ -397,7 +399,12 @@ struct GameUi::Impl {
   f32 fr_anim_from = 0.0f;                // ui_time that turn started
   int fr_mode = 0;                        // default-mode selection
   int fr_diff = 1;                        // difficulty dropdown selection
-  bool fr_check[3] = {true, true, true};  // enable mods / diagnostics / updates
+  // enable mods / diagnostics / updates / rich presence
+  bool fr_check[4] = {true, true, true, true};
+  // The player name, read back from the fr_name input each frame. ugui owns the
+  // field (caret, selection, editing); this only mirrors it so the summary and
+  // the launch request can read it without reaching into the widget.
+  base::String fr_username;
   FirstRunView fr_view;
   FirstRunRequest fr_request;
 

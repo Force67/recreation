@@ -1003,6 +1003,33 @@ void GameUi::Build(Window& window,
       q.PushKey(258, 0, true, false, shift_mod);
     if (in.key_pressed(Key::kReturn))
       q.PushKey(257, 0, true, false, 0);
+    if (in.key_pressed(Key::kBackspace))
+      q.PushKey(259, 0, true, false, 0);  // GLFW_KEY_BACKSPACE
+    // Typed characters, for the text fields. ugui edits its own inputs (caret,
+    // selection, history) but only ever sees what the host forwards, so without
+    // this a text field focuses, draws its caret and rejects every keystroke.
+    // in.text is UTF-8 for this pump; decode to the codepoints ugui wants.
+    for (u8 i = 0; i < in.text_len;) {
+      const unsigned char lead = static_cast<unsigned char>(in.text[i]);
+      u32 codepoint = lead;
+      u8 extra = 0;
+      if (lead >= 0xf0) {
+        codepoint = lead & 0x07u;
+        extra = 3;
+      } else if (lead >= 0xe0) {
+        codepoint = lead & 0x0fu;
+        extra = 2;
+      } else if (lead >= 0xc0) {
+        codepoint = lead & 0x1fu;
+        extra = 1;
+      }
+      if (i + extra >= in.text_len)
+        break;  // truncated sequence at the end of the buffer
+      for (u8 k = 1; k <= extra; ++k)
+        codepoint = (codepoint << 6) | (static_cast<unsigned char>(in.text[i + k]) & 0x3fu);
+      q.PushChar(codepoint);
+      i += static_cast<u8>(extra + 1);
+    }
   }
 
   // The vanilla menus are lists the game drives itself rather than focus rings,

@@ -22,14 +22,15 @@
 //     the system's own "the active member of a set gets a 2px rule" shape.
 //
 // Drives the widgets GameUi expects:
-//   fr_step0..4, fr_meta, fr_bignum, fr_prog (+fr_prog_t), fr_build,
-//   fr_nav0..4 (fr_navsel/fr_navplate/fr_navnum/fr_navlbl),
+//   fr_step0..5, fr_bignum, fr_build,
+//   fr_nav0..5 (fr_navsel/fr_navplate/fr_navnum/fr_navlbl),
 //   fr_w_games, fr_row0..2 (fr_pip/fr_name/fr_path/fr_stat/fr_browse),
 //   fr_loccount, fr_lochint, fr_next1 (+fr_next1_t),
 //   fr_modeopt0..3 (fr_modebar/fr_modelbl) and the same for fr_diff*,
-//   fr_chk0..2 (fr_chkbox/fr_chkmk), fr_modspath_t, fr_browse_mods, fr_space,
-//   fr_sum_games/fr_sum_mode/fr_sum_mods/fr_sum_diag/fr_sum_upd,
-//   fr_begin/fr_skip/fr_back1..4/fr_next1..3/fr_launch.
+//   fr_chk0..3 (fr_chkbox/fr_chkmk), fr_modspath_t, fr_browse_mods, fr_space,
+//   fr_name (+fr_name_hint), fr_discord,
+//   fr_sum_games/fr_sum_mode/fr_sum_mods/fr_sum_diag/fr_sum_upd/fr_sum_name,
+//   fr_begin/fr_skip/fr_back1..5/fr_next1..4/fr_launch.
 
   panel firstrun {
     position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: #000000;
@@ -39,11 +40,11 @@
     panel { position: absolute; left: 130; right: 130; top: 64; bottom: 0; layout: column;
 
       // ===================== masthead =====================
-      panel { layout: row; align: end; justify: space-between; width: 100%;
+      // The wordmark alone. "First-time setup / Step 03 of 05" used to sit on
+      // the right, but the step list below already names every step AND marks
+      // the one you are on, so the readout only restated it in smaller type.
+      panel { layout: row; align: end; width: 100%;
         text { class: t_mast; font-size: 32; letter-spacing: 13; text: "Recreation"; }
-        panel { layout: column; align: end; gap: 7;
-          text { class: t_micro; text: "First-time setup"; }
-          text fr_meta { class: t_micro2; text: "Step 01 of 05"; } }
       }
       panel { width: 100%; height: 1; margin: 22 0 0 0;
         background: #ffffff66; background-end: #ffffff00; gradient-angle: 90; }
@@ -111,17 +112,25 @@
             panel { layout: row; align: center; gap: 22; padding: 0 0 0 26;
               text fr_navnum4 { font-size: 11; letter-spacing: 3; color: #5e5e5e; text: "05"; }
               panel { layout: column; gap: 6;
-                text fr_navlbl4 { font-size: 21; letter-spacing: 2; color: #5e5e5e; text: "Ready"; }
+                text fr_navlbl4 { font-size: 21; letter-spacing: 2; color: #5e5e5e; text: "Profile"; }
+                text { class: t_micro2; text: "Name and socials"; } } } }
+          panel fr_nav5 { height: 82; position: relative; layout: row; align: center;
+            cursor: pointer;
+            :focused { background: #ffffff1f; }
+            panel fr_navplate5 { position: absolute; left: 0; top: 0; bottom: 0; right: 0;
+              background: #17191c; background-end: #17191c00; gradient-angle: 90; }
+            panel fr_navsel5 { position: absolute; left: 0; top: 0; bottom: 0; width: 2;
+              background: #ffffff; }
+            panel { layout: row; align: center; gap: 22; padding: 0 0 0 26;
+              text fr_navnum5 { font-size: 11; letter-spacing: 3; color: #5e5e5e; text: "06"; }
+              panel { layout: column; gap: 6;
+                text fr_navlbl5 { font-size: 21; letter-spacing: 2; color: #5e5e5e; text: "Summary"; }
                 text { class: t_micro2; text: "Confirm and launch"; } } } }
 
-          // the rail's own readout, pinned to the foot of the list
+          // No progress bar here. The step list IS the progress: it names every
+          // step, dims the ones behind, recedes the ones ahead and marks the one
+          // you are on. A percentage under it only said the same thing again.
           panel { flex-grow: 1; }
-          panel { layout: column; gap: 13; width: 320; margin: 0 0 52 0;
-            panel { layout: row; align: center; justify: space-between; width: 100%;
-              text { class: t_micro2; text: "Progress"; }
-              text fr_prog_t { class: t_micro2; color: #9a9a9a; text: "20%"; } }
-            panel { width: 100%; height: 2; background: #ffffff1c;
-              panel fr_prog { width: 20%; height: 2; background: #ffffff; } } }
         }
 
         panel { width: 1; background: #ffffff1c; margin: 0 56 0 56; }
@@ -404,11 +413,9 @@
             text { class: t_micro; text: "Storage"; }
             text { class: t_h1; text: "Where mods live"; margin: 14 0 0 0; }
             text { class: t_body; color: #9a9a9a; margin: 26 0 0 0;
-              text: "Downloaded modules and streamed assets are kept here, one"; }
+              text: "Downloaded modules and streamed content are kept here."; }
             text { class: t_body; color: #9a9a9a; margin: 8 0 0 0;
-              text: "folder per world, so a Skyrim module can never collide with a"; }
-            text { class: t_body; color: #9a9a9a; margin: 8 0 0 0;
-              text: "Starfield one."; }
+              text: "One folder per world and per game."; }
 
             panel { layout: column; width: 100%; max-width: 860; margin: 36 0 0 0;
               text { class: t_micro; text: "Mods directory"; }
@@ -424,22 +431,28 @@
                 :focused { border-color: #ffffff; }
                   text { class: t_micro2; color: #9a9a9a; text: "Browse"; } } }
 
-              panel { class: rule; width: 100%; margin: 40 0 0 0; }
-              panel { layout: row; align: center; justify: space-between; width: 100%;
-                height: 66;
-                text { class: t_micro2; text: "Recommended free space"; }
-                text fr_space { class: t_body; text: "50 GB"; } }
-              panel { class: rule_dim; width: 100%; }
-              panel { layout: row; align: center; justify: space-between; width: 100%;
-                height: 66;
-                text { class: t_micro2; text: "Layout"; }
-                text { class: t_body; text: "One folder per world"; } }
-              panel { class: rule_dim; width: 100%; }
-              panel { layout: row; align: center; justify: space-between; width: 100%;
-                height: 66;
-                text { class: t_micro2; text: "Original game files"; }
-                text { class: t_body; text: "Never written to"; } }
-              panel { class: rule; width: 100%; } }
+              // An info box, not a table. These three lines are one note about
+              // how storage behaves -- they are not a set of values you compare
+              // against each other, which is the only thing a label/value table
+              // is good at. As rows they read as settings you could change.
+              panel { layout: column; width: 100%; margin: 40 0 0 0; padding: 22 26 24 24;
+                background: #0d0d0d; border-color: #ffffff1c; border-width: 1;
+                position: relative;
+                panel { position: absolute; left: 0; top: 0; bottom: 0; width: 2;
+                  background: #ffffff3d; }
+                text { class: t_micro; text: "Good to know"; }
+                panel { layout: row; align: center; gap: 14; margin: 16 0 0 0;
+                  panel { width: 4; height: 4; background: #9a9a9a; }
+                  text fr_space { class: t_dim;
+                    text: "Keep about 50 GB free for downloaded content."; } }
+                panel { layout: row; align: center; gap: 14; margin: 10 0 0 0;
+                  panel { width: 4; height: 4; background: #9a9a9a; }
+                  text { class: t_dim;
+                    text: "Each world gets its own folder, so modules never collide."; } }
+                panel { layout: row; align: center; gap: 14; margin: 10 0 0 0;
+                  panel { width: 4; height: 4; background: #9a9a9a; }
+                  text { class: t_dim;
+                    text: "Your original game files are only ever read, never written to."; } } } }
 
             panel { layout: row; align: center; gap: 16; margin: 34 0 0 0;
               panel fr_next3 { height: 46; padding: 0 40 0 40; cursor: pointer;
@@ -457,10 +470,77 @@
                   color: #9a9a9a; text: "Back"; } } }
           }
 
-          // ===================== 05 ready =====================
+          // ===================== 05 profile =====================
+          // A name and, optionally, where to find the people who play this.
+          // Both are entirely skippable: nothing here gates the launch button.
           panel fr_step4 { layout: column; width: 100%;
-            text { class: t_micro; text: "Ready"; }
-            text { class: t_h1; text: "The way in is open"; margin: 14 0 0 0; }
+            text { class: t_micro; text: "Profile"; }
+            text { class: t_h1; text: "Who you are"; margin: 14 0 0 0; }
+            text { class: t_body; color: #9a9a9a; margin: 26 0 0 0;
+              text: "The name other players see in multiplayer and on the front"; }
+            text { class: t_body; color: #9a9a9a; margin: 8 0 0 0;
+              text: "screen. Optional, and changeable whenever you like."; }
+
+            panel { layout: column; width: 100%; max-width: 860; margin: 36 0 0 0;
+              text { class: t_micro; text: "Player name"; }
+              // A real text field: ugui owns the caret and the editing, the host
+              // only forwards the characters. Focus it with a click or the
+              // arrow keys, then type.
+              panel { layout: row; align: end; gap: 20; width: 100%; margin: 16 0 0 0;
+                panel { flex-grow: 1; layout: column;
+                  input fr_name { font-size: 16; color: #ffffff; height: 30;
+                    background: #00000000; text: ""; }
+                  panel { width: 100%; height: 1; background: #ffffff33; } } }
+              text fr_name_hint { class: t_faint; margin: 12 0 0 0;
+                text: "Leave it blank and your system account name is used."; }
+
+              panel { class: rule; width: 100%; margin: 40 0 0 0; }
+              panel { layout: row; align: center; justify: space-between; width: 100%;
+                height: 84;
+                panel { layout: column; gap: 6;
+                  text { class: t_body; text: "Discord"; }
+                  text { class: t_faint;
+                    text: "Release notes, mod authors, and people to play with"; } }
+                panel fr_discord { height: 40; padding: 0 22 0 22; cursor: pointer;
+                  layout: row; align: center; justify: center;
+                  background: #0a0a0a; border-color: #ffffff33; border-width: 1;
+                  :hover { border-color: #ffffff; }
+                  :focused { border-color: #ffffff; }
+                  text fr_discord_t { class: t_micro2; color: #9a9a9a;
+                    text: "Open invite"; } } }
+              panel { class: rule_dim; width: 100%; }
+              panel fr_chk3 { layout: row; align: center; justify: space-between; width: 100%;
+                height: 84; cursor: pointer;
+                :focused { background: #ffffff1f; }
+                panel { layout: column; gap: 6;
+                  text { class: t_body; text: "Show what I am playing"; }
+                  text { class: t_faint;
+                    text: "Rich presence: the world and mode you are in, nothing else"; } }
+                panel fr_chkbox3 { width: 22; height: 22; layout: column; justify: center;
+                  align: center; background: #0a0a0a; border-color: #ffffff33; border-width: 1;
+                  panel fr_chkmk3 { width: 10; height: 10; background: #ffffff; } } }
+              panel { class: rule; width: 100%; } }
+
+            panel { layout: row; align: center; gap: 16; margin: 34 0 0 0;
+              panel fr_next4 { height: 46; padding: 0 40 0 40; cursor: pointer;
+                layout: row; align: center; justify: center; background: #e8e8e8;
+                :hover { background: #ffffff; }
+                :focused { background: #ffffff; }
+                text { font-size: 12; letter-spacing: 5; text-transform: uppercase;
+                  color: #000000; text: "Continue"; } }
+              panel fr_back4 { height: 46; padding: 0 24 0 24; cursor: pointer;
+                layout: row; align: center; justify: center;
+                background: #0a0a0a; border-color: #ffffff1c; border-width: 1;
+                :hover { border-color: #ffffff8c; }
+                :focused { border-color: #ffffff8c; }
+                text { font-size: 12; letter-spacing: 5; text-transform: uppercase;
+                  color: #9a9a9a; text: "Back"; } } }
+          }
+
+          // ===================== 06 summary =====================
+          panel fr_step5 { layout: column; width: 100%;
+            text { class: t_micro; text: "Summary"; }
+            text { class: t_h1; text: "Summary of setup"; margin: 14 0 0 0; }
             text { class: t_body; color: #9a9a9a; margin: 26 0 0 0;
               text: "This is what setup recorded. Change any of it later from the"; }
             text { class: t_body; color: #9a9a9a; margin: 8 0 0 0;
@@ -492,6 +572,11 @@
                 panel { width: 5; height: 5; background: #ffffff; }
                 text { class: t_micro2; width: 210; text: "Updates"; }
                 text fr_sum_upd { class: t_body; flex-grow: 1; text: "-"; } }
+              panel { class: rule_dim; width: 100%; }
+              panel { layout: row; align: center; width: 100%; height: 68; gap: 22;
+                panel { width: 5; height: 5; background: #ffffff; }
+                text { class: t_micro2; width: 210; text: "Player name"; }
+                text fr_sum_name { class: t_body; flex-grow: 1; text: "-"; } }
               panel { class: rule; width: 100%; } }
 
             panel { layout: row; align: center; gap: 16; margin: 38 0 0 0;
@@ -501,7 +586,7 @@
                 :focused { background: #ffffff; }
                 text { font-size: 13; letter-spacing: 6; text-transform: uppercase;
                   color: #000000; text: "Enter Recreation"; } }
-              panel fr_back4 { height: 52; padding: 0 26 0 26; cursor: pointer;
+              panel fr_back5 { height: 52; padding: 0 26 0 26; cursor: pointer;
                 layout: row; align: center; justify: center;
                 background: #0a0a0a; border-color: #ffffff1c; border-width: 1;
                 :hover { border-color: #ffffff8c; }
@@ -518,8 +603,6 @@
         panel { position: absolute; left: 0; right: 0; top: 0; height: 1; background: #ffffff1c; }
         text { font-size: 16; letter-spacing: 3; text-transform: uppercase;
           color: #ffffff; text: "Setup"; }
-        text fr_footnote { font-size: 11; letter-spacing: 3; text-transform: uppercase;
-          color: #5e5e5e; text: "Nothing is written until you finish"; }
         panel { flex-grow: 1; }
         panel { layout: row; align: center; gap: 30;
           panel { layout: row; align: center; gap: 11;

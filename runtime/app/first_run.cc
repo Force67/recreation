@@ -43,6 +43,11 @@ base::Option<bool> ForceFirstRun{"force.first.run", false, "RX_FORCE_FIRST_RUN"}
 base::Option<const char*> FirstrunAutobrowse{"firstrun.autobrowse", nullptr,
                                              "RX_FIRSTRUN_AUTOBROWSE"};
 base::Option<bool> FirstrunAutolaunch{"firstrun.autolaunch", false, "RX_FIRSTRUN_AUTOLAUNCH"};
+// Where the community lives, offered on the wizard's profile page. Empty by
+// default and deliberately so: there is no invite to ship yet, and a button
+// that opens nothing is worse than one the screen admits is not ready. Set
+// RX_COMMUNITY_URL (or edit this default) once there is one.
+base::Option<const char*> CommunityUrl{"community.url", "", "RX_COMMUNITY_URL"};
 
 // Per-platform user config directory holding setup.ini and the default mods
 // folder: %APPDATA%\Recreation, ~/Library/Application Support/Recreation, or
@@ -238,6 +243,11 @@ void WriteSetupIni(const base::Array<base::String, 3>& data_dirs,
   f << "enable_mods=" << (r.enable_mods ? 1 : 0) << "\n";
   f << "share_diagnostics=" << (r.share_diagnostics ? 1 : 0) << "\n";
   f << "check_updates=" << (r.check_updates ? 1 : 0) << "\n";
+  f << "rich_presence=" << (r.rich_presence ? 1 : 0) << "\n";
+  // Omitted entirely when blank, so "no name chosen" and "chose an empty name"
+  // stay the same thing and the account name keeps standing in.
+  if (!r.username.empty())
+    f << "username=" << r.username.c_str() << "\n";
   RX_INFO("first-run setup saved to {}", SetupFile().string());
 }
 
@@ -302,6 +312,7 @@ void Engine::UpdateFirstRun(f32 dt) {
   }
   view.mods_dir = first_run_mods_dir_;
   view.notice = first_run_notice_;
+  view.community_url = CommunityUrl.get() ? CommunityUrl.get() : "";
   game_ui_.SetFirstRunView(view);
 
   // Test hook: RX_FIRSTRUN_AUTOLAUNCH advances one page per frame to the end and
@@ -323,6 +334,20 @@ void Engine::UpdateFirstRun(f32 dt) {
       const base::String p = PickFolder("Choose the Recreation mods directory");
       if (!p.empty())
         first_run_mods_dir_ = p;
+      break;
+    }
+    case FirstRunRequest::Kind::kOpenUrl: {
+      if (req.url.empty())
+        break;
+#if defined(_WIN32)
+      const base::String cmd = "start \"\" \"" + req.url + "\"";
+#elif defined(__APPLE__)
+      const base::String cmd = "open \"" + req.url + "\" >/dev/null 2>&1 &";
+#else
+      const base::String cmd = "xdg-open \"" + req.url + "\" >/dev/null 2>&1 &";
+#endif
+      if (std::system(cmd.c_str()) != 0)
+        RX_WARN("first-run: could not open {}", req.url);
       break;
     }
     case FirstRunRequest::Kind::kLaunch: {
