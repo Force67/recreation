@@ -892,6 +892,9 @@ void GameUi::Build(Window& window,
       impl->key_frame = 0;
       if (impl->key_index < static_cast<int>(impl->key_script.size())) {
         const base::String& name = impl->key_script[impl->key_index++];
+        // "type:hello" pushes characters instead of a key, so a text field can
+        // be exercised without a keyboard. Same path a real keystroke takes:
+        // the chars go into ugui's queue and land on whatever holds focus.
         // ugui speaks GLFW key codes.
         const int code = name == "up"      ? 265
                          : name == "down"  ? 264
@@ -901,7 +904,11 @@ void GameUi::Build(Window& window,
                          : name == "enter" ? 257
                          : name == "space" ? 32
                                            : 0;
-        if (code == 0) {
+        if (name.compare(0, 5, "type:") == 0) {
+          for (mem_size c = 5; c < name.size(); ++c)
+            q.PushChar(static_cast<u32>(static_cast<unsigned char>(name[c])));
+          RX_INFO("ui key: typed \"{}\"", name.substr(5).c_str());
+        } else if (code == 0) {
           RX_WARN("ui key: unknown key '{}'", name);
         } else {
           q.PushKey(code, 0, true, false, 0);

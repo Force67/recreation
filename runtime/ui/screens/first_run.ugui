@@ -484,13 +484,17 @@
             panel { layout: column; width: 100%; max-width: 860; margin: 36 0 0 0;
               text { class: t_micro; text: "Player name"; }
               // A real text field: ugui owns the caret and the editing, the host
-              // only forwards the characters. Focus it with a click or the
-              // arrow keys, then type.
-              panel { layout: row; align: end; gap: 20; width: 100%; margin: 16 0 0 0;
-                panel { flex-grow: 1; layout: column;
-                  input fr_name { font-size: 16; color: #ffffff; height: 30;
-                    background: #00000000; text: ""; }
-                  panel { width: 100%; height: 1; background: #ffffff33; } } }
+              // only forwards the characters (GameUi::Build). It has to LOOK
+              // like a field or nobody clicks it: an underline alone reads as a
+              // divider, so this carries a plate, a border that lifts on hover
+              // and focus, and a placeholder. Click it or arrow to it, then type.
+              panel fr_name_box { layout: row; align: center; width: 100%; height: 52;
+                margin: 16 0 0 0; padding: 0 18 0 18; cursor: pointer;
+                background: #0a0a0a; border-color: #ffffff33; border-width: 1;
+                :hover { border-color: #ffffff8c; }
+                :focused { border-color: #ffffff; }
+                input fr_name { flex-grow: 1; font-size: 16; color: #ffffff;
+                  background: #00000000; placeholder: "Type a name"; } }
               text fr_name_hint { class: t_faint; margin: 12 0 0 0;
                 text: "Leave it blank and your system account name is used."; }
 
