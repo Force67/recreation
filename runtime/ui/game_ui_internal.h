@@ -89,12 +89,24 @@ inline base::Option<float> PauseAt{"ui.pause_at", 0.0f, "RX_PAUSE_AT"};
 // and pick that entry, so a sub-panel can be captured the same way.
 inline base::Option<int> PausePick{"ui.pause_pick", -1, "RX_PAUSE_PICK"};
 constexpr f32 kLegalSeconds = 5.0f;
-// The size legal.ugui is authored against. ugui's design space here is the raw
-// backbuffer, so the notice is scaled to the viewport for the few seconds it is
-// up; left alone, a 1920-wide card shrinks into the middle of a larger screen.
-constexpr f32 kLegalDesignWidth = 1920.0f;
-constexpr f32 kLegalDesignHeight = 1080.0f;
+// The stage the front screens (legal notice, setup wizard, NEXUS menu) are
+// authored against. ugui's design space here is the raw backbuffer, so they are
+// fitted to the viewport while one of them is up; left alone, a 1920-wide
+// composition draws at its authored size in the corner of a larger screen.
+constexpr f32 kFrontendDesignWidth = 1920.0f;
+constexpr f32 kFrontendDesignHeight = 1080.0f;
 inline base::Option<const char*> FirstRunStep{"first.run.step", nullptr, "RECREATION_FIRST_RUN_STEP"};
+// Test hook: a comma-separated list of widget names to click in order, one
+// every UiClickStride frames. Drives the front-end flows headlessly.
+inline base::Option<const char*> UiClick{"ui.click", nullptr, "RX_UI_CLICK"};
+inline base::Option<int> UiClickStride{"ui.click.stride", 12, "RX_UI_CLICK_STRIDE"};
+// RX_UI_KEY="down,down,enter": drives the focus ring rather than aiming at a
+// widget by name, which is the only way to exercise keyboard navigation.
+// Shares RX_UI_CLICK_STRIDE.
+inline base::Option<const char*> UiKey{"ui.key", nullptr, "RX_UI_KEY"};
+// Arrow keys move focus between the interactive widgets of whatever ugui screen
+// is up, and Enter activates. RX_UI_KEYBOARD_NAV=0 hands the arrows back.
+inline base::Option<bool> UiKeyboardNav{"ui.keyboard.nav", true, "RX_UI_KEYBOARD_NAV"};
 
 // Scrolling compass geometry. 8 marks per 360deg turn, 3 turns so the strip
 // always covers the window whatever the heading; the engine slides it by
@@ -178,7 +190,10 @@ constexpr int kMenuSpineTicks = 10;  // pooled load-order ticks per tile
 constexpr int kMenuPips = 8;         // pooled page pips
 constexpr int kMenuModRows = 16;     // pooled rows on the Mods sub-screen
 constexpr int kFirstRunSteps = 5;  // welcome, locate, preferences, mods, ready
+constexpr f32 kFirstRunPageFade = 0.16f;  // seconds a page turn takes to settle
 constexpr int kFirstRunGames = 3;  // game rows on the locate page
+constexpr int kLoadingPhases = 6;         // rows on the loading screen's phase rail
+constexpr f32 kLoadingTipSeconds = 6.0f;  // how long each "while you wait" tip holds
 
 // Editor icon glyphs, composed from panels: the UI font (Noto Sans) has no
 // symbol set, so toolbar / tree / inspector icons are drawn as little stacks of
@@ -212,7 +227,7 @@ base::String BuildTopbarSection();
 base::String BuildUi();
 base::String LoadUiFragment(const char* name);
 fs::path UiDir();
-constexpr int kUiFragmentCount = 20;
+constexpr int kUiFragmentCount = 22;
 extern const char* const kUiFragments[kUiFragmentCount];
 
 // Screens translated from the games' own Scaleform movies by tools/swfdump
@@ -277,6 +292,14 @@ struct GameUi::Impl {
   size_t stats_page = 0;
   bool prev_mouse[3] = {};
   TouchPointerState touch_pointer;
+  // RX_UI_CLICK playback: the parsed name list and where it has got to.
+  base::Vector<base::String> click_script;
+  int click_index = 0;
+  int click_frame = 0;
+  // RX_UI_KEY playback, the keyboard-navigation counterpart of the above.
+  base::Vector<base::String> key_script;
+  int key_index = 0;
+  int key_frame = 0;
   float pointer_scale_x = 1.0f;
   float pointer_scale_y = 1.0f;
   bool prev_pad[static_cast<int>(GamepadButton::kCount)] = {};  // gamepad edge tracking
@@ -352,6 +375,8 @@ struct GameUi::Impl {
   int mm_entry = 0;
   base::Vector<base::String> mm_universe_names{"Skyrim", "Fallout 4", "Starfield"};
   base::Vector<bool> mm_available{true, true, true};
+  base::String mm_tour_title;        // guided demo in the top nav; empty = none staged
+  bool mm_tour_available = false;    // its world is located, so it can be launched
   base::Vector<base::String> mm_mods;
   base::Vector<MenuNewsItem> mm_news;
   u64 mm_backdrop[kMenuUniverses] = {0, 0, 0};
@@ -368,12 +393,20 @@ struct GameUi::Impl {
   // games / mods dir into fr_view and consumes the request raised below.
   bool first_run_open = false;
   int fr_step = 0;                        // 0 welcome .. 4 ready
-  int fr_mode = 0;                        // default-mode dropdown selection
+  int fr_anim_step = -1;                  // page the turn animation is playing for
+  f32 fr_anim_from = 0.0f;                // ui_time that turn started
+  int fr_mode = 0;                        // default-mode selection
   int fr_diff = 1;                        // difficulty dropdown selection
-  int fr_dropdown = -1;                   // open popover: -1 none, 0 mode, 1 difficulty
   bool fr_check[3] = {true, true, true};  // enable mods / diagnostics / updates
   FirstRunView fr_view;
   FirstRunRequest fr_request;
+
+  // Loading screen state. The engine owns everything shown here and pushes it
+  // through SetLoadingView; the screen only rotates its own tip.
+  bool loading_open = false;
+  LoadingView loading;
+  int ld_tip = 0;             // which "while you wait" tip is up
+  f32 ld_tip_from = -1000.0f;  // ui_time the current tip came up
 
   // Drives every main-menu widget from the state above each frame; collapses the
   // whole overlay when closed. Launch boots the focused tile, if it is playable.
@@ -391,6 +424,10 @@ struct GameUi::Impl {
   // the primary button share AdvanceFirstRun). fr_located() counts found games.
   void ApplyFirstRun();
   bool RouteFirstRunClick(ugui::wid target);
+
+  // Loading screen: drive the phase rail, the progress readout and the rotating
+  // key tip from the view the engine pushed.
+  void ApplyLoading();
   void AdvanceFirstRun();
   void RetreatFirstRun();
   int fr_located() const {

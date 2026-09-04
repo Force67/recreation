@@ -373,6 +373,15 @@ void GameUi::Impl::ApplyMainMenu() {
   SetVisible("mm_pnet", mm_stats.players_online > 0);
   setText("mm_pcount", base::ToString(mm_stats.players_online));
 
+  // The guided demo in the nav: shown only when one is staged, dimmed to the
+  // disabled value when its world was never located (it is still worth seeing
+  // the entry, so a player knows the tour exists and why it cannot run).
+  SetVisible("mm_util_tour", !mm_tour_title.empty());
+  if (!mm_tour_title.empty()) {
+    setText("mm_util_tour_t", mm_tour_title);
+    SetTextColor("mm_util_tour_t", Rgba(mm_tour_available ? 0xffffffffu : 0xffffff3du));
+  }
+
   // Build/version stamp.
   setText("mm_build", mm_stats.build.empty() ? "" : ("v" + mm_stats.build));
 
@@ -482,6 +491,13 @@ bool GameUi::Impl::RouteMainMenuClick(ugui::wid target) {
         mm_screen = 0;
         return true;
       }
+      if (name == "mm_util_tour") {
+        // The engine owns which mode and which world the tour is; the menu only
+        // says that it was asked for.
+        if (mm_tour_available)
+          mm_request.kind = K::kEnterTour;
+        return true;
+      }
       if (name == "mm_util_mods") {
         mm_screen = 2;
         return true;
@@ -544,66 +560,131 @@ void GameUi::Impl::ApplyFirstRun() {
     SetText(n.c_str(), t.c_str());
   };
 
+  // The front-end palette (theme.ugui): white is "now", dim is "done", dim2 is
+  // "not yet". State is carried by value, never by hue.
+  constexpr u32 kFg = 0xffffffffu, kDim = 0x9a9a9affu, kDim2 = 0x5e5e5effu;
+  constexpr u32 kOff = 0xffffff3du;  // disabled: 24% white
+
+  static const char* const kModes[4] = {"Exploration", "Story", "Survival", "Sandbox"};
+  static const char* const kDiffs[4] = {"Novice", "Normal", "Hard", "Legendary"};
+  const int mode = base::Clamp(fr_mode, 0, 3), diff = base::Clamp(fr_diff, 0, 3);
+  const int located = fr_located(), games = static_cast<int>(fr_view.games.size());
+  const base::String mods_dir =
+      fr_view.mods_dir.empty() ? base::String("~/.recreation/mods") : fr_view.mods_dir;
+
   // Pages: exactly one visible.
   for (int i = 0; i < kFirstRunSteps; ++i)
     SetVisible(("fr_step" + base::ToString(i)).c_str(), i == fr_step);
 
-  // Progress rail: nodes filled up to (and including) the current page; the
-  // segments between filled nodes glow gold.
-  for (int i = 0; i < kFirstRunSteps; ++i) {
-    const bool done = i < fr_step, active = i == fr_step;
-    SetBackground(("fr_node" + base::ToString(i)).c_str(),
-                  active ? Rgba(0xffcc55ffu) : (done ? Rgba(0xffcc55ccu) : Rgba(0x00000000u)));
+  // A page turn settles rather than snaps: the incoming page fades up and
+  // slides the last few pixels into place over kFirstRunPageFade. Opacity
+  // inherits in ugui, so setting it on the page carries the whole page.
+  if (fr_step != fr_anim_step) {
+    fr_anim_step = fr_step;
+    fr_anim_from = ui_time;
   }
-  for (int i = 0; i < kFirstRunSteps - 1; ++i)
-    SetBackground(("fr_seg" + base::ToString(i)).c_str(),
-                  i < fr_step ? Rgba(0xffcc55ffu) : Rgba(0xffffff14u));
+  const f32 t = base::Clamp((ui_time - fr_anim_from) / kFirstRunPageFade, 0.0f, 1.0f);
+  const f32 ease = 1.0f - (1.0f - t) * (1.0f - t);
+  const char* const page = Pooled("fr_step", fr_step);
+  SetStyleField(
+      page, [](ugui::Style& s, float v) { s.opacity = v; }, ease);
+  SetStyleField(
+      page, [](ugui::Style& s, float v) { s.margin.left = v; }, (1.0f - ease) * 20.0f);
 
-  // Page 2: located games.
+  const base::String step_no = "0" + base::ToString(fr_step + 1);
+  setText("fr_meta", "Step " + step_no + " of 05");
+  setText("fr_bignum", step_no);
+  setText("fr_build", mm_stats.build.empty() ? base::String("") : ("v" + mm_stats.build));
+
+  // The step list IS the progress rail: the page you are on takes the marker
+  // and the plate, pages behind you stay legible, pages ahead recede.
+  for (int i = 0; i < kFirstRunSteps; ++i) {
+    const bool active = i == fr_step, done = i < fr_step;
+    SetVisible(Pooled("fr_navsel", i), active);
+    SetVisible(Pooled("fr_navplate", i), active);
+    SetTextColor(Pooled("fr_navnum", i), Rgba(active ? kFg : (done ? kDim : kDim2)));
+    SetTextColor(Pooled("fr_navlbl", i), Rgba(active ? kFg : (done ? kDim : kDim2)));
+  }
+  const int pct = ((fr_step + 1) * 100) / kFirstRunSteps;
+  SetStyleField(
+      "fr_prog", [](ugui::Style& s, float v) { s.width = ugui::Length::Pct(v); },
+      static_cast<float>(pct));
+  setText("fr_prog_t", base::ToString(pct) + "%");
+
+  // Page 1: how many of the three the scan already found.
+  setText("fr_w_games",
+          base::ToString(located) + " of " + base::ToString(games) + " games found");
+
+  // Page 2: located games. A filled pip is a located install, a hairline one is
+  // a slot still waiting for a folder.
   for (int i = 0; i < kFirstRunGames; ++i) {
     const base::String id = base::ToString(i);
     const bool found = i < static_cast<int>(fr_view.games.size()) && fr_view.games[i].located;
     if (i < static_cast<int>(fr_view.games.size()) && !fr_view.games[i].name.empty())
       setText("fr_name" + id, fr_view.games[i].name);
-    setText("fr_path" + id, found ? fr_view.games[i].path : base::String("Not located"));
-    SetTextColor(Pooled("fr_path", i), found ? Rgba(0x8a93a8ffu) : Rgba(0x6b7488ffu));
+    SetTextColor(Pooled("fr_name", i), Rgba(found ? kFg : kDim2));
+    SetBackground(Pooled("fr_pip", i), Rgba(found ? kFg : 0x000000ffu));
+    setText("fr_path" + id, found ? fr_view.games[i].path : base::String("No data folder set"));
+    SetTextColor(Pooled("fr_path", i), Rgba(found ? kDim : kDim2));
     setText("fr_stat" + id, found ? "Located" : "Not found");
-    SetTextColor(Pooled("fr_stat", i), found ? Rgba(0x5fcf80ffu) : Rgba(0x6b7488ffu));
+    SetTextColor(Pooled("fr_stat", i), Rgba(found ? kFg : kDim2));
   }
-  // NEXT is gated until at least one game is located (gold when ready).
-  SetTextColor("fr_next1_t", fr_located() > 0 ? Rgba(0xffe6a0ffu) : Rgba(0x6b6149ffu));
+  setText("fr_loccount", base::ToString(located) + " of " + base::ToString(games) + " located");
+  // Continue is gated until at least one game is located: solid white when it
+  // can be pressed, an inert plate when it cannot.
+  SetBackground("fr_next1", Rgba(located > 0 ? 0xe8e8e8ffu : 0x141414ffu));
+  SetTextColor("fr_next1_t", Rgba(located > 0 ? 0x000000ffu : kOff));
+  // A failed browse outranks the standing hint and is stated at full white, so
+  // a folder pick that found nothing cannot look like one that worked.
+  if (!fr_view.notice.empty()) {
+    setText("fr_lochint", fr_view.notice);
+    SetTextColor("fr_lochint", Rgba(kFg));
+  } else {
+    setText("fr_lochint", located > 0
+                              ? base::String("Ready. The rest can be added later from Settings.")
+                              : base::String("Locate at least one game to continue."));
+    SetTextColor("fr_lochint", Rgba(kDim2));
+  }
 
-  // Page 3: dropdowns + toggles.
-  static const char* const kModes[4] = {"Exploration", "Story", "Survival", "Sandbox"};
-  static const char* const kDiffs[4] = {"Novice", "Normal", "Hard", "Legendary"};
-  setText("fr_modeval", kModes[base::Clamp(fr_mode, 0, 3)]);
-  setText("fr_diffval", kDiffs[base::Clamp(fr_diff, 0, 3)]);
-  SetVisible("fr_modemenu", fr_dropdown == 0);
-  SetVisible("fr_diffmenu", fr_dropdown == 1);
+  // Page 3: two segmented selectors + the toggles. The chosen cell takes the
+  // 2px rule and full-white label; the rest sit at 60%.
   for (int k = 0; k < 4; ++k) {
-    SetVisible(("fr_modetick" + base::ToString(k)).c_str(), k == fr_mode);
-    SetVisible(("fr_difftick" + base::ToString(k)).c_str(), k == fr_diff);
+    const bool m = k == mode, d = k == diff;
+    SetVisible(Pooled("fr_modebar", k), m);
+    SetVisible(Pooled("fr_diffbar", k), d);
+    SetTextColor(Pooled("fr_modelbl", k), Rgba(m ? kFg : kDim));
+    SetTextColor(Pooled("fr_difflbl", k), Rgba(d ? kFg : kDim));
+    SetBackground(Pooled("fr_modeopt", k), Rgba(m ? 0x17191cffu : 0x0d0d0dffu));
+    SetBackground(Pooled("fr_diffopt", k), Rgba(d ? 0x17191cffu : 0x0d0d0dffu));
   }
   for (int i = 0; i < 3; ++i) {
-    SetBackground(("fr_chkbox" + base::ToString(i)).c_str(),
-                  fr_check[i] ? Rgba(0xffcc55ffu) : Rgba(0x070a10ffu));
-    SetVisible(("fr_chkmk" + base::ToString(i)).c_str(), fr_check[i]);
+    SetBorderColor(Pooled("fr_chkbox", i), Rgba(fr_check[i] ? kFg : 0xffffff33u));
+    SetVisible(Pooled("fr_chkmk", i), fr_check[i]);
   }
 
   // Page 4: mods dir + recommended space.
-  setText("fr_modspath_t",
-          fr_view.mods_dir.empty() ? base::String("~/.recreation/mods") : fr_view.mods_dir);
+  setText("fr_modspath_t", mods_dir);
   if (!fr_view.space_label.empty())
     setText("fr_space", fr_view.space_label);
 
-  // Page 5: a check badge on each located universe.
-  for (int i = 0; i < kFirstRunGames; ++i)
-    SetVisible(("fr_sealbadge" + base::ToString(i)).c_str(),
-               i < static_cast<int>(fr_view.games.size()) && fr_view.games[i].located);
+  // Page 5: what setup is about to write, in its own words.
+  base::String names;
+  for (int i = 0; i < games; ++i) {
+    if (!fr_view.games[i].located)
+      continue;
+    if (!names.empty())
+      names += "  ·  ";
+    names += fr_view.games[i].name;
+  }
+  setText("fr_sum_games", names.empty() ? base::String("None located") : names);
+  SetTextColor("fr_sum_games", Rgba(names.empty() ? kDim2 : kFg));
+  setText("fr_sum_mode", base::String(kModes[mode]) + "  ·  " + kDiffs[diff]);
+  setText("fr_sum_mods", base::String(fr_check[0] ? "Enabled" : "Disabled") + "  ·  " + mods_dir);
+  setText("fr_sum_diag", fr_check[1] ? "Shared anonymously" : "Not shared");
+  setText("fr_sum_upd", fr_check[2] ? "Checked on launch" : "Never checked");
 }
 
 void GameUi::Impl::AdvanceFirstRun() {
-  fr_dropdown = -1;
   if (fr_step == 1 && fr_located() == 0)
     return;  // locate page: need one game
   if (fr_step < kFirstRunSteps - 1) {
@@ -620,7 +701,6 @@ void GameUi::Impl::AdvanceFirstRun() {
 }
 
 void GameUi::Impl::RetreatFirstRun() {
-  fr_dropdown = -1;
   if (fr_step > 0)
     --fr_step;
   else
@@ -646,8 +726,15 @@ bool GameUi::Impl::RouteFirstRunClick(ugui::wid target) {
         AdvanceFirstRun();
         return true;
       }
-      if (name == "fr_back1" || name == "fr_back2" || name == "fr_back3" || name == "fr_back4") {
+      if (name == "fr_back1" || name == "fr_back2" || name == "fr_back3" || name == "fr_back4" ||
+          name == "fr_skip") {
         RetreatFirstRun();
+        return true;
+      }
+      // The step list doubles as navigation, but only backwards: a page ahead
+      // has not had its gate (a located game) run yet.
+      if (int i = pref("fr_nav"); i >= 0 && i < fr_step) {
+        fr_step = i;
         return true;
       }
       if (name == "fr_next1" || name == "fr_next2" || name == "fr_next3") {
@@ -667,22 +754,12 @@ bool GameUi::Impl::RouteFirstRunClick(ugui::wid target) {
         fr_request.index = i;
         return true;
       }
-      if (name == "fr_modesel") {
-        fr_dropdown = fr_dropdown == 0 ? -1 : 0;
-        return true;
-      }
-      if (name == "fr_diffsel") {
-        fr_dropdown = fr_dropdown == 1 ? -1 : 1;
-        return true;
-      }
       if (int k = pref("fr_modeopt"); k >= 0) {
         fr_mode = k;
-        fr_dropdown = -1;
         return true;
       }
       if (int k = pref("fr_diffopt"); k >= 0) {
         fr_diff = k;
-        fr_dropdown = -1;
         return true;
       }
       if (int i = pref("fr_chk"); i >= 0 && i < 3) {
@@ -693,10 +770,74 @@ bool GameUi::Impl::RouteFirstRunClick(ugui::wid target) {
     const ugui::Hierarchy* h = ui.world().Get<ugui::Hierarchy>(w);
     w = h ? h->parent : ugui::wid{};
   }
-  // A click anywhere else inside the wizard dismisses an open dropdown. Either
-  // way the wizard owns every click while it is up (nothing is behind it).
-  fr_dropdown = -1;
+  // The wizard owns every click while it is up: nothing is behind it, and a
+  // stray press must not fall through to the menu it is covering.
   return true;
+}
+
+// The loading screen. Everything on it comes from the engine's per-phase report
+// except the tip, which is this screen's own business: the load is the one
+// moment a new player is guaranteed to be reading, so it spends it teaching the
+// keys instead of turning a spinner. Every key named here is a real default
+// binding (runtime/input/game_input.cc).
+void GameUi::Impl::ApplyLoading() {
+  SetVisible("loading", loading_open);
+  if (!loading_open)
+    return;
+
+  struct Tip {
+    const char* key;
+    const char* text;
+  };
+  static const Tip kTips[] = {
+      {"E", "Activate what you are looking at: talk, open, pick up."},
+      {"T", "Swap between walking the world and flying the camera through it."},
+      {"M", "Open the world map. Places you have been are marked on it."},
+      {"J", "Open the journal: every quest you are carrying, and where it stands."},
+      {"C", "Third person. The camera pulls back off your shoulder."},
+      {"F4", "Open the map editor and place, move or delete anything, live."},
+      {"F3", "Open the quest debugger to watch stages and objectives fire."},
+      {"F1", "Show the engine overlay: frame times, streaming, what is resident."},
+      {"Esc", "Pause. Settings, controls and the way back to the front screen."},
+  };
+  constexpr int kTipCount = static_cast<int>(sizeof(kTips) / sizeof(kTips[0]));
+
+  constexpr u32 kFg = 0xffffffffu, kDim = 0x9a9a9affu, kDim2 = 0x5e5e5effu;
+
+  const int step = base::Clamp(loading.step, 0, kLoadingPhases - 1);
+  const base::String step_no = "0" + base::ToString(step + 1);
+  SetText("ld_meta", loading.title);
+  SetText("ld_title", loading.title);
+  SetText("ld_bignum", step_no);
+  SetText("ld_phase", loading.phase);
+  SetText("ld_sub", loading.detail);
+  SetText("ld_records", loading.records.empty() ? base::String("-") : loading.records);
+  SetText("ld_plugins", loading.plugins.empty() ? base::String("-") : loading.plugins);
+  SetText("ld_elapsed", base::ToString(static_cast<int>(loading.elapsed)) + "s");
+  SetText("ld_build", mm_stats.build.empty() ? base::String("") : ("v" + mm_stats.build));
+
+  for (int i = 0; i < kLoadingPhases; ++i) {
+    const bool active = i == step, done = i < step;
+    SetVisible(Pooled("ld_navsel", i), active);
+    SetVisible(Pooled("ld_navplate", i), active);
+    SetTextColor(Pooled("ld_navnum", i), Rgba(active ? kFg : (done ? kDim : kDim2)));
+    SetTextColor(Pooled("ld_navlbl", i), Rgba(active ? kFg : (done ? kDim : kDim2)));
+  }
+
+  // The bar never sits at zero: a load that has only just started still has to
+  // read as started, or the screen looks as stuck as the freeze it replaced.
+  const int pct = base::Clamp(static_cast<int>(loading.progress * 100.0f), 1, 100);
+  SetStyleField(
+      "ld_prog", [](ugui::Style& s, float v) { s.width = ugui::Length::Pct(v); },
+      static_cast<float>(pct));
+  SetText("ld_prog_t", base::ToString(pct) + "%");
+
+  if (ui_time - ld_tip_from >= kLoadingTipSeconds) {
+    ld_tip_from = ui_time;
+    ld_tip = (ld_tip + 1) % kTipCount;
+    SetText("ld_tipk", kTips[ld_tip].key);
+    SetText("ld_tip", kTips[ld_tip].text);
+  }
 }
 
 

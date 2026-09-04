@@ -24,6 +24,7 @@
     <ProjectReference Include="..\default_gamemodes\Fallout\Recreation.Fallout.csproj" />
     <ProjectReference Include="..\default_gamemodes\Starfield\Recreation.Starfield.csproj" />
     <ProjectReference Include="..\default_gamemodes\SkyrimCartRacing\Recreation.SkyrimCartRacing.csproj" />
+    <ProjectReference Include="..\default_gamemodes\TourDeRecreation\Recreation.TourDeRecreation.csproj" />
   </ItemGroup>
 
 </Project>

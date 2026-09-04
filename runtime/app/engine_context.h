@@ -51,7 +51,22 @@ struct ExtraDomainConfig {
 struct EngineConfig {
   base::String data_dir;
   base::String plugins_txt;
+  // Games to mount BESIDE the primary one, each a whole second bring-up
+  // (archives, records, strings, dialogue, its own script microvm) that the
+  // player waits through. Only --add-game fills this: it is an explicit ask for
+  // several worlds at once, not a list of what is installed.
   base::Vector<ExtraDomainConfig> extra_domains;
+  // Where the games this machine has are installed, for the front screen to
+  // offer and for whichever one gets picked to load from. Filled from setup.ini
+  // and the first-run wizard. Being here means "you own this", NOT "mount it":
+  // the two used to share extra_domains, so choosing Skyrim on the menu also
+  // mounted Fallout 4 and Starfield and a fresh player waited 40 seconds for
+  // two worlds they had not asked for.
+  base::Vector<ExtraDomainConfig> known_games;
+  // A game mode to arm at boot (--game-mode <id>), the command-line equivalent
+  // of picking its tile on the front screen. Empty means no mode: the domain's
+  // base ruleset only.
+  base::String game_mode;
   base::String gltf_path;   // standalone gltf/glb scene (e.g. sponza)
   base::String demo_scene;  // "water" = empty map with a water sheet
   // Open the NEXUS main menu instead of loading content directly; the player

@@ -50,6 +50,42 @@ base::UnorderedMap<base::String, wid>& Registry() {
   return registry;
 }
 
+// The registry the UI actually lives in, captured on the thread that owns the
+// UIContext.
+//
+// WidgetRegistry::Active() is thread_local and set only on that thread. The
+// managed world does NOT run there: ManagedHost::Tick posts to the Papyrus guest
+// thread, so a mod's OnUpdate reaching Ui.Find(name).Text = x got a perfectly
+// valid handle from the name map below and then wrote it into the empty
+// process-global default registry Active() falls back to. Every widget write
+// from a behaviour vanished, silently, with no bad handle and no error. Ops use
+// this instead.
+//
+// No lock, and none needed: RunManaged posts to the guest thread and BLOCKS the
+// main thread until the managed call returns, so the two never touch ugui at
+// once.
+WidgetRegistry* g_ui_registry = nullptr;
+
+World& UiWorld() {
+  return g_ui_registry != nullptr ? *g_ui_registry : *WidgetRegistry::Active();
+}
+
+// Makes the captured registry active for the length of one op.
+//
+// Reaching for UiWorld() by hand is not enough on its own: the ops call
+// libultragui's own free functions (SetText, SetChecked, SetSliderValue,
+// SetDropdownSelected and their getters), and every one of those resolves
+// WidgetRegistry::Active() internally. Off the UI thread they would each find
+// the empty default and do nothing, which is how a mod's Widget.Text write could
+// silently no-op while Widget.Visible - written through the explicit-world
+// SetStyle - worked. Re-pointing the thread_local for the call fixes all of them
+// at once, and keeps this file from growing private copies of ugui internals
+// that would drift.
+struct ScopedUiWorld {
+  ScopedUiWorld() : scope(&UiWorld()) {}
+  WidgetRegistry::ScopedActive scope;
+};
+
 // The host dispatch callback installed via the seam. Null until the host wires it
 // (e.g. a dedicated-server / no-managed build leaves handlers inert).
 rx::ugui_cs::DispatchFn g_dispatch = nullptr;
@@ -60,8 +96,7 @@ WidgetNode* NodeOf(std::uint64_t widget) {
   wid w = Unpack(widget);
   if (!w.valid())
     return nullptr;
-  World& world = *WidgetRegistry::Active();
-  return world.Get<WidgetNode>(w);
+  return UiWorld().Get<WidgetNode>(w);
 }
 
 }  // namespace
@@ -78,10 +113,11 @@ std::uint64_t OpFind(const char* name) {
 }
 
 std::int32_t OpGetText(std::uint64_t widget, char* buf, std::int32_t buf_len) {
+  ScopedUiWorld scope;
   WidgetNode* n = NodeOf(widget);
   if (!n)
     return 0;
-  World& world = *WidgetRegistry::Active();
+  World& world = UiWorld();
   wid w = Unpack(widget);
   const String* text = nullptr;
   if (n->kind == WidgetKind::kText) {
@@ -103,11 +139,12 @@ std::int32_t OpGetText(std::uint64_t widget, char* buf, std::int32_t buf_len) {
 }
 
 void OpSetText(std::uint64_t widget, const char* text) {
+  ScopedUiWorld scope;
   WidgetNode* n = NodeOf(widget);
   if (!n || !text)
     return;
   wid w = Unpack(widget);
-  World& world = *WidgetRegistry::Active();
+  World& world = UiWorld();
   if (n->kind == WidgetKind::kText) {
     SetText(w, text);
     ClearAnimationStyle(world, w);
@@ -118,6 +155,7 @@ void OpSetText(std::uint64_t widget, const char* text) {
 }
 
 std::int32_t OpGetChecked(std::uint64_t widget) {
+  ScopedUiWorld scope;
   WidgetNode* n = NodeOf(widget);
   if (!n || n->kind != WidgetKind::kCheckbox)
     return 0;
@@ -125,12 +163,14 @@ std::int32_t OpGetChecked(std::uint64_t widget) {
 }
 
 void OpSetChecked(std::uint64_t widget, std::int32_t checked) {
+  ScopedUiWorld scope;
   WidgetNode* n = NodeOf(widget);
   if (n && n->kind == WidgetKind::kCheckbox)
     SetChecked(Unpack(widget), checked != 0);
 }
 
 float OpGetValue(std::uint64_t widget) {
+  ScopedUiWorld scope;
   WidgetNode* n = NodeOf(widget);
   if (!n || n->kind != WidgetKind::kSlider)
     return 0.0f;
@@ -138,12 +178,14 @@ float OpGetValue(std::uint64_t widget) {
 }
 
 void OpSetValue(std::uint64_t widget, float value) {
+  ScopedUiWorld scope;
   WidgetNode* n = NodeOf(widget);
   if (n && n->kind == WidgetKind::kSlider)
     SetSliderValue(Unpack(widget), value);
 }
 
 std::int32_t OpGetSelected(std::uint64_t widget) {
+  ScopedUiWorld scope;
   WidgetNode* n = NodeOf(widget);
   if (!n || n->kind != WidgetKind::kDropdown)
     return -1;
@@ -151,25 +193,28 @@ std::int32_t OpGetSelected(std::uint64_t widget) {
 }
 
 void OpSetSelected(std::uint64_t widget, std::int32_t index) {
+  ScopedUiWorld scope;
   WidgetNode* n = NodeOf(widget);
   if (n && n->kind == WidgetKind::kDropdown)
     SetDropdownSelected(Unpack(widget), index);
 }
 
 std::int32_t OpGetVisible(std::uint64_t widget) {
+  ScopedUiWorld scope;
   wid w = Unpack(widget);
   if (!w.valid())
     return 0;
-  World& world = *WidgetRegistry::Active();
+  World& world = UiWorld();
   auto* sc = world.Get<StyleC>(w);
   return (sc && sc->style.visibility == Visibility::kVisible) ? 1 : 0;
 }
 
 void OpSetVisible(std::uint64_t widget, std::int32_t visible) {
+  ScopedUiWorld scope;
   wid w = Unpack(widget);
   if (!w.valid())
     return;
-  World& world = *WidgetRegistry::Active();
+  World& world = UiWorld();
   auto* sc = world.Get<StyleC>(w);
   if (!sc)
     return;
@@ -199,6 +244,7 @@ bool ScriptRuntime::Init() {
 
 void ScriptRuntime::Shutdown() {
   Registry().clear();
+  g_ui_registry = nullptr;
 }
 
 // C# UI logic lives in compiled assemblies the managed host loads, not in script
@@ -211,14 +257,19 @@ bool ScriptRuntime::ExecFile(const char*) {
 }
 
 void ScriptRuntime::RegisterWidget(wid widget) {
-  World& world = *WidgetRegistry::Active();
+  // ugui registers the whole tree from the thread that owns the UIContext, so
+  // this is the one place guaranteed to see the real registry. Capture it for
+  // the ops, which are called from the managed world's thread and would
+  // otherwise get the empty default (see UiWorld).
+  g_ui_registry = WidgetRegistry::Active();
+  World& world = UiWorld();
   WidgetNode* n = world.Get<WidgetNode>(widget);
   if (n && !n->name.empty())
     Registry()[n->name] = widget;
 }
 
 void ScriptRuntime::UnregisterWidget(wid widget) {
-  World& world = *WidgetRegistry::Active();
+  World& world = UiWorld();
   WidgetNode* n = world.Get<WidgetNode>(widget);
   if (n && !n->name.empty())
     Registry().erase(n->name);
@@ -248,13 +299,13 @@ bool ScriptRuntime::CallHandler(const char* func_name, wid widget) {
 static void WireChangeHandlersRecursive(ScriptRuntime& rt, wid w) {
   if (!w.valid())
     return;
-  World& world = *WidgetRegistry::Active();
+  World& world = UiWorld();
   WidgetNode* n = world.Get<WidgetNode>(w);
   if (!n)
     return;
   if (!n->name.empty()) {
     auto dispatch = [&rt, w]() {
-      World& wr = *WidgetRegistry::Active();
+      World& wr = UiWorld();
       WidgetNode* node = wr.Get<WidgetNode>(w);
       if (!node)
         return;

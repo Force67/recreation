@@ -1,0 +1,161 @@
+// RECREATION loading screen: what a player looks at between pressing PLAY and
+// standing in the world. Bringing a universe online is a blocking job that runs
+// for tens of seconds (a minute with three games mounted), so this is not
+// decoration - without it the window simply freezes on the menu it just closed
+// and the OS marks the app unresponsive.
+//
+// Same chassis as legal.ugui / first_run.ugui / main_menu.ugui - masthead,
+// rail left, detail pane right, key-hint footer - and the rail carries the
+// same state-by-value language as the setup wizard's step list: white is the
+// phase running now, #9a9a9a is done, #5e5e5e is still ahead.
+//
+// Engine constraints this is written around (see theme.ugui):
+//   - text never wraps: one text widget per line.
+//   - `visibility:` in markup is ignored; GameUi::ApplyLoading collapses this
+//     whole screen when no load is running.
+//   - a bordered panel needs an OPAQUE background or ugui floods the rect with
+//     the border colour.
+//
+// Drives the widgets GameUi expects:
+//   ld_meta, ld_title, ld_sub, ld_bignum, ld_prog (+ld_prog_t), ld_phase,
+//   ld_nav0..5 (ld_navsel/ld_navplate/ld_navnum/ld_navlbl),
+//   ld_records, ld_plugins, ld_elapsed, ld_tipk, ld_tip, ld_build.
+
+  panel loading {
+    position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: #000000;
+    panel { position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+      background: #0e1013; background-end: #000000; gradient-angle: 180; }
+
+    panel { position: absolute; left: 130; right: 130; top: 64; bottom: 0; layout: column;
+
+      // ===================== masthead =====================
+      panel { layout: row; align: end; justify: space-between; width: 100%;
+        text { class: t_mast; font-size: 32; letter-spacing: 13; text: "Recreation"; }
+        panel { layout: column; align: end; gap: 7;
+          text { class: t_micro; text: "Now loading"; }
+          text ld_meta { class: t_micro2; text: ""; } }
+      }
+      panel { width: 100%; height: 1; margin: 22 0 0 0;
+        background: #ffffff66; background-end: #ffffff00; gradient-angle: 90; }
+
+      // ===================== body =====================
+      panel { layout: row; width: 100%; flex-grow: 1; margin: 30 0 0 0;
+
+        // ---- phase rail ----
+        panel { width: 396; layout: column;
+          panel ld_nav0 { height: 74; position: relative; layout: row; align: center;
+            panel ld_navplate0 { position: absolute; left: 0; top: 0; bottom: 0; right: 0;
+              background: #17191c; background-end: #17191c00; gradient-angle: 90; }
+            panel ld_navsel0 { position: absolute; left: 0; top: 0; bottom: 0; width: 2;
+              background: #ffffff; }
+            panel { layout: row; align: center; gap: 22; padding: 0 0 0 26;
+              text ld_navnum0 { font-size: 11; letter-spacing: 3; color: #ffffff; text: "01"; }
+              text ld_navlbl0 { font-size: 19; letter-spacing: 2; color: #ffffff;
+                text: "Mounting archives"; } } }
+          panel ld_nav1 { height: 74; position: relative; layout: row; align: center;
+            panel ld_navplate1 { position: absolute; left: 0; top: 0; bottom: 0; right: 0;
+              background: #17191c; background-end: #17191c00; gradient-angle: 90; }
+            panel ld_navsel1 { position: absolute; left: 0; top: 0; bottom: 0; width: 2;
+              background: #ffffff; }
+            panel { layout: row; align: center; gap: 22; padding: 0 0 0 26;
+              text ld_navnum1 { font-size: 11; letter-spacing: 3; color: #5e5e5e; text: "02"; }
+              text ld_navlbl1 { font-size: 19; letter-spacing: 2; color: #5e5e5e;
+                text: "Reading records"; } } }
+          panel ld_nav2 { height: 74; position: relative; layout: row; align: center;
+            panel ld_navplate2 { position: absolute; left: 0; top: 0; bottom: 0; right: 0;
+              background: #17191c; background-end: #17191c00; gradient-angle: 90; }
+            panel ld_navsel2 { position: absolute; left: 0; top: 0; bottom: 0; width: 2;
+              background: #ffffff; }
+            panel { layout: row; align: center; gap: 22; padding: 0 0 0 26;
+              text ld_navnum2 { font-size: 11; letter-spacing: 3; color: #5e5e5e; text: "03"; }
+              text ld_navlbl2 { font-size: 19; letter-spacing: 2; color: #5e5e5e;
+                text: "Text and dialogue"; } } }
+          panel ld_nav3 { height: 74; position: relative; layout: row; align: center;
+            panel ld_navplate3 { position: absolute; left: 0; top: 0; bottom: 0; right: 0;
+              background: #17191c; background-end: #17191c00; gradient-angle: 90; }
+            panel ld_navsel3 { position: absolute; left: 0; top: 0; bottom: 0; width: 2;
+              background: #ffffff; }
+            panel { layout: row; align: center; gap: 22; padding: 0 0 0 26;
+              text ld_navnum3 { font-size: 11; letter-spacing: 3; color: #5e5e5e; text: "04"; }
+              text ld_navlbl3 { font-size: 19; letter-spacing: 2; color: #5e5e5e;
+                text: "Scripts and quests"; } } }
+          panel ld_nav4 { height: 74; position: relative; layout: row; align: center;
+            panel ld_navplate4 { position: absolute; left: 0; top: 0; bottom: 0; right: 0;
+              background: #17191c; background-end: #17191c00; gradient-angle: 90; }
+            panel ld_navsel4 { position: absolute; left: 0; top: 0; bottom: 0; width: 2;
+              background: #ffffff; }
+            panel { layout: row; align: center; gap: 22; padding: 0 0 0 26;
+              text ld_navnum4 { font-size: 11; letter-spacing: 3; color: #5e5e5e; text: "05"; }
+              text ld_navlbl4 { font-size: 19; letter-spacing: 2; color: #5e5e5e;
+                text: "Neighbouring worlds"; } } }
+          panel ld_nav5 { height: 74; position: relative; layout: row; align: center;
+            panel ld_navplate5 { position: absolute; left: 0; top: 0; bottom: 0; right: 0;
+              background: #17191c; background-end: #17191c00; gradient-angle: 90; }
+            panel ld_navsel5 { position: absolute; left: 0; top: 0; bottom: 0; width: 2;
+              background: #ffffff; }
+            panel { layout: row; align: center; gap: 22; padding: 0 0 0 26;
+              text ld_navnum5 { font-size: 11; letter-spacing: 3; color: #5e5e5e; text: "06"; }
+              text ld_navlbl5 { font-size: 19; letter-spacing: 2; color: #5e5e5e;
+                text: "Building the world"; } } }
+
+          // the rail's own readout, pinned to the foot of the list
+          panel { flex-grow: 1; }
+          panel { layout: column; gap: 13; width: 320; margin: 0 0 52 0;
+            panel { layout: row; align: center; justify: space-between; width: 100%;
+              text { class: t_micro2; text: "Progress"; }
+              text ld_prog_t { class: t_micro2; color: #9a9a9a; text: "0%"; } }
+            panel { width: 100%; height: 2; background: #ffffff1c;
+              panel ld_prog { width: 1%; height: 2; background: #ffffff; } } }
+        }
+
+        panel { width: 1; background: #ffffff1c; margin: 0 56 0 56; }
+
+        // ---- detail pane ----
+        panel { flex-grow: 1; position: relative; layout: column;
+          text ld_bignum { position: absolute; right: 8; bottom: 26; font-size: 210;
+            letter-spacing: 4; color: #ffffff0a; text: "01"; }
+
+          text { class: t_micro; text: "Entering"; }
+          text ld_title { class: t_h1; text: ""; margin: 14 0 0 0; }
+          text ld_phase { class: t_body; color: #9a9a9a; margin: 26 0 0 0; text: ""; }
+          text ld_sub { class: t_faint; margin: 10 0 0 0; text: ""; }
+
+          panel { class: rule; width: 100%; max-width: 940; margin: 40 0 0 0; }
+          panel { layout: row; width: 100%; max-width: 940; margin: 26 0 0 0;
+            panel { width: 300; layout: column; gap: 12;
+              text { class: t_micro2; text: "Records"; }
+              text ld_records { class: t_body; text: "-"; } }
+            panel { width: 300; layout: column; gap: 12;
+              text { class: t_micro2; text: "Plugins"; }
+              text ld_plugins { class: t_body; text: "-"; } }
+            panel { layout: column; gap: 12;
+              text { class: t_micro2; text: "Elapsed"; }
+              text ld_elapsed { class: t_body; text: "0s"; } } }
+          panel { class: rule_dim; width: 100%; max-width: 940; margin: 26 0 0 0; }
+
+          // The wait is the one moment a new player is guaranteed to be reading
+          // the screen, so it teaches the keys rather than showing a spinner.
+          panel { layout: column; width: 100%; max-width: 940; margin: 40 0 0 0; gap: 18;
+            text { class: t_micro; text: "While you wait"; }
+            panel { layout: row; align: center; gap: 18;
+              panel { height: 30; padding: 0 12 0 12; layout: row; justify: center; align: center;
+                background: #0a0a0a; border-color: #ffffff2e; border-width: 1;
+                text ld_tipk { font-size: 12; color: #ffffff; letter-spacing: 2; text: ""; } }
+              text ld_tip { class: t_body; color: #9a9a9a; text: ""; } } }
+        }
+      }
+
+      // ===================== footer =====================
+      panel { height: 88; layout: row; align: center; gap: 26; width: 100%;
+        position: relative;
+        panel { position: absolute; left: 0; right: 0; top: 0; height: 1; background: #ffffff1c; }
+        text { font-size: 16; letter-spacing: 3; text-transform: uppercase;
+          color: #ffffff; text: "Loading"; }
+        text { font-size: 11; letter-spacing: 3; text-transform: uppercase;
+          color: #5e5e5e; text: "Your own copy of the game, read where it sits"; }
+        panel { flex-grow: 1; }
+        text ld_build { font-size: 11; letter-spacing: 3; text-transform: uppercase;
+          color: #5e5e5e; margin: 0 0 0 30; text: ""; }
+      }
+    }
+  }

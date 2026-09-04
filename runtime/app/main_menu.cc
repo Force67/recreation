@@ -55,6 +55,9 @@ namespace rx {
 static base::Option<bool> HideDebugUi{"hide.debug.ui", false, "RX_HIDE_DEBUG_UI"};
 static base::Option<bool> MenuCapture{"menu.capture", false, "RX_MENU_CAPTURE"};
 static base::Option<const char*> MenuAutoplay{"menu.autoplay", nullptr, "RX_MENU_AUTOPLAY"};
+// One more Steam install directory to search, for a layout the standard
+// locations miss (a second drive's copy, a portable install, a test rig).
+static base::Option<const char*> SteamRoot{"steam.root", nullptr, "RX_STEAM_ROOT"};
 
 // Gold001, the currency record a Skyrim inventory counts money in.
 static constexpr u32 kGoldFormId = 0x0000000f;
@@ -223,6 +226,14 @@ bool ReadManifest(const base::String& path, GameModeManifest& out) {
   return !out.id.empty();
 }
 
+// Whether a staged manifest is something the player can choose, as opposed to a
+// game's own base ruleset ("ruleset"), which is always on and never offered.
+// Both kinds below arm the same way; they differ only in where the menu puts
+// them: "mode" is a tile in the play grid, "tour" is an entry in the top nav.
+bool IsSelectableMode(const GameModeManifest& m) {
+  return m.kind == "mode" || m.kind == "tour";
+}
+
 // Collects the manifests staged in <managed dir>/gamemodes, sorted by id so the
 // grid does not reshuffle with directory order. An assembly with no manifest is
 // reported rather than quietly dropped: a mistyped manifest name would otherwise
@@ -319,6 +330,72 @@ base::String GameKeyArt(bethesda::Game game) {
   return {};
 }
 
+// Every Steam library on this machine, as ".../steamapps/common" directories.
+// Games live wherever the player put them, so guessing paths only ever works on
+// the machine the guess was written on: the list comes from Steam's own
+// libraryfolders.vdf, which records each library root the player has added,
+// including ones on other drives. The install locations below exist only to
+// find that file. RX_STEAM_ROOT names one more, for an install none of the
+// standard locations covers.
+base::Vector<base::String> SteamCommonRoots() {
+  namespace fs = std::filesystem;
+  base::Vector<base::String> roots;
+  std::error_code ec;
+  auto add = [&](const fs::path& p) {
+    if (p.empty() || !fs::exists(p, ec))
+      return;
+    base::String s = p.string().c_str();
+    for (const base::String& have : roots)
+      if (have == s)
+        return;
+    roots.push_back(base::move(s));
+  };
+
+  base::Vector<fs::path> installs;
+  if (const char* extra = SteamRoot.get(); extra != nullptr && *extra)
+    installs.push_back(fs::path(extra));
+#if defined(_WIN32)
+  for (const char* var : {"ProgramFiles(x86)", "ProgramFiles"})
+    if (const char* pf = std::getenv(var))
+      installs.push_back(fs::path(pf) / "Steam");
+#elif defined(__APPLE__)
+  if (const char* home = std::getenv("HOME"))
+    installs.push_back(fs::path(home) / "Library" / "Application Support" / "Steam");
+#else
+  if (const char* home = std::getenv("HOME")) {
+    installs.push_back(fs::path(home) / ".local" / "share" / "Steam");
+    installs.push_back(fs::path(home) / ".steam" / "steam");
+    installs.push_back(fs::path(home) / ".steam" / "root");
+    installs.push_back(fs::path(home) / ".var" / "app" / "com.valvesoftware.Steam" / "data" /
+                       "Steam");  // flatpak
+  }
+#endif
+
+  for (const fs::path& install : installs) {
+    add(install / "steamapps" / "common");
+    std::ifstream vdf((install / "steamapps" / "libraryfolders.vdf").string().c_str());
+    if (!vdf)
+      continue;
+    for (std::string line; std::getline(vdf, line);) {
+      const size_t key = line.find("\"path\"");
+      if (key == std::string::npos)
+        continue;
+      const size_t open = line.find('"', key + 6);
+      if (open == std::string::npos)
+        continue;
+      const size_t close = line.find('"', open + 1);
+      if (close == std::string::npos)
+        continue;
+      std::string path = line.substr(open + 1, close - open - 1);
+      // The only escape a library path carries is the doubled Windows separator.
+      for (size_t p = path.find("\\\\"); p != std::string::npos; p = path.find("\\\\", p + 1))
+        path.erase(p, 1);
+      add(fs::path(path) / "steamapps" / "common");
+    }
+  }
+  return roots;
+}
+
 }  // namespace
 
 void ResolveUniverses(Engine& engine) {
@@ -335,16 +412,16 @@ void ResolveUniverses(Engine& engine) {
       {bethesda::Game::kFallout4, "Fallout 4", "RX_FALLOUT4_DATA", "Fallout 4/Data"},
       {bethesda::Game::kStarfield, "Starfield", "RX_STARFIELD_DATA", "Starfield/Data"},
   };
-  // Steam "common" roots to scan when no explicit path is configured.
-  const char* roots[] = {
-      "/speed/SteamLibrary/steamapps/common",
-      "/home/vince/.local/share/Steam/steamapps/common",
-      "/home/vince/.steam/steam/steamapps/common",
-  };
+  // Where to look when no explicit path is configured.
+  const base::Vector<base::String> roots = SteamCommonRoots();
+  RX_INFO("steam libraries: {}", roots.size());
   auto from_config = [&](bethesda::Game g) -> base::Pair<base::String, base::String> {
     if (self->config_.game == g && !self->config_.data_dir.empty())
       return {self->config_.data_dir, self->config_.plugins_txt};
     for (const auto& d : self->config_.extra_domains)
+      if (d.game == g && !d.data_dir.empty())
+        return {d.data_dir, d.plugins_txt};
+    for (const auto& d : self->config_.known_games)
       if (d.game == g && !d.data_dir.empty())
         return {d.data_dir, d.plugins_txt};
     return {"", ""};
@@ -364,9 +441,9 @@ void ResolveUniverses(Engine& engine) {
       if (const char* e = std::getenv(specs[i].env))
         u.data_dir = e;        // env override
     if (u.data_dir.empty()) {  // Steam scan
-      for (const char* root : roots) {
+      for (const base::String& root : roots) {
         std::error_code ec;
-        fs::path p = fs::path(root) / specs[i].subdir;
+        fs::path p = fs::path(root.c_str()) / specs[i].subdir;
         if (fs::exists(p.c_str(), ec)) {
           u.data_dir = p.string();
           break;
@@ -407,8 +484,12 @@ void BuildMenuEntries(Engine& engine) {
     self->menu_entry_art_.push_back(GameKeyArt(u.game));
   }
   int mounted = 0;
+  self->menu_tour_id_.clear();
+  self->menu_tour_title_.clear();
+  self->menu_tour_universe_ = 0;
+  self->menu_tour_available_ = false;
   for (const GameModeManifest& m : ScanGameModes()) {
-    if (m.kind != "mode")  // a per-game base ruleset, not something to pick
+    if (!IsSelectableMode(m))  // a per-game base ruleset, not something to pick
       continue;
     // Every mode is optional content the managed side must leave dormant unless
     // it was armed, including one whose domain resolves to no tile below.
@@ -419,6 +500,16 @@ void BuildMenuEntries(Engine& engine) {
         universe = i;
     if (universe < 0) {
       RX_WARN("gamemodes: {} runs in unknown domain {}", m.id, m.domain);
+      continue;
+    }
+    // A tour is not a world to choose between, it is how you find out what any
+    // of this is, so it belongs at the top of the screen and not as one more
+    // grey tile at the end of the grid. Same arming path, different shelf.
+    if (m.kind == "tour") {
+      self->menu_tour_id_ = m.id;
+      self->menu_tour_title_ = m.title.empty() ? m.id : m.title;
+      self->menu_tour_universe_ = universe;
+      self->menu_tour_available_ = self->menu_universes_[universe].available;
       continue;
     }
     GameUi::MenuEntry e;
@@ -434,8 +525,35 @@ void BuildMenuEntries(Engine& engine) {
     self->menu_entry_art_.push_back(m.art);
     ++mounted;
   }
+  self->game_ui_.SetMainMenuTour(self->menu_tour_title_, self->menu_tour_available_);
   self->game_ui_.SetMainMenuEntries(self->menu_entries_);
   RX_INFO("menu: {} launch entries ({} game modes mounted)", self->menu_entries_.size(), mounted);
+}
+
+void ArmConfiguredGameMode(Engine& engine) {
+  Engine* const self = &engine;
+  if (self->config_.game_mode.empty() || !self->menu_mode_id_.empty())
+    return;  // nothing asked for, or the front screen already picked one
+  // Fill the selectable set as well as the pick. A mode only stays dormant
+  // because the managed host knows it was selectable and not chosen; without
+  // this list every staged mode would load at once and --game-mode would arm
+  // nothing in particular.
+  self->menu_mode_ids_.clear();
+  bool staged = false;
+  for (const GameModeManifest& manifest : ScanGameModes()) {
+    if (!IsSelectableMode(manifest))
+      continue;
+    self->menu_mode_ids_.push_back(manifest.id);
+    staged |= manifest.id == self->config_.game_mode;
+  }
+  if (!staged) {
+    RX_WARN("--game-mode {}: not staged in the gamemodes directory; running without it",
+            self->config_.game_mode);
+    self->menu_mode_ids_.clear();
+    return;
+  }
+  self->menu_mode_id_ = self->config_.game_mode;
+  RX_INFO("arming game mode {} from the command line", self->menu_mode_id_);
 }
 
 void SetupMainMenu(Engine& engine) {
@@ -490,10 +608,20 @@ void EnterUniverse(Engine& engine,
   self->game_ui_.CloseMainMenu();
   self->main_menu_active_ = false;
   self->debug_ui_.SetVisible(!HideDebugUi);
-  if (!LoadGameData(engine)) {  // boots the managed world, so the game's C# module installs
+  // LoadGameData does not return to the host loop, so the loading screen has to
+  // go up before it and be driven from inside it (loading_screen.cc). Without
+  // this the window freezes for the length of the load.
+  BeginLoadingScreen(engine, u.name);
+  const bool loaded = LoadGameData(engine);
+  if (!loaded) {
+    EndLoadingScreen(engine);
     RX_ERROR("failed to load universe {}", u.name);
     return;
   }
+  // The screen stays up past the load: the world is still streaming in, and
+  // dropping the player into it now means watching it assemble itself.
+  // TickLoadingScreen takes it down once the streamer has caught up.
+  HoldLoadingUntilStreamed(engine);
   // Opt-in (RX_MENU_CAPTURE): grab a clean frame of this world for the menu
   // backdrop cache once it has streamed in, so a later menu shows the real scene.
   // Off by default, since a mid-stream grab can catch an unsettled frame.
@@ -553,6 +681,12 @@ void Engine::UpdateMainMenu(f32 dt) {
     case MainMenuRequest::Kind::kEnterUniverse:
       menu_mode_id_ = req.mode_id;  // empty for a base game tile
       EnterUniverse(*this, req.universe, false, false, "");
+      break;
+    case MainMenuRequest::Kind::kEnterTour:
+      // The nav entry carries no ids; BuildMenuEntries already resolved which
+      // mode the tour is and which world it runs in.
+      menu_mode_id_ = menu_tour_id_;
+      EnterUniverse(*this, menu_tour_universe_, false, false, "");
       break;
     case MainMenuRequest::Kind::kHostServer:
       EnterUniverse(*this, req.universe, true, true, "");
