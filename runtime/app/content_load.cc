@@ -145,6 +145,9 @@ bool LoadGameData(Engine& engine) {
   // The Papyrus guest: a separate, single-threaded world that runs game scripts
   // off the main thread. Form natives read the RecordStore; actor values and
   // inventory are backed by the bindings' own stores.
+  // The game's own loading-screen art, now that its records and text are in.
+  // Late enough to have the data, early enough to be up for most of the load.
+  PickLoadScreenArt(engine);
   ReportLoadPhase(engine, LoadPhase::kScripts, "Standing up the script world",
                   "Papyrus runs beside the engine, on its own thread");
   self->script_bindings_ =

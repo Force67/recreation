@@ -452,6 +452,15 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
       if (streamer_ && !streamer_->in_interior()) {
         std::memcpy(view.detail_rect, streamer_->detail_rect(), sizeof(view.detail_rect));
       }
+      // While the loading screen is up the world behind it is still assembling
+      // itself, and none of it belongs in shot: the screen shows one object on
+      // a black stage. Emit that object alone and skip the world gather, which
+      // also hands the streaming the GPU time it is competing for.
+      if (load_screen_up_) {
+        AppendLoadScreenModel(*this, view);
+        game_ui_.Build(*window_, *renderer_, camera_, frame_delta, &view);
+        return;
+      }
       // Rebuilt every frame so destroyed entities drop out on their own.
       base::UnorderedMap<u64, Mat4> transforms;
       world_->Each<world::Transform, world::Renderable>(

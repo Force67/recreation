@@ -322,6 +322,8 @@ class Engine : public app::Application {
   friend void ReportLoadPhase(Engine&, LoadPhase, const base::String&, const base::String&, f32);
   friend void PresentLoadingFrame(Engine&);
   friend void PushLoadingView(Engine&, LoadPhase, const base::String&, const base::String&, f32);
+  friend void PickLoadScreenArt(Engine&);
+  friend void AppendLoadScreenModel(Engine&, render::FrameView&);
   friend void HoldLoadingUntilStreamed(Engine&);
   friend void TickLoadingScreen(Engine&, f32);
   friend void EndLoadingScreen(Engine&);
@@ -458,6 +460,21 @@ class Engine : public app::Application {
   f32 world_age_ = 0.0f;
   std::atomic<bool> quest_moves_allowed_{false};
 
+  // The game's own loading-screen art (an LSCR record): the uploaded mesh, the
+  // framing the record asks for, and the blurb that goes with it. Zero mesh
+  // means none was found or none could be loaded, and the screen simply shows
+  // no model -- every game but Skyrim/Fallout is expected to land here.
+  u64 load_model_mesh_ = 0;
+  f32 load_model_scale_ = 1.0f;
+  f32 load_model_rotation_[3] = {0.0f, 0.0f, 0.0f};
+  f32 load_model_radius_ = 1.0f;  // mesh bounds, for framing the camera
+  base::String load_model_text_;
+
+  // The renderer settings as they were before the loading screen dressed the
+  // stage, restored wholesale when it closes. A snapshot rather than a handful
+  // of remembered fields: the screen changes ambient, fog and the sky flag
+  // together, and putting back all of it is one assignment that cannot drift.
+  render::RenderSettings load_prev_settings_;
   bool load_screen_up_ = false;
   // Set once LoadGameData has returned and the screen is only still up to cover
   // the world streaming in around the player. Ticked by TickLoadingScreen.
@@ -854,6 +871,15 @@ void PushLoadingView(Engine& engine,
                      const base::String& detail,
                      const base::String& note = "",
                      f32 within = 0.0f);
+// Chooses one of the game's own loading screens (an LSCR record), loads and
+// uploads its model, and resolves its blurb. Called once per load, after the
+// records and strings are in. Silently does nothing for a game that authors
+// none, which is every game but Skyrim and Fallout.
+void PickLoadScreenArt(Engine& engine);
+// Adds that model to a frame, framed the way the record asks and turning
+// slowly, with its own light. Called for every frame the loading screen is up,
+// from both the blocking load and the host loop afterwards.
+void AppendLoadScreenModel(Engine& engine, render::FrameView& view);
 // Keeps the screen up after the load returns, to cover the world streaming in.
 // Called once from EnterUniverse; TickLoadingScreen then takes it down.
 void HoldLoadingUntilStreamed(Engine& engine);

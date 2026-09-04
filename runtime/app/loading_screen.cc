@@ -5,6 +5,7 @@
 #include <base/strings/to_string.h>
 #include <base/strings/xstring.h>
 
+#include "components/bethesda/load_screen.h"
 #include "core/log.h"
 #include "render/core/renderer.h"
 #include "runtime/app/engine.h"
@@ -44,6 +45,9 @@ static base::Option<float> LoadMinimumSeconds{"load.min.seconds", 2.5f, "RX_LOAD
 // never reports caught-up (a hole in the LAND, an interior the streamer is
 // still chewing) must not strand the player behind the card forever.
 static base::Option<float> LoadMaxHoldSeconds{"load.max.hold", 20.0f, "RX_LOAD_MAX_HOLD"};
+// The game's own loading-screen model. RX_LOAD_ART=0 turns it off, which is
+// also the A/B for telling its uploads apart from the rest of the load.
+static base::Option<bool> LoadArt{"load.art", true, "RX_LOAD_ART"};
 
 namespace {
 
@@ -122,8 +126,127 @@ void PresentLoadingFrame(Engine& engine) {
   // basis or the view matrix is degenerate.
   view.camera.eye = self->camera_.position();
   view.camera.target = self->camera_.target();
+  AppendLoadScreenModel(engine, view);  // overrides the camera when there is one
   self->game_ui_.Build(*self->window_, *self->renderer_, self->camera_, delta, &view);
   self->renderer_->RenderFrame(view);
+}
+
+// Where the loading model is put, in engine metres. Far under any worldspace,
+// because the world keeps streaming in behind this screen during the hold and
+// the two must not share a shot.
+constexpr f32 kLoadStageY = -8000.0f;
+
+void PickLoadScreenArt(Engine& engine) {
+  Engine* const self = &engine;
+  self->load_model_mesh_ = 0;
+  self->load_model_text_.clear();
+  if (self->config_.headless || !self->renderer_ || !self->assets_ || !LoadArt)
+    return;
+
+  base::Vector<bethesda::LoadScreen> screens;
+  if (bethesda::LoadLoadScreens(self->records_, &screens) == 0)
+    return;  // a game that authors none; the screen just shows no model
+
+  // One at random, then walk on if its mesh will not load. Bethesda's own
+  // screens are picked at random too (filtered by conditions this has no save
+  // to evaluate), so the shuffle is the authentic behaviour rather than a
+  // shortcut.
+  const int count = static_cast<int>(screens.size());
+  int index = static_cast<int>(NowSeconds() * 1000.0) % count;
+  for (int tried = 0; tried < count; ++tried, index = (index + 1) % count) {
+    const bethesda::LoadScreen& screen = screens[index];
+    const base::String path = bethesda::LoadScreenModelPath(self->records_, screen);
+    if (path.empty())
+      continue;
+    const asset::Mesh* mesh = self->assets_->LoadMesh(path);
+    if (!mesh || mesh->lods.empty())
+      continue;
+
+    // Materials and their textures first: a mesh uploaded without them draws
+    // untextured, which on a screen whose whole job is showing off an asset is
+    // worse than showing nothing.
+    for (const asset::Submesh& submesh : mesh->lods[0].submeshes) {
+      const asset::Material* material = self->assets_->FindMaterial(submesh.material);
+      if (!material)
+        continue;
+      for (asset::AssetId texture_id :
+           {material->base_color, material->normal, material->metallic_roughness}) {
+        if (!texture_id)
+          continue;
+        if (const asset::Texture* texture = self->assets_->FindTexture(texture_id))
+          self->renderer_->UploadTexture(*texture);
+      }
+      self->renderer_->UploadMaterial(*material);
+    }
+    if (!self->renderer_->UploadMesh(*mesh))
+      continue;
+
+    self->load_model_mesh_ = mesh->id.hash;
+    self->load_model_scale_ = screen.scale;
+    for (int axis = 0; axis < 3; ++axis)
+      self->load_model_rotation_[axis] = static_cast<f32>(screen.rotation[axis]);
+    self->load_model_radius_ = mesh->bounds_radius > 0.01f ? mesh->bounds_radius : 1.0f;
+    if (screen.description != 0) {
+      if (const base::String* blurb = self->strings_.Find(screen.description))
+        self->load_model_text_ = *blurb;
+    }
+    RX_INFO("load screen art: {} (scale {:.2f}, radius {:.2f} m){}", path, screen.scale,
+            self->load_model_radius_,
+            self->load_model_text_.empty() ? "" : " with a description");
+    return;
+  }
+  RX_INFO("load screen art: {} screens, none of their meshes loaded", count);
+}
+
+void AppendLoadScreenModel(Engine& engine, render::FrameView& view) {
+  Engine* const self = &engine;
+  if (self->load_model_mesh_ == 0)
+    return;
+
+  // The record's own framing, plus a slow turn so it reads as an object in a
+  // room rather than a still. Bethesda lets the player spin these by hand; this
+  // just keeps it moving.
+  const f32 spin = static_cast<f32>(NowSeconds() - self->load_started_) * 0.35f;
+  const Vec3 at{0.0f, kLoadStageY, 0.0f};
+  const f32 rx_deg = self->load_model_rotation_[0] * 0.01745329f;
+  const f32 rz_deg = self->load_model_rotation_[2] * 0.01745329f;
+
+  // The record's rotation, then the turn, composed as a quaternion because that
+  // is what MakeTransform takes.
+  const Quat pose = QuatFromAxisAngle({0, 1, 0}, spin + self->load_model_rotation_[1] * 0.01745329f) *
+                    QuatFromAxisAngle({1, 0, 0}, rx_deg) * QuatFromAxisAngle({0, 0, 1}, rz_deg);
+  const Mat4 model = MakeTransform(at, Normalize(pose), self->load_model_scale_);
+  view.draws.push_back({self->load_model_mesh_, model, model});
+
+  // Framed off the mesh's own bounds so a shield and a dragon wall both fill
+  // the same amount of screen.
+  const f32 reach = self->load_model_radius_ * self->load_model_scale_;
+  const f32 distance = base::Max(reach * 2.6f, 0.6f);
+  view.camera.eye = {distance * 0.55f, kLoadStageY + reach * 0.35f, distance};
+  view.camera.target = {0.0f, kLoadStageY, 0.0f};
+
+  // Its own key light: nothing else is down here, and the world's sun is
+  // whatever the last frame left it as. Intensity is a fixed studio value, NOT
+  // derived from the model's size -- scaling it by the radius squared put a
+  // 16,000-intensity lamp next to a crown and auto-exposure turned the whole
+  // frame white, text included. Only the light's REACH follows the model.
+  const f32 reach_light = base::Max(reach * 3.0f, 4.0f);
+  render::PointLight key;
+  key.pos_radius[0] = distance * 0.7f;
+  key.pos_radius[1] = kLoadStageY + reach * 1.2f;
+  key.pos_radius[2] = distance;
+  key.pos_radius[3] = reach_light;
+  key.color_intensity[0] = 1.0f;
+  key.color_intensity[1] = 0.97f;
+  key.color_intensity[2] = 0.92f;
+  key.color_intensity[3] = 6.0f;
+  view.lights.push_back(key);
+  render::PointLight fill = key;
+  fill.pos_radius[0] = -distance * 0.8f;
+  fill.pos_radius[1] = kLoadStageY;
+  fill.pos_radius[2] = -distance * 0.4f;
+  fill.color_intensity[3] = 2.0f;
+  view.lights.push_back(fill);
 }
 
 void BeginLoadingScreen(Engine& engine, const base::String& title) {
@@ -135,6 +258,43 @@ void BeginLoadingScreen(Engine& engine, const base::String& title) {
   self->load_title_ = title;
   self->load_records_.clear();
   self->load_plugins_.clear();
+  // A black stage for the model to stand on. The screen paints no background of
+  // its own (that would bury the model), so the darkness has to come from the
+  // renderer: `interior` is the existing flag for "suppress sky and
+  // atmosphere", which is exactly what a loading screen wants. Restored on
+  // close so the world gets its sky back.
+  if (self->renderer_) {
+    render::RenderSettings& s = self->renderer_->settings();
+    self->load_prev_settings_ = s;
+    // `interior` is the renderer's existing "no sky, no atmosphere" flag, which
+    // is exactly a loading screen's backdrop. On its own it is not enough: the
+    // interior ambient and fog left over from wherever the player last was
+    // filled the frame with grey and the model read as a silhouette against it.
+    // So dress the stage properly -- near-black ambient, no fill, no fog -- and
+    // let the two lights in AppendLoadScreenModel be the only things lighting
+    // anything.
+    s.interior = true;
+    s.interior_ambient = {0.015f, 0.015f, 0.018f};
+    s.interior_directional_intensity = 0.0f;
+    s.interior_fog_near_color = {0.0f, 0.0f, 0.0f};
+    s.interior_fog_far_color = {0.0f, 0.0f, 0.0f};
+    s.interior_fog_max = 0.0f;
+    // Fixed exposure, and this is the one that matters. Auto exposure meters
+    // the frame, and a loading screen is one lit object on black -- almost all
+    // of it dark, so the metering opens right up, lifts the black stage to a
+    // flat grey and flattens the model into a silhouette against it. Pinning
+    // exposure is what makes it read as an object in a dark room.
+    s.auto_exposure = false;
+    s.exposure = 1.0f;
+    // And the actual background: `interior` alone still left the procedural
+    // atmosphere painting the frame grey behind the model. These are the
+    // switches that stop it being drawn at all.
+    s.sky = false;
+    s.clouds = false;
+  }
+  // No HUD over a loading screen: the compass, vitals and gold counter belong
+  // to a world the player is not in yet.
+  self->game_ui_.SetHudVisible(false);
   self->game_ui_.OpenLoading(title);
   // Two frames, not one: the first is the one that replaces the menu, and with
   // double buffering the second is what guarantees the player has actually seen
@@ -244,8 +404,12 @@ void TickLoadingScreen(Engine& engine, f32 dt) {
   // readout counts the cells as they land, so a long stream-in reads as work
   // happening rather than a hang.
   const size_t cells = self->streamer_ ? self->streamer_->loaded_cell_count() : 0;
+  // 0, not 1: the streamer reports caught_up() and a resident count but no
+  // target to divide by, so this stretch has no honest fraction. The bar parks
+  // at the start of the last span (92%) and the ticking cell count carries it.
+  // A bar that reached 100% and then sat for eight seconds reads as stuck.
   PushLoadingView(engine, LoadPhase::kWorld, "Streaming the world around you",
-                  base::ToString(static_cast<u64>(cells)) + " cells resident", 1.0f);
+                  base::ToString(static_cast<u64>(cells)) + " cells resident", 0.0f);
 }
 
 void EndLoadingScreen(Engine& engine) {
@@ -254,6 +418,9 @@ void EndLoadingScreen(Engine& engine) {
     return;
   self->load_screen_up_ = false;
   self->load_wait_stream_ = false;
+  if (self->renderer_)
+    self->renderer_->settings() = self->load_prev_settings_;
+  self->game_ui_.SetHudVisible(true);
   self->game_ui_.CloseLoading();
 }
 
