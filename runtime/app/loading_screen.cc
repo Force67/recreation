@@ -48,6 +48,9 @@ static base::Option<float> LoadMaxHoldSeconds{"load.max.hold", 20.0f, "RX_LOAD_M
 // The game's own loading-screen model. RX_LOAD_ART=0 turns it off, which is
 // also the A/B for telling its uploads apart from the rest of the load.
 static base::Option<bool> LoadArt{"load.art", true, "RX_LOAD_ART"};
+// Stage dressing, tunable so the look can be swept without a rebuild.
+static base::Option<float> LoadExposure{"load.exposure", 1.0f, "RX_LOAD_EXPOSURE"};
+static base::Option<float> LoadLight{"load.light", 6.0f, "RX_LOAD_LIGHT"};
 
 namespace {
 
@@ -222,31 +225,21 @@ void AppendLoadScreenModel(Engine& engine, render::FrameView& view) {
   // the same amount of screen.
   const f32 reach = self->load_model_radius_ * self->load_model_scale_;
   const f32 distance = base::Max(reach * 2.6f, 0.6f);
-  view.camera.eye = {distance * 0.55f, kLoadStageY + reach * 0.35f, distance};
-  view.camera.target = {0.0f, kLoadStageY, 0.0f};
+  // Aimed BELOW the model so it sits in the upper half of the frame, clear of
+  // the text group the mock anchors low. Looking straight at it centred the
+  // model on the words.
+  view.camera.eye = {distance * 0.5f, kLoadStageY + reach * 0.55f, distance};
+  view.camera.target = {0.0f, kLoadStageY - reach * 0.75f, 0.0f};
 
-  // Its own key light: nothing else is down here, and the world's sun is
-  // whatever the last frame left it as. Intensity is a fixed studio value, NOT
-  // derived from the model's size -- scaling it by the radius squared put a
-  // 16,000-intensity lamp next to a crown and auto-exposure turned the whole
-  // frame white, text included. Only the light's REACH follows the model.
-  const f32 reach_light = base::Max(reach * 3.0f, 4.0f);
-  render::PointLight key;
-  key.pos_radius[0] = distance * 0.7f;
-  key.pos_radius[1] = kLoadStageY + reach * 1.2f;
-  key.pos_radius[2] = distance;
-  key.pos_radius[3] = reach_light;
-  key.color_intensity[0] = 1.0f;
-  key.color_intensity[1] = 0.97f;
-  key.color_intensity[2] = 0.92f;
-  key.color_intensity[3] = 6.0f;
-  view.lights.push_back(key);
-  render::PointLight fill = key;
-  fill.pos_radius[0] = -distance * 0.8f;
-  fill.pos_radius[1] = kLoadStageY;
-  fill.pos_radius[2] = -distance * 0.4f;
-  fill.color_intensity[3] = 2.0f;
-  view.lights.push_back(fill);
+  // Lit by the interior directional fill, not point lights.
+  //
+  // Point lights were the obvious choice and the wrong one twice over: their
+  // radius has to cover the model, and these models range from a helmet to a
+  // dragon wall, so a radius derived from bounds either fell short (an unlit
+  // model) or was cranked up until it flooded the whole frame with grey. A
+  // directional light has no falloff and no position: it lights the model the
+  // same whatever its size, and lights nothing else because nothing else is
+  // here.
 }
 
 void BeginLoadingScreen(Engine& engine, const base::String& title) {
@@ -284,13 +277,26 @@ void BeginLoadingScreen(Engine& engine, const base::String& title) {
     // of it dark, so the metering opens right up, lifts the black stage to a
     // flat grey and flattens the model into a silhouette against it. Pinning
     // exposure is what makes it read as an object in a dark room.
+    // Fixed, and LOW. This is what actually made the stage black. Auto
+    // exposure meters a frame that is almost entirely empty and opens right up,
+    // lifting the void to a flat grey with the model a silhouette on it; and
+    // exposure 1.0 with auto off did the same. Pinning it low, and lighting the
+    // model hard enough to answer, is what gives an object in a dark room.
     s.auto_exposure = false;
-    s.exposure = 1.0f;
+    s.exposure = LoadExposure.get();
     // And the actual background: `interior` alone still left the procedural
     // atmosphere painting the frame grey behind the model. These are the
     // switches that stop it being drawn at all.
     s.sky = false;
     s.clouds = false;
+    // Nothing lights this stage but the two lamps in AppendLoadScreenModel.
+    s.ambient = 0.0f;
+    s.sun_intensity = 0.0f;
+    s.interior_ambient = {0.018f, 0.018f, 0.018f};  // neutral, not the blue cast the sky IBL leaves
+    s.interior_directional_color = {1.0f, 0.97f, 0.92f};
+    s.interior_directional_intensity = LoadLight.get();
+    // Travelling down and back over the viewer's shoulder: a three-quarter key.
+    s.interior_directional_dir = {-0.45f, -0.55f, -0.70f};
   }
   // No HUD over a loading screen: the compass, vitals and gold counter belong
   // to a world the player is not in yet.
