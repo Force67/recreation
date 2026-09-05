@@ -7,6 +7,7 @@
 
 #include "components/bethesda/load_screen.h"
 #include "core/log.h"
+#include "core/memory/frame_arena.h"
 #include "render/core/renderer.h"
 #include "runtime/app/engine.h"
 #include "runtime/app/engine_internal.h"
@@ -48,6 +49,13 @@ static base::Option<float> LoadMaxHoldSeconds{"load.max.hold", 20.0f, "RX_LOAD_M
 // The game's own loading-screen model. RX_LOAD_ART=0 turns it off, which is
 // also the A/B for telling its uploads apart from the rest of the load.
 static base::Option<bool> LoadArt{"load.art", true, "RX_LOAD_ART"};
+// RX_LOAD_SCREEN=0 skips the screen entirely (the load blocks silently, as it
+// did before this existed). Bisects the screen out of a run.
+static base::Option<bool> LoadScreenEnabled{"load.screen", true, "RX_LOAD_SCREEN"};
+// Whether the BLOCKING load may draw its own frames. Off, and the default is
+// not a preference -- see PresentLoadingFrame. RX_LOAD_PRESENT=1 restores the
+// old behaviour for anyone re-testing the corruption.
+static base::Option<bool> LoadPresent{"load.present", false, "RX_LOAD_PRESENT"};
 // Stage dressing, tunable so the look can be swept without a rebuild.
 static base::Option<float> LoadExposure{"load.exposure", 1.0f, "RX_LOAD_EXPOSURE"};
 static base::Option<float> LoadLight{"load.light", 6.0f, "RX_LOAD_LIGHT"};
@@ -101,6 +109,28 @@ base::String Grouped(u64 n) {
 void PresentLoadingFrame(Engine& engine) {
   Engine* const self = &engine;
   if (self->config_.headless || !self->renderer_ || !self->window_)
+    return;
+  // The blocking load does not draw. This is a correctness rule, not a
+  // preference.
+  //
+  // Calling Renderer::RenderFrame from inside Engine::OnUpdate -- which is what
+  // drawing mid-load means, since LoadGameData never returns to the host loop --
+  // corrupts the heap. Bisected to exactly this: the menu path crashed with
+  // `malloc(): unsorted double linked list corrupted` on every run and was
+  // clean with the loading screen off; clean again with managed scripting on
+  // but no loading screen, so neither the CLR nor the menu was at fault. It is
+  // not the ugui backend either (a run that presented without rebuilding the UI
+  // still corrupted) and not the frame arena (measured: 0 bytes used, 0
+  // overflows). Two re-entrant frames were enough to trip it; zero is clean.
+  //
+  // The screen is therefore drawn by the host loop only, which covers the
+  // stream-in hold -- around eight seconds of the wait against roughly two for
+  // the load itself. The load's own phases go by on a still frame.
+  //
+  // The real fix is to stop the load blocking at all (step it across host
+  // frames) so the screen animates without anyone calling RenderFrame out of
+  // turn. That is a much larger change and is not what this is.
+  if (!self->load_wait_stream_ && !LoadPresent)
     return;
 
   // Keep the window alive while the load has the main thread: without pumping,
@@ -244,7 +274,7 @@ void AppendLoadScreenModel(Engine& engine, render::FrameView& view) {
 
 void BeginLoadingScreen(Engine& engine, const base::String& title) {
   Engine* const self = &engine;
-  if (self->config_.headless || !self->renderer_ || !self->window_)
+  if (self->config_.headless || !self->renderer_ || !self->window_ || !LoadScreenEnabled)
     return;
   self->load_screen_up_ = true;
   self->load_started_ = NowSeconds();
@@ -422,6 +452,15 @@ void EndLoadingScreen(Engine& engine) {
   Engine* const self = &engine;
   if (!self->load_screen_up_)
     return;
+  {
+    // Evidence, not a guess: the render graph allocates its pass closures from
+    // the frame arena, which app::Host resets once per frame -- and a blocking
+    // load presents many frames inside ONE host frame.
+    const mem::FrameArena::Stats st = mem::MainFrameArena().stats();
+    RX_INFO("load arena: {} used / {} capacity, high water {}, {} overflow alloc(s), {} overflow bytes",
+            st.offset_bytes, st.capacity_bytes, st.high_water_bytes, st.overflow_allocs,
+            st.overflow_bytes);
+  }
   self->load_screen_up_ = false;
   self->load_wait_stream_ = false;
   if (self->renderer_)
