@@ -1,3 +1,5 @@
+
+
 # recreation
 
 A modern, ECS driven game engine that loads Bethesda game content (Skyrim SE,
@@ -79,7 +81,7 @@ SDL3 and zlib stay optional at build time: without SDL3 the runtime is
 headless (pass `-DRECREATION_FETCH_SDL3=ON` to download it), without zlib
 compressed plugin records are rejected at load time.
 
-Targets: Windows, Linux, Android (via the NDK toolchain file).
+Targets: Windows, Linux, macOS, Android (via the NDK toolchain file).
 
 With Nix, `nix develop` provides the toolchain, SDL3, the Vulkan loader,
 validation layers and tools. Configure with the pinned dependency set via
