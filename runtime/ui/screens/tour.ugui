@@ -1,0 +1,73 @@
+// Tour de Recreation: the lower-third card the guided demo narrates itself
+// through. Nothing in C++ drives it -- every widget here is written by the
+// TourDeRecreation gamemode through the public modding SDK (Ui.Find(name).Text
+// / .Visible), which is the point the tour is making. GameUi only collapses the
+// card once at init so it does not flash over the front screen before the
+// managed world boots.
+//
+// A lower third rather than a full-bleed screen: the tour's whole job is to show
+// things happening in the world, so the card must never cover them. Same
+// monochrome system as the front screens, on a plate because it sits over live
+// gameplay.
+//
+// Engine constraints (see theme.ugui):
+//   - text never wraps: one text widget per line, hence tour_body0/1.
+//   - `visibility:` in markup is ignored; the card is hidden from C++ at init
+//     and owned by the mod from then on.
+//   - a widget's width cannot be set from the SDK (Text/Visible/Value only), so
+//     progress is a row of stop marks the mod lights one at a time rather than
+//     a filled bar.
+//
+// Drives the widgets the tour expects:
+//   tour_card, tour_step, tour_title, tour_body0, tour_body1, tour_hint,
+//   tour_stat, tour_pipon0..6.
+
+  panel tour_card {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 226;
+    background: #000000e6;
+
+    // the light that separates the card from the world behind it
+    panel { position: absolute; left: 0; right: 0; top: 0; height: 1;
+      background: #ffffff66; background-end: #ffffff00; gradient-angle: 90; }
+
+    panel { position: absolute; left: 0; right: 0; top: 0; bottom: 0;
+      padding: 24 64 22 64; layout: column;
+
+      // ---- kicker row: who is talking, and where in the tour we are ----
+      panel { layout: row; align: center; justify: space-between; width: 100%;
+        panel { layout: row; align: center; gap: 18;
+          text { class: t_micro; color: #ffffff; text: "Tour de Recreation"; }
+          text { class: t_micro2; text: "A mod, touring the engine"; } }
+        text tour_step { class: t_micro2; color: #9a9a9a; text: "Stop 01 of 07"; } }
+
+      // ---- the stop itself ----
+      text tour_title { font-size: 26; letter-spacing: 8; text-transform: uppercase;
+        color: #ffffff; margin: 18 0 0 0; text: ""; }
+      text tour_body0 { class: t_body; color: #9a9a9a; margin: 16 0 0 0; text: ""; }
+      text tour_body1 { class: t_body; color: #9a9a9a; margin: 7 0 0 0; text: ""; }
+
+      panel { flex-grow: 1; }
+
+      // ---- foot: the live readout, the stop marks, the key hint ----
+      panel { layout: row; align: center; justify: space-between; width: 100%;
+        text tour_stat { font: mono; font-size: 12; color: #ffffff; text: ""; }
+
+        panel { layout: row; align: center; gap: 7;
+          panel { width: 26; height: 2; background: #ffffff26;
+            panel tour_pipon0 { width: 26; height: 2; background: #ffffff; } }
+          panel { width: 26; height: 2; background: #ffffff26;
+            panel tour_pipon1 { width: 26; height: 2; background: #ffffff; } }
+          panel { width: 26; height: 2; background: #ffffff26;
+            panel tour_pipon2 { width: 26; height: 2; background: #ffffff; } }
+          panel { width: 26; height: 2; background: #ffffff26;
+            panel tour_pipon3 { width: 26; height: 2; background: #ffffff; } }
+          panel { width: 26; height: 2; background: #ffffff26;
+            panel tour_pipon4 { width: 26; height: 2; background: #ffffff; } }
+          panel { width: 26; height: 2; background: #ffffff26;
+            panel tour_pipon5 { width: 26; height: 2; background: #ffffff; } }
+          panel { width: 26; height: 2; background: #ffffff26;
+            panel tour_pipon6 { width: 26; height: 2; background: #ffffff; } } }
+
+        text tour_hint { class: t_faint; text: ""; } }
+    }
+  }

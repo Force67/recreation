@@ -1,4 +1,5 @@
 #include <base/containers/map.h>
+#include "components/bethesda/load_screen.h"
 #include <base/containers/set.h>
 #include <base/memory/move.h>
 #include <base/optional.h>
@@ -618,6 +619,35 @@ int DumpGrass(const base::String& data_dir) {
 
 // Dumps each WTHR record's subrecords (type + size), and decodes the NAM0
 // weather-colour block as RGBA quads, for wiring authored weather colours into
+// The games' own loading screens: which model each shows and where its text
+// comes from. Proves the LSCR reader against real data before anything renders
+// from it. esminfo <data-dir> lscr [limit].
+int DumpLoadScreens(const base::String& data_dir, int limit) {
+  const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
+  auto order = LoadOrder::FromPluginsTxt(data_dir + "/../plugins.txt", profile);
+  RecordStore records;
+  if (!records.LoadAll(data_dir, order, profile))
+    return 1;
+
+  base::Vector<rx::bethesda::LoadScreen> screens;
+  const int found = rx::bethesda::LoadLoadScreens(records, &screens);
+  int with_model = 0, shown = 0;
+  for (const rx::bethesda::LoadScreen& screen : screens) {
+    const base::String path = rx::bethesda::LoadScreenModelPath(records, screen);
+    if (!path.empty())
+      ++with_model;
+    if (limit > 0 && shown >= limit)
+      continue;
+    ++shown;
+    std::printf("LSCR %04x:%06x scale %.2f rot %d,%d,%d desc %06x -> %s\n", screen.id.plugin,
+                screen.id.local_id, screen.scale, screen.rotation[0], screen.rotation[1],
+                screen.rotation[2], screen.description, path.empty() ? "(no model)" : path.c_str());
+  }
+  std::printf("load screens: %d with a model reference, %d resolve to a mesh path\n", found,
+              with_model);
+  return 0;
+}
+
 // the physical sky. Run on a data dir: esminfo <data-dir> wthr [limit].
 int DumpWeather(const base::String& data_dir, int limit) {
   const auto& profile = GameProfile::For(GameProfile::DetectFromDataDir(data_dir));
@@ -1482,6 +1512,9 @@ int main(int argc, char** argv) {
 
   if (argc >= 4 && base::String(argv[2]) == "tri")
     return DumpTri(argv[1], argv[3]);
+
+  if (argc >= 3 && base::String(argv[2]) == "lscr")
+    return DumpLoadScreens(argv[1], argc >= 4 ? std::stoi(argv[3]) : 0);
 
   if (argc >= 4 && base::String(argv[2]) == "dump")
     return DumpType(argv[1], argv[3], argc >= 5 ? std::stoi(argv[4]) : 0);
