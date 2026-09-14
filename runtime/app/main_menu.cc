@@ -14,6 +14,8 @@
 #include <fstream>
 #include <string>
 
+#include <SDL3/SDL.h>
+
 #include "runtime/app/engine.h"
 
 #if !defined(_WIN32)
@@ -699,16 +701,15 @@ void Engine::UpdateMainMenu(f32 dt) {
       RequestQuit();
       break;
     case MainMenuRequest::Kind::kOpenUrl:
+      // SDL's own opener, not a shell command. There is no libc call for "open
+      // a link": the desktop-native route is xdg-open on Linux (or the
+      // org.freedesktop.portal.OpenURI portal inside a sandbox), ShellExecute
+      // on Windows and LSOpenCFURLRef on macOS, and SDL_OpenURL is already the
+      // per-platform pick of those. Building a `/bin/sh -c` string instead ran
+      // the url through a shell, where a quote in it is a command.
       if (!req.url.empty()) {
-#if defined(_WIN32)
-        const base::String cmd = "start \"\" \"" + req.url + "\"";
-#elif defined(__APPLE__)
-        const base::String cmd = "open \"" + req.url + "\" >/dev/null 2>&1 &";
-#else
-        const base::String cmd = "xdg-open \"" + req.url + "\" >/dev/null 2>&1 &";
-#endif
-        if (std::system(cmd.c_str()) != 0)
-          RX_WARN("could not open url {}", req.url);
+        if (!SDL_OpenURL(req.url.c_str()))
+          RX_WARN("could not open url {}: {}", req.url, SDL_GetError());
         else
           RX_INFO("opened url {}", req.url);
       }

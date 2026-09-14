@@ -281,9 +281,6 @@ struct FirstRunView {
   base::Vector<Game> games;  // up to three, column order
   base::String mods_dir;     // current mods directory
   base::String space_label = "50 GB";
-  // Where the community lives. Empty (the default) leaves the profile page's
-  // link inert rather than shipping a button that opens nothing.
-  base::String community_url;
   // What just went wrong, in words the player can act on. A folder pick that
   // does not hold the game used to fail into the log only: the dialog closed,
   // the row did not change, and nothing said why.
@@ -294,7 +291,7 @@ struct FirstRunView {
 // MainMenuRequest: open a native folder picker for a game or the mods dir, or
 // finish (kLaunch, persisting the choices snapshot below) / cancel the setup.
 struct FirstRunRequest {
-  enum class Kind { kNone, kBrowseGame, kBrowseMods, kOpenUrl, kLaunch, kCancel };
+  enum class Kind { kNone, kBrowseGame, kBrowseMods, kLaunch, kCancel };
   Kind kind = Kind::kNone;
   int index = 0;  // game column, for kBrowseGame
   // Snapshot of the wizard's selections, filled on kLaunch so the engine can
@@ -306,7 +303,6 @@ struct FirstRunRequest {
   bool check_updates = true;
   bool rich_presence = true;  // show the world/mode being played to friends
   base::String username;      // empty means "use the system account name"
-  base::String url;           // external link to open, for kOpenUrl
 };
 
 // What the loading screen shows while a universe is brought online. Bringing

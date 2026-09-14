@@ -28,7 +28,7 @@
 //   fr_loccount, fr_lochint, fr_next1 (+fr_next1_t),
 //   fr_modeopt0..3 (fr_modebar/fr_modelbl) and the same for fr_diff*,
 //   fr_chk0..3 (fr_chkbox/fr_chkmk), fr_modspath_t, fr_browse_mods, fr_space,
-//   fr_name (+fr_name_hint), fr_discord,
+//   fr_name (+fr_name_hint),
 //   fr_sum_games/fr_sum_mode/fr_sum_mods/fr_sum_diag/fr_sum_upd/fr_sum_name,
 //   fr_begin/fr_skip/fr_back1..5/fr_next1..4/fr_launch.
 
@@ -113,7 +113,7 @@
               text fr_navnum4 { font-size: 11; letter-spacing: 3; color: #5e5e5e; text: "05"; }
               panel { layout: column; gap: 6;
                 text fr_navlbl4 { font-size: 21; letter-spacing: 2; color: #5e5e5e; text: "Profile"; }
-                text { class: t_micro2; text: "Name and socials"; } } } }
+                text { class: t_micro2; text: "Name and presence"; } } } }
           panel fr_nav5 { height: 82; position: relative; layout: row; align: center;
             cursor: pointer;
             :focused { background: #ffffff1f; }
@@ -505,21 +505,10 @@
               text fr_name_hint { class: t_faint; margin: 12 0 0 0;
                 text: "Leave it blank and your system account name is used."; }
 
+              // A community row belongs here (the mock has one), but there is no
+              // invite to ship yet and a button that opens nothing is worse than
+              // no button. Bring it back with the link, not before.
               panel { class: rule; width: 100%; margin: 40 0 0 0; }
-              panel { layout: row; align: center; justify: space-between; width: 100%;
-                height: 84;
-                panel { layout: column; gap: 6;
-                  text { class: t_body; text: "Discord"; }
-                  text { class: t_faint;
-                    text: "Release notes, mod authors, and people to play with"; } }
-                panel fr_discord { height: 40; padding: 0 22 0 22; cursor: pointer;
-                  layout: row; align: center; justify: center;
-                  background: #0a0a0a; border-color: #ffffff33; border-width: 1;
-                  :hover { border-color: #ffffff; }
-                  :focused { border-color: #ffffff; }
-                  text fr_discord_t { class: t_micro2; color: #9a9a9a;
-                    text: "Open invite"; } } }
-              panel { class: rule_dim; width: 100%; }
               panel fr_chk3 { layout: row; align: center; justify: space-between; width: 100%;
                 height: 84; cursor: pointer;
                 :focused { background: #ffffff1f; }

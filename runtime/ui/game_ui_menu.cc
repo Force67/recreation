@@ -666,12 +666,6 @@ void GameUi::Impl::ApplyFirstRun() {
     if (const ugui::TextInputContent* c = ui.world().Get<ugui::TextInputContent>(name_field))
       fr_username = base::String(c->text.c_str());
   }
-  // The community link is inert until an invite is configured, rather than
-  // pretending to be a button that goes nowhere.
-  const bool has_invite = !fr_view.community_url.empty();
-  setText("fr_discord_t", has_invite ? "Open invite" : "Not set up yet");
-  SetTextColor("fr_discord_t", Rgba(has_invite ? kDim : kOff));
-
   // Page 5: what setup is about to write, in its own words.
   base::String names;
   for (int i = 0; i < games; ++i) {
@@ -743,13 +737,6 @@ bool GameUi::Impl::RouteFirstRunClick(ugui::wid target) {
       if (name == "fr_back1" || name == "fr_back2" || name == "fr_back3" || name == "fr_back4" ||
           name == "fr_back5" || name == "fr_skip") {
         RetreatFirstRun();
-        return true;
-      }
-      if (name == "fr_discord") {
-        if (!fr_view.community_url.empty()) {
-          fr_request.kind = K::kOpenUrl;
-          fr_request.url = fr_view.community_url;
-        }
         return true;
       }
       // The step list doubles as navigation, but only backwards: a page ahead
