@@ -468,6 +468,9 @@ class Engine : public app::Application {
   f32 load_model_scale_ = 1.0f;
   f32 load_model_rotation_[3] = {0.0f, 0.0f, 0.0f};
   f32 load_model_radius_ = 1.0f;  // mesh bounds, for framing the camera
+  // Centre of those bounds in mesh space. Rarely the origin: a character's is
+  // between its feet, so framing on the origin puts the head out of shot.
+  f32 load_model_center_[3] = {0.0f, 0.0f, 0.0f};
   base::String load_model_text_;
 
   // The renderer settings as they were before the loading screen dressed the

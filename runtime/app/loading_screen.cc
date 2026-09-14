@@ -1,4 +1,5 @@
 #include <chrono>
+#include <cmath>
 
 #include <base/algorithm.h>
 #include <base/option.h>
@@ -23,11 +24,12 @@
 // engine do was hang.
 //
 // The fix is not to make the load asynchronous (that is a much larger job and
-// buys nothing a player can see); it is to let the load draw. Each phase
-// reports itself here, and each report pumps the window and presents one frame.
-// The screen therefore animates in step with the work rather than on a timer,
-// so a phase that takes twenty seconds looks like a phase that takes twenty
-// seconds instead of a stuck progress bar.
+// buys nothing a player can see); it is to load less and to cover what is left.
+// Only the game being entered is mounted now, which is a couple of seconds, and
+// the screen stays up past the load to cover the stream-in behind it. Each
+// phase reports itself so the card has something true to say, but the blocking
+// phases cannot draw their own frames (see PresentLoadingFrame): the stretch
+// the player actually watches is the hold, which the host loop draws.
 namespace rx {
 
 // Test hook: RX_UI_SHOT cannot reach this screen (it counts host frames, and
@@ -56,9 +58,13 @@ static base::Option<bool> LoadScreenEnabled{"load.screen", true, "RX_LOAD_SCREEN
 // not a preference -- see PresentLoadingFrame. RX_LOAD_PRESENT=1 restores the
 // old behaviour for anyone re-testing the corruption.
 static base::Option<bool> LoadPresent{"load.present", false, "RX_LOAD_PRESENT"};
-// Stage dressing, tunable so the look can be swept without a rebuild.
-static base::Option<float> LoadExposure{"load.exposure", 1.0f, "RX_LOAD_EXPOSURE"};
-static base::Option<float> LoadLight{"load.light", 6.0f, "RX_LOAD_LIGHT"};
+// Stage dressing, tunable so the look can be swept without a rebuild. The
+// exposure is low and the key is hot on purpose: the colour buffer clears to a
+// dark blue, so a nominal exposure tonemaps the empty stage to a flat indigo
+// wash instead of the black a loading screen wants. Pinning it down puts the
+// clear back under the noise floor, and the key light is what answers for it.
+static base::Option<float> LoadExposure{"load.exposure", 0.35f, "RX_LOAD_EXPOSURE"};
+static base::Option<float> LoadLight{"load.light", 16.0f, "RX_LOAD_LIGHT"};
 
 namespace {
 
@@ -97,6 +103,54 @@ base::String Grouped(u64 n) {
     out += digits[i];
   }
   return out;
+}
+
+// Dress the stage: one lit object in a black room, and nothing else drawn.
+//
+// Applied every frame the screen is up rather than once when it opens, because
+// Engine::OnUpdate rewrites these same fields earlier in the same frame: the
+// weather director writes precipitation and wind, the day/night driver writes
+// the sun and ambient, and the interior block clears `interior` again the
+// moment the streamer reports an exterior cell (frame_loop.cc). Dressing the
+// stage once left the stream-in hold -- the only stretch a player actually
+// sees, since the blocking phases do not draw -- showing the world's sky with
+// its rain falling across the card.
+void DressLoadStage(render::RenderSettings& s) {
+  // `interior` is the renderer's existing "suppress sky and atmosphere" flag,
+  // which is exactly a loading screen's backdrop. On its own it is not enough:
+  // the interior ambient and fog left over from wherever the player last was
+  // filled the frame with grey and the model read as a silhouette against it.
+  // So dress it properly -- near-black ambient, no fog -- and let the key light
+  // below be the only thing lighting anything.
+  s.interior = true;
+  s.interior_ambient = {0.018f, 0.018f, 0.018f};  // neutral, not the blue cast the sky IBL leaves
+  s.interior_fog_near_color = {0.0f, 0.0f, 0.0f};
+  s.interior_fog_far_color = {0.0f, 0.0f, 0.0f};
+  s.interior_fog_max = 0.0f;
+  // And the actual background: `interior` alone still left the procedural
+  // atmosphere painting the frame grey behind the model.
+  s.sky = false;
+  s.clouds = false;
+  // Nothing lights this stage but the key: travelling down and back over the
+  // viewer's shoulder, a three-quarter.
+  s.ambient = 0.0f;
+  s.sun_intensity = 0.0f;
+  s.interior_directional_color = {1.0f, 0.97f, 0.92f};
+  s.interior_directional_intensity = LoadLight.get();
+  s.interior_directional_dir = {-0.45f, -0.55f, -0.70f};
+  // Fixed, and LOW. This is what makes the stage black. Auto exposure meters a
+  // frame that is almost entirely empty and opens right up, lifting the void to
+  // a flat grey with the model a silhouette on it. Pinning it, and lighting the
+  // model hard enough to answer, is what gives an object in a dark room.
+  s.auto_exposure = false;
+  s.exposure = LoadExposure.get();
+  // The weather the world is having is not this screen's weather. The director
+  // goes on integrating it through the hold, and its rain was falling across
+  // the card; none of it belongs in front of a loading screen.
+  s.weather.precipitation = 0.0f;
+  s.weather.lightning = 0.0f;
+  s.weather.strike_age = -1.0f;
+  s.weather.aurora = false;
 }
 
 }  // namespace
@@ -219,6 +273,8 @@ void PickLoadScreenArt(Engine& engine) {
     for (int axis = 0; axis < 3; ++axis)
       self->load_model_rotation_[axis] = static_cast<f32>(screen.rotation[axis]);
     self->load_model_radius_ = mesh->bounds_radius > 0.01f ? mesh->bounds_radius : 1.0f;
+    for (int axis = 0; axis < 3; ++axis)
+      self->load_model_center_[axis] = mesh->bounds_center[axis];
     if (screen.description != 0) {
       if (const base::String* blurb = self->strings_.Find(screen.description))
         self->load_model_text_ = *blurb;
@@ -241,25 +297,50 @@ void AppendLoadScreenModel(Engine& engine, render::FrameView& view) {
   // just keeps it moving.
   const f32 spin = static_cast<f32>(NowSeconds() - self->load_started_) * 0.35f;
   const Vec3 at{0.0f, kLoadStageY, 0.0f};
-  const f32 rx_deg = self->load_model_rotation_[0] * 0.01745329f;
-  const f32 rz_deg = self->load_model_rotation_[2] * 0.01745329f;
+  constexpr f32 kDegToRad = 0.01745329f;
+  const f32 rot_x = self->load_model_rotation_[0] * kDegToRad;
+  const f32 rot_y = self->load_model_rotation_[1] * kDegToRad;
+  const f32 rot_z = self->load_model_rotation_[2] * kDegToRad;
 
-  // The record's rotation, then the turn, composed as a quaternion because that
-  // is what MakeTransform takes.
-  const Quat pose = QuatFromAxisAngle({0, 1, 0}, spin + self->load_model_rotation_[1] * 0.01745329f) *
-                    QuatFromAxisAngle({1, 0, 0}, rx_deg) * QuatFromAxisAngle({0, 0, 1}, rz_deg);
-  const Mat4 model = MakeTransform(at, Normalize(pose), self->load_model_scale_);
+  // RNAM is authored in the game's own frame, where Z is up, and the meshes are
+  // still in that frame too (cell_streaming carries the one Bethesda -> engine
+  // conversion, engine = (x, z, -y), on each instance's transform rather than
+  // baking it into the mesh). So the record's angles are composed the way
+  // BethQuatFromEuler does it, the axis change is applied over them, and only
+  // then does the turn go about the world's up. Applying RNAM directly in
+  // engine axes instead read a 105-degree yaw as a roll and laid the horse on
+  // its side.
+  constexpr f32 kHalfPi = 1.5707963f;
+  const Quat authored = QuatFromAxisAngle({1, 0, 0}, -rot_x) *
+                        (QuatFromAxisAngle({0, 1, 0}, -rot_y) *
+                         QuatFromAxisAngle({0, 0, 1}, -rot_z));
+  const Quat pose = Normalize(QuatFromAxisAngle({0, 1, 0}, spin) *
+                              QuatFromAxisAngle({1, 0, 0}, -kHalfPi) * authored);
+  // MakeTransform stands the mesh's ORIGIN on the stage point, and the art's
+  // own middle is rarely there (a character's origin is between its feet). Move
+  // the origin by the posed centre offset so what the camera frames below is
+  // the bounds sphere, not a point somewhere under the model.
+  const Vec3 center{self->load_model_center_[0], self->load_model_center_[1],
+                    self->load_model_center_[2]};
+  const Vec3 origin = at - Rotate(pose, center * self->load_model_scale_);
+  const Mat4 model = MakeTransform(origin, pose, self->load_model_scale_);
   view.draws.push_back({self->load_model_mesh_, model, model});
 
   // Framed off the mesh's own bounds so a shield and a dragon wall both fill
-  // the same amount of screen.
+  // the same amount of screen, and pulled back from the frame's own field of
+  // view rather than a fixed multiple of the bounds: the shot has to hold the
+  // model's reach PLUS the aim offset below, or a long piece stood on end (a
+  // warhammer) runs off the top of the screen.
   const f32 reach = self->load_model_radius_ * self->load_model_scale_;
-  const f32 distance = base::Max(reach * 2.6f, 0.6f);
+  constexpr f32 kAimBelow = 0.75f;  // how far under the model the camera looks
+  constexpr f32 kAir = 1.15f;       // margin so it does not touch the edges
+  const f32 half_height = reach * (1.0f + kAimBelow) * kAir;
+  const f32 distance = base::Max(half_height / std::tan(view.camera.fov_y * 0.5f), 0.6f);
   // Aimed BELOW the model so it sits in the upper half of the frame, clear of
   // the text group the mock anchors low. Looking straight at it centred the
   // model on the words.
   view.camera.eye = {distance * 0.5f, kLoadStageY + reach * 0.55f, distance};
-  view.camera.target = {0.0f, kLoadStageY - reach * 0.75f, 0.0f};
+  view.camera.target = {0.0f, kLoadStageY - reach * kAimBelow, 0.0f};
 
   // Lit by the interior directional fill, not point lights.
   //
@@ -283,50 +364,11 @@ void BeginLoadingScreen(Engine& engine, const base::String& title) {
   self->load_plugins_.clear();
   // A black stage for the model to stand on. The screen paints no background of
   // its own (that would bury the model), so the darkness has to come from the
-  // renderer: `interior` is the existing flag for "suppress sky and
-  // atmosphere", which is exactly what a loading screen wants. Restored on
-  // close so the world gets its sky back.
+  // renderer. The settings it takes over are snapshotted here and put back in
+  // EndLoadingScreen, so the world gets its sky back.
   if (self->renderer_) {
-    render::RenderSettings& s = self->renderer_->settings();
-    self->load_prev_settings_ = s;
-    // `interior` is the renderer's existing "no sky, no atmosphere" flag, which
-    // is exactly a loading screen's backdrop. On its own it is not enough: the
-    // interior ambient and fog left over from wherever the player last was
-    // filled the frame with grey and the model read as a silhouette against it.
-    // So dress the stage properly -- near-black ambient, no fill, no fog -- and
-    // let the two lights in AppendLoadScreenModel be the only things lighting
-    // anything.
-    s.interior = true;
-    s.interior_ambient = {0.015f, 0.015f, 0.018f};
-    s.interior_directional_intensity = 0.0f;
-    s.interior_fog_near_color = {0.0f, 0.0f, 0.0f};
-    s.interior_fog_far_color = {0.0f, 0.0f, 0.0f};
-    s.interior_fog_max = 0.0f;
-    // Fixed exposure, and this is the one that matters. Auto exposure meters
-    // the frame, and a loading screen is one lit object on black -- almost all
-    // of it dark, so the metering opens right up, lifts the black stage to a
-    // flat grey and flattens the model into a silhouette against it. Pinning
-    // exposure is what makes it read as an object in a dark room.
-    // Fixed, and LOW. This is what actually made the stage black. Auto
-    // exposure meters a frame that is almost entirely empty and opens right up,
-    // lifting the void to a flat grey with the model a silhouette on it; and
-    // exposure 1.0 with auto off did the same. Pinning it low, and lighting the
-    // model hard enough to answer, is what gives an object in a dark room.
-    s.auto_exposure = false;
-    s.exposure = LoadExposure.get();
-    // And the actual background: `interior` alone still left the procedural
-    // atmosphere painting the frame grey behind the model. These are the
-    // switches that stop it being drawn at all.
-    s.sky = false;
-    s.clouds = false;
-    // Nothing lights this stage but the two lamps in AppendLoadScreenModel.
-    s.ambient = 0.0f;
-    s.sun_intensity = 0.0f;
-    s.interior_ambient = {0.018f, 0.018f, 0.018f};  // neutral, not the blue cast the sky IBL leaves
-    s.interior_directional_color = {1.0f, 0.97f, 0.92f};
-    s.interior_directional_intensity = LoadLight.get();
-    // Travelling down and back over the viewer's shoulder: a three-quarter key.
-    s.interior_directional_dir = {-0.45f, -0.55f, -0.70f};
+    self->load_prev_settings_ = self->renderer_->settings();
+    DressLoadStage(self->renderer_->settings());
   }
   // No HUD over a loading screen: the compass, vitals and gold counter belong
   // to a world the player is not in yet.
@@ -411,7 +453,14 @@ void HoldLoadingUntilStreamed(Engine& engine) {
 void TickLoadingScreen(Engine& engine, f32 dt) {
   (void)dt;
   Engine* const self = &engine;
-  if (!self->load_screen_up_ || !self->load_wait_stream_)
+  if (!self->load_screen_up_)
+    return;
+  // Every frame, and after the drivers that have already written these fields
+  // this frame: see DressLoadStage. This call is why the card is black rather
+  // than the world's own weather.
+  if (self->renderer_)
+    DressLoadStage(self->renderer_->settings());
+  if (!self->load_wait_stream_)
     return;
 
   // The world is not ready when LoadGameData returns.
