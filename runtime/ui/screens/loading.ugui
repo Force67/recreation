@@ -1,0 +1,64 @@
+// RECREATION loading screen. Implements docs/ui-mock/untarnished_loading.html
+// (and its _stream variant), which replaced the first attempt: that one reused
+// the setup wizard's chassis -- masthead, phase rail, detail pane, stats table,
+// footer -- and was rejected for it. A loading screen is not a dashboard and
+// nobody is navigating it.
+//
+// Shape: a bar with text below it. Nothing competes.
+//   1. the world being entered      ld_title
+//   2. the bar                      ld_prog inside its track
+//   3. the phase's own sentence     ld_phase
+//   4. its quieter second line      ld_sub
+//   5. one key tip, at the foot     ld_tipk / ld_tip
+//
+// TWO STRETCHES, ONE BAR. The blocking load walks it to 92%. The hold that
+// follows waits on the streamer, which reports caught_up() and a resident cell
+// count but no target to divide by, so it cannot be an honest fraction: it
+// parks at 92% and the text carries it ("Streaming the world around you" over a
+// ticking cell count). A bar that hit 100% and then sat for eight seconds would
+// read as stuck.
+//
+// THIS SCREEN PAINTS NO BACKGROUND, deliberately. The game's own loading-screen
+// model (its LSCR record) is drawn in 3D behind it, and a full-bleed plate here
+// would bury it. The dark stage comes from the renderer instead: the engine
+// flags `interior` for the duration, which suppresses sky and atmosphere. The
+// mock's blurred key art went the same way -- the model is the art, which is
+// what the games themselves do.
+//
+// The whole text group therefore sits LOW rather than centred as the mock has
+// it, leaving the middle of the screen to the model. Every element, size and
+// gap is the mock's; only the vertical anchor moved.
+//
+// Drives the widgets GameUi expects:
+//   loading (root), ld_title, ld_prog, ld_phase, ld_sub, ld_tipk, ld_tip.
+
+  panel loading {
+    position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+
+    // The centre group, anchored low. Absolute rather than flex-centred so the
+    // model above it keeps a fixed amount of room whatever the text says.
+    panel { position: absolute; left: 0; right: 0; top: 672; layout: column;
+      align: center;
+
+      text ld_title { font-size: 30; letter-spacing: 10; text-transform: uppercase;
+        color: #ffffff; text: ""; }
+
+      panel { width: 640; height: 6; margin: 38 0 0 0; background: #ffffff1c;
+        panel ld_prog { width: 1%; height: 6; background: #ffffff; } }
+
+      text ld_phase { font-size: 17; letter-spacing: 2; color: #ffffff;
+        margin: 30 0 0 0; text: ""; }
+      text ld_sub { font-size: 13; letter-spacing: 1; color: #9a9a9a;
+        margin: 12 0 0 0; text: ""; }
+    }
+
+    // The tip, at the foot. The one line on the screen meant to be read, so it
+    // sits at dim rather than dim2.
+    panel { position: absolute; left: 0; right: 0; bottom: 74; layout: row;
+      align: center; justify: center; gap: 14;
+      panel { height: 26; padding: 0 7 0 7; layout: row; justify: center; align: center;
+        background: #0a0a0a; border-color: #ffffff2e; border-width: 1;
+        text ld_tipk { font-size: 11; color: #ffffff; text: ""; } }
+      text ld_tip { font-size: 13; letter-spacing: 1; color: #9a9a9a; text: ""; }
+    }
+  }

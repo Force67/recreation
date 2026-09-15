@@ -14,6 +14,7 @@ set(RECREATION_RUNTIME_SOURCES
   app/managed_scripting.cc
   app/main_menu.cc
   app/first_run.cc
+  app/loading_screen.cc
   app/camera_input.cc
   app/controls_settings.cc
   app/content_domain.cc

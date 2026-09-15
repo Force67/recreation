@@ -218,6 +218,25 @@ struct PlayerMapState {
   bool boot_applied = false;  // the RX_PLAYER_MAP / RX_FAST_TRAVEL hooks ran
 };
 
+// How long after a world comes up quest player-moves stay ignored. Long enough
+// to cover the start-up quests wiring up their aliases (they land in the first
+// second or two here, with headroom for a slower machine), short enough that a
+// player cannot walk anywhere meaningful before it lifts.
+constexpr f32 kQuestMoveGraceSeconds = 8.0f;
+
+// The phases a universe load walks, in the order the loading screen's rail
+// lists them. Bringing a universe online is one long blocking call, so each
+// phase reports itself (ReportLoadPhase) and the report is what draws a frame.
+enum class LoadPhase {
+  kArchives,  // mount the game's .bsa/.ba2 and its loose files
+  kRecords,   // read the load order's plugins into the record store
+  kText,      // localized strings + the dialogue index
+  kScripts,   // Papyrus guest, bindings, quests, weather, audio
+  kDomains,   // the other games mounted beside this one (--add-game)
+  kWorld,     // cell streamer, player spawn, first cells resident
+  kCount,
+};
+
 // The game: recreation's app::Application. Owns the gameplay layer (actors,
 // interaction, quest, npc, demos, weather, networking, data loading, the camera
 // and the UI) and drives it from the app::Host callbacks; the generic
@@ -295,9 +314,19 @@ class Engine : public app::Application {
   friend void ResolveUniverses(Engine&);
   friend void BuildMenuEntries(Engine&);
   friend void SetupMainMenu(Engine&);
+  friend void ArmConfiguredGameMode(Engine&);
   friend void EnterUniverse(Engine&, int, bool, bool, const base::String&);
   friend void SetupFirstRun(Engine&);
   friend void LoadSetupConfig(Engine&);
+  friend void BeginLoadingScreen(Engine&, const base::String&);
+  friend void ReportLoadPhase(Engine&, LoadPhase, const base::String&, const base::String&, f32);
+  friend void PresentLoadingFrame(Engine&);
+  friend void PushLoadingView(Engine&, LoadPhase, const base::String&, const base::String&, f32);
+  friend void PickLoadScreenArt(Engine&);
+  friend void AppendLoadScreenModel(Engine&, render::FrameView&);
+  friend void HoldLoadingUntilStreamed(Engine&);
+  friend void TickLoadingScreen(Engine&, f32);
+  friend void EndLoadingScreen(Engine&);
 #if RECREATION_HAS_NET
   friend bool StartNetworking(Engine&);
   friend void ReloadMods(Engine&);
@@ -399,17 +428,64 @@ class Engine : public app::Application {
   base::Vector<base::String> menu_entry_art_;
   base::String menu_mode_id_;
   base::Vector<base::String> menu_mode_ids_;
+  // The guided demo, offered from the menu's top nav rather than the play grid
+  // (a staged manifest with kind "tour"). Empty id means none is staged and the
+  // nav entry stays collapsed.
+  base::String menu_tour_id_;
+  base::String menu_tour_title_;
+  int menu_tour_universe_ = 0;
+  bool menu_tour_available_ = false;
   bool main_menu_active_ = false;
   // First-run out-of-box wizard: owns the screen on a fresh install until the
   // player finishes setup, at which point it hands off to the main menu. The
   // mods directory the wizard collects is held here until it is persisted.
   bool first_run_active_ = false;
   base::String first_run_mods_dir_;
+  // What the wizard should tell the player went wrong (an empty string means
+  // nothing did). Cleared by the next browse that works.
+  base::String first_run_notice_;
   // Deferred capture of the entered world into the backdrop cache: counts down
   // after EnterUniverse, hiding the HUD for the grab frame so the cached scene
   // is clean. Idle at 0.
   int menu_capture_countdown_ = 0;
   base::String menu_capture_path_;
+  // Loading screen (loading_screen.cc): up between BeginLoadingScreen and
+  // EndLoadingScreen, with the counts each phase found so far so a later phase
+  // does not blank them out again. load_started_ is a steady-clock reading in
+  // seconds, kept as a plain double so this header need not pull in <chrono>.
+  // Bring-up grace for quest player-moves (see the on_move_player hook in
+  // content_load.cc). world_age_ counts seconds since the world came up, on the
+  // main thread; the flag it raises is read from the script guest thread, hence
+  // the atomic. Both reset every time a world loads.
+  f32 world_age_ = 0.0f;
+  std::atomic<bool> quest_moves_allowed_{false};
+
+  // The game's own loading-screen art (an LSCR record): the uploaded mesh, the
+  // framing the record asks for, and the blurb that goes with it. Zero mesh
+  // means none was found or none could be loaded, and the screen simply shows
+  // no model -- every game but Skyrim/Fallout is expected to land here.
+  u64 load_model_mesh_ = 0;
+  f32 load_model_scale_ = 1.0f;
+  f32 load_model_rotation_[3] = {0.0f, 0.0f, 0.0f};
+  f32 load_model_radius_ = 1.0f;  // mesh bounds, for framing the camera
+  // Centre of those bounds in mesh space. Rarely the origin: a character's is
+  // between its feet, so framing on the origin puts the head out of shot.
+  f32 load_model_center_[3] = {0.0f, 0.0f, 0.0f};
+  base::String load_model_text_;
+
+  // The renderer settings as they were before the loading screen dressed the
+  // stage, restored wholesale when it closes. A snapshot rather than a handful
+  // of remembered fields: the screen changes ambient, fog and the sky flag
+  // together, and putting back all of it is one assignment that cannot drift.
+  render::RenderSettings load_prev_settings_;
+  bool load_screen_up_ = false;
+  // Set once LoadGameData has returned and the screen is only still up to cover
+  // the world streaming in around the player. Ticked by TickLoadingScreen.
+  bool load_wait_stream_ = false;
+  f64 load_started_ = 0.0;
+  base::String load_title_;
+  base::String load_records_;
+  base::String load_plugins_;
 
   // The app::Host owns the window/jobs/frame-timer/clock and drives the loop;
   // these are non-owning views cached from Services at OnInitialize.
@@ -755,6 +831,10 @@ void BootManagedScripting(Engine& engine);
 void ResolveUniverses(Engine& engine);
 void BuildMenuEntries(Engine& engine);
 void SetupMainMenu(Engine& engine);
+// Arms the mode named by --game-mode, so a gamemode can be launched straight
+// from the command line instead of only by clicking its tile. A no-op when the
+// flag is absent or the front screen already made a pick.
+void ArmConfiguredGameMode(Engine& engine);
 void EnterUniverse(Engine& engine,
                    int idx,
                    bool multiplayer,
@@ -769,6 +849,48 @@ void EnterUniverse(Engine& engine,
 void LoadSetupConfig(Engine& engine);
 bool FirstRunComplete();
 void SetupFirstRun(Engine& engine);
+// The loading screen (loading_screen.cc). BeginLoadingScreen puts it up and
+// presents it; ReportLoadPhase moves it on AND draws a frame, which is the whole
+// point: LoadGameData never returns to the host loop, so the load itself has to
+// be what animates the screen. `detail` is the phase's own sentence and `note` a
+// quieter line under it; `within` (0..1) is how far through its own phase the
+// caller is, for the phases that run long enough to need it. EndLoadingScreen
+// takes it away. All no-ops in a headless run.
+void BeginLoadingScreen(Engine& engine, const base::String& title);
+void ReportLoadPhase(Engine& engine,
+                     LoadPhase phase,
+                     const base::String& detail,
+                     const base::String& note = "",
+                     f32 within = 0.0f);
+// Pumps the window and presents one frame of whatever the loading screen
+// currently says. ReportLoadPhase calls it; a step that runs long without a
+// phase change of its own can call it directly to keep the window alive.
+void PresentLoadingFrame(Engine& engine);
+// Refreshes what the screen says WITHOUT submitting a frame, for the per-frame
+// hold below: once the host loop is turning again it does the drawing, and a
+// second submit per frame would only be waste.
+void PushLoadingView(Engine& engine,
+                     LoadPhase phase,
+                     const base::String& detail,
+                     const base::String& note = "",
+                     f32 within = 0.0f);
+// Chooses one of the game's own loading screens (an LSCR record), loads and
+// uploads its model, and resolves its blurb. Called once per load, after the
+// records and strings are in. Silently does nothing for a game that authors
+// none, which is every game but Skyrim and Fallout.
+void PickLoadScreenArt(Engine& engine);
+// Adds that model to a frame, framed the way the record asks and turning
+// slowly, with its own light. Called for every frame the loading screen is up,
+// from both the blocking load and the host loop afterwards.
+void AppendLoadScreenModel(Engine& engine, render::FrameView& view);
+// Keeps the screen up after the load returns, to cover the world streaming in.
+// Called once from EnterUniverse; TickLoadingScreen then takes it down.
+void HoldLoadingUntilStreamed(Engine& engine);
+// Per frame while the screen is up: refreshes it and decides when to close.
+// Unlike everything above this runs from the host loop, which is the point --
+// cells only stream while that loop turns.
+void TickLoadingScreen(Engine& engine, f32 dt);
+void EndLoadingScreen(Engine& engine);
 #if RECREATION_HAS_NET
 // Opens the authoritative server or replica client session and wires the
 // replication sinks between the net layer and the script/quest systems.

@@ -16,6 +16,8 @@ void PrintUsage() {
   RX_INFO("  --plugins <path>      plugins.txt (default: <data-dir>/../plugins.txt)");
   RX_INFO("  --gltf <path>         load a gltf/glb scene (e.g. assets/sponza/Sponza.gltf)");
   RX_INFO("  --menu                open the NEXUS main menu (pick a universe to play)");
+  RX_INFO("  --game-mode <id>      arm a staged game mode at boot, as picking its");
+  RX_INFO("                        tile would (e.g. TourDeRecreation)");
   RX_INFO("  --demo <id>           builtin scene: water | materials | gaussian");
   RX_INFO(
       "  --game <id>           skyrimse | fo4 | fo76 | starfield | oblivion | morrowind (default: "
@@ -130,7 +132,9 @@ int main(int argc, char** argv) {
         domain.plugins_txt = domain.data_dir + "/../plugins.txt";
       }
       config.extra_domains.push_back(domain);
-    } else if (arg == "--menu")
+    } else if (arg == "--game-mode")
+      config.game_mode = next();  // arm a staged mode without going via its tile
+    else if (arg == "--menu")
       config.main_menu = true;
     else if (arg == "--headless")
       config.headless = true;

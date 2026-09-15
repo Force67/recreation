@@ -104,6 +104,10 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
     return false;
   }
   impl_->ui.set_texture_backend(&impl_->backend);
+  // Arrow-key focus navigation over every screen authored in markup. ugui finds
+  // the ring itself (authored tab-index where there is one, everything
+  // interactive where there is not), so no screen has to opt in.
+  impl_->ui.input().set_keyboard_navigation(bool(UiKeyboardNav));
 
   // The screens name the game's own typeface, so those fonts have to be
   // registered before the tree that asks for them is built.
@@ -129,6 +133,11 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   // The legal notice comes up over everything and is the first thing seen.
   impl_->legal_open = bool(ShowLegal);
   impl_->SetVisible("legal", impl_->legal_open);
+  // The guided demo's card belongs to the TourDeRecreation gamemode, which
+  // drives it entirely through the SDK's widget API. Nothing here touches it
+  // again; it is only collapsed once, because markup cannot start hidden and it
+  // would otherwise sit over the front screen until the managed world booted.
+  impl_->SetVisible("tour_card", false);
 
   // Hot reload: when enabled, the .ugui fragments are polled for edits and the
   // tree is rebuilt in place (see GameUi::Build). Off by default.
@@ -427,7 +436,6 @@ void GameUi::OpenFirstRun() {
     return;
   impl_->first_run_open = true;
   impl_->fr_step = 0;
-  impl_->fr_dropdown = -1;
   // Debug aid: RECREATION_FIRST_RUN_STEP=<0..4> opens the wizard on that page
   // (so a headless capture can grab any page, not just the welcome screen).
   if (const char* s = FirstRunStep.get()) {
@@ -462,6 +470,41 @@ void GameUi::FirstRunBack() {
 void GameUi::SetFirstRunView(const FirstRunView& view) {
   if (impl_->initialized)
     impl_->fr_view = view;
+}
+
+void GameUi::SetMainMenuTour(const base::String& title, bool available) {
+  if (!impl_->initialized)
+    return;
+  impl_->mm_tour_title = title;
+  impl_->mm_tour_available = available;
+}
+
+void GameUi::OpenLoading(const base::String& title) {
+  if (!impl_->initialized)
+    return;
+  impl_->loading_open = true;
+  impl_->loading = LoadingView{};
+  impl_->loading.title = title;
+  // A negative last-tip time makes the first Apply pick a tip immediately, so
+  // the screen is never up with an empty hint line.
+  impl_->ld_tip_from = -kLoadingTipSeconds;
+  impl_->ApplyLoading();
+}
+
+void GameUi::CloseLoading() {
+  if (!impl_->initialized)
+    return;
+  impl_->loading_open = false;
+  impl_->ApplyLoading();
+}
+
+bool GameUi::loading_open() const {
+  return impl_->initialized && impl_->loading_open;
+}
+
+void GameUi::SetLoadingView(const LoadingView& view) {
+  if (impl_->initialized)
+    impl_->loading = view;
 }
 
 FirstRunRequest GameUi::PollFirstRunRequest() {
@@ -679,6 +722,17 @@ void GameUi::Build(Window& window,
   impl->host.window_width = fb_w > 0.f ? fb_w : static_cast<float>(window.width());
   impl->host.window_height = fb_h > 0.f ? fb_h : static_cast<float>(window.height());
 
+  // The front screens (legal card, setup wizard, NEXUS menu) are authored
+  // against a fixed 1920x1080 stage and fitted to the viewport, the way a
+  // Scaleform movie is. Without it a 1440p or 4K display draws that composition
+  // at its authored size in the top-left corner with the rest of the screen
+  // empty. In-world UI keeps the raw backbuffer space it measures against.
+  const bool frontend = impl->legal_open || impl->first_run_open || impl->main_menu_open ||
+                        impl->loading_open;
+  impl->ui.set_ui_scale(frontend ? base::Min(impl->host.window_width / kFrontendDesignWidth,
+                                             impl->host.window_height / kFrontendDesignHeight)
+                                 : 0.0f);
+
   // Feed the per-frame input snapshot into ultragui's queue, scaling the cursor
   // from window space into the (possibly larger) backbuffer canvas so clicks
   // line up with the widgets.
@@ -715,8 +769,6 @@ void GameUi::Build(Window& window,
   // clears the flag, and would otherwise activate a row of the menu underneath.
   const bool legal_was_open = impl->legal_open;
   if (impl->legal_open) {
-    impl->ui.set_ui_scale(base::Min(impl->host.window_width / kLegalDesignWidth,
-                                    impl->host.window_height / kLegalDesignHeight));
     impl->legal_left -= frame_delta;
     const int remaining = static_cast<int>(std::ceil(base::Max(0.0f, impl->legal_left)));
     if (remaining != impl->legal_shown) {
@@ -735,7 +787,6 @@ void GameUi::Build(Window& window,
     if (dismiss) {
       impl->legal_open = false;
       impl->SetVisible("legal", false);
-      impl->ui.set_ui_scale(0.0f);  // back to whatever the config asks for
       RX_INFO("ui: legal notice dismissed");
     }
   }
@@ -772,6 +823,107 @@ void GameUi::Build(Window& window,
     }
     if (in.wheel != 0.0f)
       q.PushScroll({0.0f, in.wheel});
+  }
+
+  // Test hook: RX_UI_CLICK="fr_begin,fr_chk0,..." clicks each named widget in
+  // turn, one every RX_UI_CLICK_STRIDE frames (default 12), by pushing a real
+  // press and release at the widget's centre. That is the mouse's own path -
+  // ugui hit-tests the deepest child and the routers walk back up - so it
+  // exercises the click routing rather than calling a handler directly, and it
+  // is what drives the onboarding flow in a headless capture.
+  if (const char* script = UiClick.get(); script != nullptr && *script) {
+    if (impl->click_script.empty()) {
+      base::String name;
+      for (const char* c = script;; ++c) {
+        if (*c == ',' || *c == '\0') {
+          if (!name.empty())
+            impl->click_script.push_back(name);
+          name.clear();
+          if (*c == '\0')
+            break;
+        } else {
+          name += *c;
+        }
+      }
+    }
+    const int stride = base::Max(1, UiClickStride.get());
+    if (++impl->click_frame >= stride) {
+      impl->click_frame = 0;
+      if (impl->click_index < static_cast<int>(impl->click_script.size())) {
+        const base::String& name = impl->click_script[impl->click_index++];
+        const ugui::wid w = impl->ui.FindWidget(name.c_str());
+        const ugui::Transform* t =
+            w.valid() ? impl->ui.world().Get<ugui::Transform>(w) : nullptr;
+        if (t == nullptr) {
+          RX_WARN("ui click: no widget '{}'", name);
+        } else {
+          const ugui::Vec2 at{t->rect.x + t->rect.w * 0.5f, t->rect.y + t->rect.h * 0.5f};
+          q.PushMove(at);
+          q.PushButton(ugui::MouseButton::kLeft, true);
+          q.PushButton(ugui::MouseButton::kLeft, false);
+          RX_INFO("ui click: {} at {:.0f},{:.0f}", name, at.x, at.y);
+        }
+      }
+    }
+  }
+
+  // Test hook: RX_UI_KEY="down,down,enter" presses each named key in turn on
+  // the same stride as RX_UI_CLICK. The click driver above aims at a widget by
+  // name, which is exactly what keyboard navigation must NOT need - this drives
+  // the focus ring the way a player does, so a screen can be walked without
+  // knowing what is on it.
+  if (const char* script = UiKey.get(); script != nullptr && *script) {
+    if (impl->key_script.empty()) {
+      base::String name;
+      for (const char* c = script;; ++c) {
+        if (*c == ',' || *c == '\0') {
+          if (!name.empty())
+            impl->key_script.push_back(name);
+          name.clear();
+          if (*c == '\0')
+            break;
+        } else {
+          name += *c;
+        }
+      }
+    }
+    const int stride = base::Max(1, UiClickStride.get());
+    if (++impl->key_frame >= stride) {
+      impl->key_frame = 0;
+      if (impl->key_index < static_cast<int>(impl->key_script.size())) {
+        const base::String& name = impl->key_script[impl->key_index++];
+        // "type:hello" pushes characters instead of a key, so a text field can
+        // be exercised without a keyboard. Same path a real keystroke takes:
+        // the chars go into ugui's queue and land on whatever holds focus.
+        // ugui speaks GLFW key codes.
+        const int code = name == "up"      ? 265
+                         : name == "down"  ? 264
+                         : name == "left"  ? 263
+                         : name == "right" ? 262
+                         : name == "tab"   ? 258
+                         : name == "enter" ? 257
+                         : name == "space" ? 32
+                                           : 0;
+        if (name.compare(0, 5, "type:") == 0) {
+          for (mem_size c = 5; c < name.size(); ++c)
+            q.PushChar(static_cast<u32>(static_cast<unsigned char>(name[c])));
+          RX_INFO("ui key: typed \"{}\"", name.substr(5).c_str());
+        } else if (code == 0) {
+          RX_WARN("ui key: unknown key '{}'", name);
+        } else {
+          q.PushKey(code, 0, true, false, 0);
+          // Where the PREVIOUS press left the focus. Reported here rather than
+          // straight after the push because the queue is drained later in this
+          // frame; naming the widget is the only way to tell navigation apart
+          // from a screen that simply is not focusable.
+          const ugui::wid focused = impl->ui.input().focused_widget();
+          const ugui::WidgetNode* node =
+              focused.valid() ? impl->ui.world().Get<ugui::WidgetNode>(focused) : nullptr;
+          RX_INFO("ui key: {} (focus was {})", name,
+                  node != nullptr && !node->name.empty() ? node->name.c_str() : "none");
+        }
+      }
+    }
   }
 
   // Feed gamepad + keyboard navigation into ugui's focus ring so menus with
@@ -832,13 +984,96 @@ void GameUi::Build(Window& window,
     q.PushGamepadAxis(ugui::GamepadAxis::kLeftX, pad.axis(GamepadAxis::kLeftX));
     q.PushGamepadAxis(ugui::GamepadAxis::kLeftY, pad.axis(GamepadAxis::kLeftY));
   }
-  // Keyboard focus nav: Tab cycles, Enter/Space activate (ugui uses GLFW codes).
+  // Keyboard focus nav: the arrows move focus, Tab cycles, Enter activates
+  // (ugui speaks GLFW key codes). ugui finds the focus ring itself, so this
+  // reaches every screen authored in markup without the host naming any of them.
+  //
+  // Held back for two owners that drive these same keys themselves, because
+  // letting both run moves two cursors and activates twice: the NEXUS front
+  // screen (its own grid selection, engine-side in UpdateMainMenu) and a
+  // translated vanilla movie (its own component navigation, just below).
   const int shift_mod = in.key(Key::kLeftShift) ? 0x0001 : 0;
-  if (!legal_was_open) {
+  // Ask the platform for typed characters while, and only while, one of our
+  // text fields has focus.
+  //
+  // This has to be re-asserted every frame. imgui's SDL3 backend drives
+  // SDL_StartTextInput/SDL_StopTextInput from whether an IMGUI widget wants
+  // text, and stops it on the whole window when none does -- which is every
+  // frame here, since the debug overlay is up but idle. The result was a text
+  // field that focused, drew its caret, took clicks and never saw a single
+  // character, while mouse and key events kept working perfectly.
+  {
+    const ugui::wid focused = impl->ui.input().focused_widget();
+    const ugui::WidgetNode* node =
+        focused.valid() ? impl->ui.world().Get<ugui::WidgetNode>(focused) : nullptr;
+    window.SetTextInputActive(node != nullptr && node->kind == ugui::WidgetKind::kTextInput);
+  }
+  // Traced OUTSIDE the gate below, deliberately: a gate that is shut and text
+  // that never arrives look identical from inside it.
+  if (UiTrace && in.text_len > 0) {
+    const ugui::wid f = impl->ui.input().focused_widget();
+    const ugui::WidgetNode* n = f.valid() ? impl->ui.world().Get<ugui::WidgetNode>(f) : nullptr;
+    RX_INFO("ui text: {} byte(s) \"{}\" -> focus {} (legal {} menu {} vanilla {})",
+            static_cast<int>(in.text_len), in.text,
+            n != nullptr && !n->name.empty() ? n->name.c_str() : "none", legal_was_open,
+            impl->main_menu_open, ui::VanillaRuntime::Enabled());
+  }
+  if (!legal_was_open && !impl->main_menu_open && !ui::VanillaRuntime::Enabled()) {
+    struct ArrowKey {
+      Key key;
+      int glfw;
+    };
+    static constexpr ArrowKey kArrows[] = {
+        {Key::kArrowUp, 265}, {Key::kArrowDown, 264},
+        {Key::kArrowLeft, 263}, {Key::kArrowRight, 262},
+    };
+    for (const ArrowKey& arrow : kArrows) {
+      if (in.key_pressed(arrow.key))
+        q.PushKey(arrow.glfw, 0, true, false, 0);
+    }
     if (in.key_pressed(Key::kTab))
       q.PushKey(258, 0, true, false, shift_mod);
     if (in.key_pressed(Key::kReturn))
       q.PushKey(257, 0, true, false, 0);
+  }
+
+  // Text editing is NOT part of that gate.
+  //
+  // The exclusions above are about who owns the NAVIGATION keys: the front
+  // screen and a translated Scaleform movie both drive their own selection from
+  // the arrows, so letting ugui move focus at the same time would run two
+  // cursors. Typed characters answer to none of that -- they go to whatever
+  // holds focus, which is a text field or nothing at all. Sharing the gate cost
+  // an evening: the vanilla runtime is enabled on this build, so every keystroke
+  // was decoded correctly and then dropped one line before it reached ugui.
+  if (!legal_was_open) {
+    if (in.key_pressed(Key::kBackspace))
+      q.PushKey(259, 0, true, false, 0);  // GLFW_KEY_BACKSPACE
+    // Typed characters, for the text fields. ugui edits its own inputs (caret,
+    // selection, history) but only ever sees what the host forwards, so without
+    // this a text field focuses, draws its caret and rejects every keystroke.
+    // in.text is UTF-8 for this pump; decode to the codepoints ugui wants.
+    for (u8 i = 0; i < in.text_len;) {
+      const unsigned char lead = static_cast<unsigned char>(in.text[i]);
+      u32 codepoint = lead;
+      u8 extra = 0;
+      if (lead >= 0xf0) {
+        codepoint = lead & 0x07u;
+        extra = 3;
+      } else if (lead >= 0xe0) {
+        codepoint = lead & 0x0fu;
+        extra = 2;
+      } else if (lead >= 0xc0) {
+        codepoint = lead & 0x1fu;
+        extra = 1;
+      }
+      if (i + extra >= in.text_len)
+        break;  // truncated sequence at the end of the buffer
+      for (u8 k = 1; k <= extra; ++k)
+        codepoint = (codepoint << 6) | (static_cast<unsigned char>(in.text[i + k]) & 0x3fu);
+      q.PushChar(codepoint);
+      i += static_cast<u8>(extra + 1);
+    }
   }
 
   // The vanilla menus are lists the game drives itself rather than focus rings,
@@ -1230,6 +1465,9 @@ void GameUi::Build(Window& window,
   // First-run setup wizard (the out-of-box experience, above even the menu).
   impl->ApplyFirstRun();
 
+  // The loading screen, which covers all of it while a universe comes online.
+  impl->ApplyLoading();
+
   // Produce the draw list (input routing + layout + paint, no GPU work).
   const ugui::DrawData& dd = impl->ui.RenderDrawData();
   impl->draw_data = &dd;
@@ -1349,6 +1587,7 @@ int GameUi::selected_entry() const {
   return -1;
 }
 void GameUi::SetMainMenuUniverses(const base::Vector<base::String>&, const base::Vector<bool>&) {}
+void GameUi::SetMainMenuTour(const base::String&, bool) {}
 void GameUi::SetMainMenuBackdrop(int, u64) {}
 void GameUi::SetMainMenuStats(const MainMenuStats&) {}
 void GameUi::SetMainMenuMods(const base::Vector<base::String>&) {}
@@ -1371,6 +1610,12 @@ void GameUi::SetFirstRunView(const FirstRunView&) {}
 FirstRunRequest GameUi::PollFirstRunRequest() {
   return {};
 }
+void GameUi::OpenLoading(const base::String&) {}
+void GameUi::CloseLoading() {}
+bool GameUi::loading_open() const {
+  return false;
+}
+void GameUi::SetLoadingView(const LoadingView&) {}
 
 }  // namespace rx
 
