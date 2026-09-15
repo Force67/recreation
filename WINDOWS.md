@@ -26,10 +26,11 @@ tree to produce one and passes it as `RX_RXPACK`. Build width is derived from
 free memory rather than core count: clang peaks around 1.5 GB on the heavier
 translation units and this box has no swap.
 
-`test` sets `CMAKE_CROSSCOMPILING_EMULATOR`, so ctest runs the actual Windows
-executables through wine and the regression suite covers the port rather than
-only the Linux build. USD scene loading is off here: tinyusdz builds itself with
-`-fno-exceptions` and then throws on its own Windows path.
+Configure sets `CMAKE_CROSSCOMPILING_EMULATOR` — every configure, not only the
+one `test` does — so ctest runs the actual Windows executables through wine, and
+the regression suite covers the port rather than only the Linux build. USD scene
+loading is off here: tinyusdz builds itself with `-fno-exceptions` and then
+throws on its own Windows path.
 
 ## What ends up beside the executable
 
