@@ -20,13 +20,22 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WINER_ROOT="$(cd "${WINER_ROOT:-$REPO/../winer}" && pwd)"
 BUILD_DIR="${RECREATION_WIN_BUILD_DIR:-$REPO/build/win}"
 BUILD_TYPE="${RECREATION_BUILD_TYPE:-RelWithDebInfo}"
-ZETANET="$(cd "${RECREATION_ZETANET_DIR:-$REPO/../zetanet}" && pwd)"
-NANOBUF="$(cd "${RECREATION_NANOBUF_DIR:-$REPO/../nanobuf}" && pwd)"
-RX="$(cd "${RECREATION_RX_DIR:-$REPO/../rx}" && pwd)"
-UGUI="$(cd "${RECREATION_LIBULTRAGUI_DIR:-$REPO/../libultragui}" && pwd)"
+
+# Absolute path to a sibling checkout, or a message naming the variable that
+# points at it. Bare `cd` failures here read as "no such file or directory" with
+# nothing to say which of the five checkouts is missing.
+sibling() {
+  local var="$1" dir="$2"
+  [ -d "$dir" ] || { echo "$var: no checkout at $dir" >&2; exit 1; }
+  ( cd "$dir" && pwd )
+}
+WINER_ROOT="$(sibling WINER_ROOT "${WINER_ROOT:-$REPO/../winer}")"
+ZETANET="$(sibling RECREATION_ZETANET_DIR "${RECREATION_ZETANET_DIR:-$REPO/../zetanet}")"
+NANOBUF="$(sibling RECREATION_NANOBUF_DIR "${RECREATION_NANOBUF_DIR:-$REPO/../nanobuf}")"
+RX="$(sibling RECREATION_RX_DIR "${RECREATION_RX_DIR:-$REPO/../rx}")"
+UGUI="$(sibling RECREATION_LIBULTRAGUI_DIR "${RECREATION_LIBULTRAGUI_DIR:-$REPO/../libultragui}")"
 
 [ -x "$WINER_ROOT/build/toolchain/llvm-mingw/bin/x86_64-w64-mingw32-clang++" ] || {
   echo "winer llvm-mingw missing; run $WINER_ROOT/scripts/10-fetch-toolchain.sh" >&2
@@ -48,13 +57,18 @@ jobs_for_memory() {
 }
 JOBS="${RECREATION_WIN_JOBS:-$(jobs_for_memory)}"
 
+# Run a command in the flake's dev shell, the same one the native build uses:
+# cmake, ninja and the host generators (dxc, slangc, nanoc) all come from there.
+# zetanet, nanobuf and rx are path inputs pinned to the author's own checkout,
+# so all three are overridden to the trees resolved above -- without that, `nix
+# develop` tries to read a directory that exists on one machine. The lock file
+# stays as committed.
 dev() {
-  ( . "$REPO/devenv.sh"
-    devenv_load build \
-      --override-input zetanet-src "path:$ZETANET" \
-      --override-input nanobuf-src "path:$NANOBUF" \
-      --override-input rx-src "path:$RX"
-    exec "$@" )
+  nix develop "$REPO" --no-write-lock-file \
+    --override-input zetanet-src "path:$ZETANET" \
+    --override-input nanobuf-src "path:$NANOBUF" \
+    --override-input rx-src "path:$RX" \
+    --command "$@"
 }
 
 # rxpack packs the .rxp archives (shaders, engine fonts) during the build, so it
@@ -73,6 +87,7 @@ host_rxpack() {
       -DRX_JOLT=OFF -DRX_DLSS=OFF -DRX_NRD=OFF -DRX_FSR3=OFF -DRX_USD=OFF \
       -DRX_MIMALLOC=OFF -DRX_INSTALL=OFF >&2
     dev cmake --build "$HOST_TOOLS_DIR" --target rxpack -j"$JOBS" >&2
+    [ -x "$exe" ] || { echo "host rxpack did not build at $exe" >&2; exit 1; }
   fi
   echo "$exe"
 }
@@ -83,10 +98,17 @@ host_rxpack() {
 # does not need, so this build goes without rather than patching a vendored
 # download.
 configure() {
+  # Resolved before the cmake line, not inside it: a command substitution that
+  # fails mid-command has its status discarded, and configuring with an empty
+  # RX_RXPACK is not an error -- it silently produces a build with no shader
+  # archive. Declared and assigned separately so `local` does not swallow the
+  # status either.
+  local rxpack
+  rxpack="$(host_rxpack)"
   dev cmake -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$WINER_ROOT/cmake/llvm-mingw.cmake" \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
-    -DRX_RXPACK="$(host_rxpack)" \
+    -DRX_RXPACK="$rxpack" \
     -DCMAKE_CROSSCOMPILING_EMULATOR="$WINER_ROOT/scripts/xrun.sh" \
     -DRECREATION_ZETANET_DIR="$ZETANET" \
     -DRECREATION_NANOBUF_DIR="$NANOBUF" \

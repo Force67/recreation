@@ -24,7 +24,6 @@
 #include "core/paths.h"
 #include "render/core/presets.h"
 #include "render/core/settings_ini.h"
-#include "render/rhi/vulkan_interop.h"
 
 namespace rx {
 namespace {
