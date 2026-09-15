@@ -18,6 +18,7 @@
 #include <sstream>
 
 #include "core/log.h"
+#include "core/paths.h"
 
 namespace rx::ui {
 namespace {
@@ -243,6 +244,10 @@ base::Vector<base::String> VanillaScreenNames() {
 base::String VanillaScreenDir() {
   if (const char* env = VanillaUiDir.get(); env && *env)
     return env;
+  std::error_code ec;
+  if (std::filesystem::path beside = ExecutableDirectory() / "vanilla";
+      std::filesystem::is_directory(beside, ec))
+    return beside.string().c_str();
 #ifdef RECREATION_VANILLA_UI_DIR_DEFAULT
   return RECREATION_VANILLA_UI_DIR_DEFAULT;
 #else

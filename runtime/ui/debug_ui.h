@@ -1,11 +1,6 @@
 #ifndef RECREATION_RUNTIME_UI_DEBUG_UI_H_
 #define RECREATION_RUNTIME_UI_DEBUG_UI_H_
 
-// The overlay records raw Vulkan (imgui_impl_vulkan); the rhi headers pulled in
-// via renderer.h are backend-agnostic, so the VkFormat member below needs volk
-// directly (cf. gui_backend.h).
-#include <volk.h>
-
 #include <base/containers/pair.h>
 #include <base/containers/vector.h>
 #include <base/functional/function.h>
@@ -17,6 +12,7 @@
 #include "core/window.h"
 #include "core/world_clock.h"
 #include "render/core/renderer.h"
+#include "render/util/imgui_renderer.h"
 #include "runtime/demo/trailer.h"
 
 // Dear ImGui's font handle, forward-declared so this header stays free of imgui
@@ -242,7 +238,9 @@ class DebugUi {
   // it instead of carrying a stale stage from the previously expanded quest.
   u64 quest_stage_input_handle_ = 0;
   int quest_stage_input_ = 0;
-  VkFormat swapchain_format_ = VK_FORMAT_UNDEFINED;  // outlives imgui init info
+  // The overlay draws through the engine's own RHI, so it works on every
+  // backend rather than only the one that hands out raw Vulkan handles.
+  render::ImGuiRenderer imgui_renderer_;
   f32 render_scale_ui_ = 1.0f;  // in-progress render-scale slider; committed on release
   f32 frame_times_[150] = {};
   u32 frame_time_cursor_ = 0;

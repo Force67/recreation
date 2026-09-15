@@ -7,11 +7,13 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 
 #include "asset/primitives.h"
 #include "components/world/components.h"
 #include "core/feature_registry.h"
 #include "core/log.h"
+#include "core/paths.h"
 #include "runtime/actor/player_controller.h"
 #include "runtime/interaction/item_bridge.h"
 
@@ -46,6 +48,12 @@ base::Option<const char*> ShaderDirOpt{"shader.dir", nullptr, "RECREATION_SHADER
 base::String ShaderPackPath() {
   if (const char* env = ShaderPackOpt.get(); env && *env)
     return env;
+  // A shipped build carries the pack beside the executable; the compiled-in
+  // path is a build directory that only exists on the machine that built it.
+  std::error_code ec;
+  if (std::filesystem::path beside = ExecutableDirectory() / "shaders.rxp";
+      std::filesystem::is_regular_file(beside, ec))
+    return beside.string().c_str();
 #ifdef RECREATION_SHADER_PACK_DEFAULT
   return RECREATION_SHADER_PACK_DEFAULT;
 #else

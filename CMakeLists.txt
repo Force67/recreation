@@ -143,13 +143,6 @@ if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/equilibrium/CMakeLists.tx
 endif()
 set(EQ_USE_STD_ATOMIC ON CACHE BOOL "" FORCE)
 set(EQ_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-# equilibrium's Windows base formats with fmtlib (which it does not vendor) and
-# errors out unless EQ_FMTLIB_DIR points at an fmt checkout. Reuse the one
-# zetanet already vendors; other platforms don't need it.
-if(WIN32 AND NOT EQ_FMTLIB_DIR)
-  set(EQ_FMTLIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/zetanet/vendor/fmtlib" CACHE PATH "" FORCE)
-endif()
-add_subdirectory(third_party/equilibrium equilibrium EXCLUDE_FROM_ALL)
 
 # Zetanet (devel branch checkout) supplies the UDP transport and reliability
 # layer, built in equilibrium mode (ZNET_USE_STL=OFF). It hard-codes
@@ -158,6 +151,15 @@ add_subdirectory(third_party/equilibrium equilibrium EXCLUDE_FROM_ALL)
 # vendored above instead of compiling a second, conflicting copy.
 set(RECREATION_ZETANET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../zetanet" CACHE PATH
   "Path to a zetanet checkout (devel branch)")
+
+# equilibrium's Windows base formats with fmtlib (which it does not vendor) and
+# errors out unless EQ_FMTLIB_DIR points at an fmt checkout. Reuse the one
+# zetanet already vendors; other platforms don't need it.
+if(WIN32 AND NOT EQ_FMTLIB_DIR)
+  set(EQ_FMTLIB_DIR "${RECREATION_ZETANET_DIR}/vendor/fmtlib" CACHE PATH "" FORCE)
+endif()
+add_subdirectory(third_party/equilibrium equilibrium EXCLUDE_FROM_ALL)
+
 if(RECREATION_NET)
   if(NOT EXISTS "${RECREATION_ZETANET_DIR}/CMakeLists.txt")
     message(FATAL_ERROR
@@ -165,6 +167,30 @@ if(RECREATION_NET)
   endif()
   set(ZNET_USE_STL OFF CACHE BOOL "" FORCE)
   set(ZNET_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+  # zetanet's default crypto backend is a system OpenSSL, which a Windows build
+  # has no way to find. It vendors mbedTLS for exactly that case, but looks the
+  # three libraries up with find_library, so build them here and seed the cache
+  # entries with the target names: find_library leaves a set entry alone, and
+  # target_link_libraries resolves a name that happens to be a target as one.
+  find_package(OpenSSL QUIET)
+  if(NOT OpenSSL_FOUND)
+    message(STATUS "openssl not found, zetanet uses the vendored mbedtls")
+    set(ZNET_CRYPTO_BACKEND mbedtls CACHE STRING "" FORCE)
+    set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+    set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+    set(MBEDTLS_AS_SUBPROJECT ON CACHE BOOL "" FORCE)
+    # mbedTLS builds itself with -Werror, and this is a vendored release we do
+    # not get to edit: newer compilers keep finding new warnings in it (clang 23
+    # objects to its unterminated string initializers). Its warnings are not
+    # this project's to fix.
+    set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+    add_subdirectory(${RECREATION_ZETANET_DIR}/vendor/mbedtls mbedtls EXCLUDE_FROM_ALL)
+    set(MBEDTLS_LIB mbedtls CACHE FILEPATH "" FORCE)
+    set(MBEDX509_LIB mbedx509 CACHE FILEPATH "" FORCE)
+    # mbedTLS 4 moved the crypto half out to TF-PSA-Crypto; "mbedcrypto" is no
+    # longer a target.
+    set(MBEDCRYPTO_LIB tfpsacrypto CACHE FILEPATH "" FORCE)
+  endif()
   function(add_subdirectory _dir)
     get_filename_component(_leaf "${_dir}" NAME)
     if(_leaf STREQUAL "equilibrium" AND TARGET equilibrium::base)
@@ -274,6 +300,48 @@ endif()
 add_subdirectory(${RECREATION_RX_DIR} rx)
 
 add_subdirectory(third_party)
+
+# The text stack libultragui needs. A cross build has no pkg-config answer for
+# the target platform -- the host's freetype2.pc is the wrong architecture and
+# is exactly what pkg-config would hand back -- so build both from source and
+# let libultragui pick the targets up. A native build keeps using the system
+# copies.
+option(RECREATION_FETCH_TEXT_LIBS
+  "Build freetype + harfbuzz from source instead of finding them on the system"
+  ${CMAKE_CROSSCOMPILING})
+if(RECREATION_FETCH_TEXT_LIBS)
+  set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
+  set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
+  set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
+  set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
+  # freetype's own harfbuzz support is only for autohinting; leaving it off
+  # keeps the dependency one-way (harfbuzz -> freetype) and the two orderable.
+  set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
+  set(HB_HAVE_FREETYPE ON CACHE BOOL "" FORCE)
+  set(HB_BUILD_SUBSET OFF CACHE BOOL "" FORCE)
+  set(HB_BUILD_UTILS OFF CACHE BOOL "" FORCE)
+  set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
+  FetchContent_Declare(freetype
+    GIT_REPOSITORY https://github.com/freetype/freetype.git
+    GIT_TAG VER-2-13-3
+    GIT_SHALLOW ON)
+  FetchContent_Declare(harfbuzz
+    GIT_REPOSITORY https://github.com/harfbuzz/harfbuzz.git
+    GIT_TAG 10.4.0
+    GIT_SHALLOW ON)
+  # harfbuzz's CMake leaves HARFBUZZ_FOUND in the cache, and freetype reads that
+  # exact name to decide whether to build its harfbuzz-backed autohinter. On the
+  # second configure freetype therefore turns it on despite FT_DISABLE_HARFBUZZ,
+  # and then cannot find <hb.h>. Clear it ahead of freetype every time.
+  unset(HARFBUZZ_FOUND CACHE)
+  FetchContent_MakeAvailable(freetype)
+  FetchContent_MakeAvailable(harfbuzz)
+  # hb.hh escalates a long list of warnings to errors with #pragma GCC
+  # diagnostic, which a compiler newer than the release will always lose. Those
+  # are harfbuzz's own to fix, not ours.
+  target_compile_definitions(harfbuzz PRIVATE HB_NO_PRAGMA_GCC_DIAGNOSTIC_ERROR)
+  message(STATUS "freetype + harfbuzz built from source")
+endif()
 
 # libultragui: GPU UI middleware (sibling checkout) for the HUD and menus. Built
 # in draw-data mode with a custom SDL-fed platform and a headless RHI, so it

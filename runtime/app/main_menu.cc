@@ -34,6 +34,7 @@
 #include "asset/mesh.h"
 #include "components/script/games/skyrim/skyrim_bindings.h"
 #include "core/log.h"
+#include "core/paths.h"
 #include "runtime/app/engine_internal.h"
 #include "runtime/ui/thumbnailer.h"  // off-screen clay render of the hero centerpiece
 
@@ -42,7 +43,9 @@
 #endif
 
 // Where the base games' key art ships (runtime/ui/art, beside the .ugui
-// screens). Baked in absolute by CMake so a dev build finds the source tree.
+// screens). Baked in absolute by CMake so a dev build finds the source tree; a
+// shipped build carries the same files in art/ beside the executable, because
+// the baked-in path names a directory only the build machine has.
 #ifndef RECREATION_UI_ART_DIR_DEFAULT
 #define RECREATION_UI_ART_DIR_DEFAULT "runtime/ui/art"
 #endif
@@ -325,8 +328,11 @@ base::String GameKeyArt(bethesda::Game game) {
   const base::String live = WorldCapturePath(game);
   if (fs::exists(live.c_str(), ec))
     return live;
-  const base::String shipped =
-      base::String(RECREATION_UI_ART_DIR_DEFAULT "/menu_") + GameSlug(game) + ".png";
+  const base::String file = base::String("menu_") + GameSlug(game) + ".png";
+  const fs::path beside = ExecutableDirectory() / "art" / file.c_str();
+  if (fs::is_regular_file(beside, ec))
+    return beside.string().c_str();
+  const base::String shipped = base::String(RECREATION_UI_ART_DIR_DEFAULT "/") + file;
   if (fs::exists(shipped.c_str(), ec))
     return shipped;
   return {};

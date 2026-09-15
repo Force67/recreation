@@ -79,7 +79,9 @@ SDL3 and zlib stay optional at build time: without SDL3 the runtime is
 headless (pass `-DRECREATION_FETCH_SDL3=ON` to download it), without zlib
 compressed plugin records are rejected at load time.
 
-Targets: Windows, Linux, Android (via the NDK toolchain file).
+Targets: Windows, Linux, Android (via the NDK toolchain file). The Windows
+binary can also be cross-built from Linux and run here, which is how the port
+is tested: see [`WINDOWS.md`](WINDOWS.md).
 
 With Nix, `nix develop` provides the toolchain, SDL3, the Vulkan loader,
 validation layers and tools. Configure with the pinned dependency set via
