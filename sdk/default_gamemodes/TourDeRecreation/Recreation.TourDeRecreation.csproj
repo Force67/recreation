@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Tour de Recreation: the guided demo, built as its own gamemode assembly
+       and loaded from the gamemodes/ directory like any other optional mode. It
+       is deliberately ordinary - it references the SDK exactly the way a
+       third-party mod does, so if the tour can do something, so can anyone.
+
+       References the SDK COMPILE-TIME ONLY (Private=false) so the built DLL does
+       not carry its own Recreation.Scripting copy; at load it binds to the
+       engine's already-loaded SDK. Shipping a duplicate would split assembly
+       identity. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Recreation.TourDeRecreation</AssemblyName>
+    <RootNamespace>Recreation.Games.TourDeRecreation</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Recreation.Scripting.csproj" Private="false" />
+  </ItemGroup>
+
+  <!-- The test runner exercises the tour's stop list and its coordinate maths. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Recreation.Scripting.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -8,6 +8,7 @@ file(COPY "${DIR}/Recreation.Skyrim.dll"
           "${DIR}/Recreation.Fallout.dll"
           "${DIR}/Recreation.Starfield.dll"
           "${DIR}/Recreation.SkyrimCartRacing.dll"
+          "${DIR}/Recreation.TourDeRecreation.dll"
      DESTINATION "${DIR}/gamemodes")
 
 # Each assembly's menu manifest (and any key art beside it) lives with the

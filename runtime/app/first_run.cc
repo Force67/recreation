@@ -3,28 +3,18 @@
 #include <base/option.h>
 #include <base/strings/xstring.h>
 
-#include <cstdio>
+#include <atomic>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
 
+#include <SDL3/SDL.h>
+
 #include "components/bethesda/game_profile.h"
 #include "core/log.h"
 #include "runtime/app/engine.h"
 #include "runtime/app/engine_internal.h"
-
-#if defined(_WIN32) && !defined(popen)
-// MSVC names the pipe helpers _popen/_pclose; the folder picker shells out the
-// same way on every platform (PowerShell on Windows). mingw's <stdio.h> already
-// maps the posix spellings onto them, and redefining them there is an error.
-static FILE* popen(const char* cmd, const char* mode) {
-  return _popen(cmd, mode);
-}
-static int pclose(FILE* stream) {
-  return _pclose(stream);
-}
-#endif
 
 // The first-run / out-of-box setup wizard: the front door a fresh install opens
 // before the NEXUS main menu. Pre-resolves the installed universes, lets the
@@ -107,46 +97,76 @@ base::Map<base::String, base::String> ReadIni() {
   return kv;
 }
 
-// Open a native folder picker and return the chosen absolute path ("" if the
-// user cancelled or no picker is available). Uses the same shell-out approach as
-// the menu's OpenUrl: zenity/kdialog on Linux, NSOpenPanel via osascript on
-// macOS, a FolderBrowserDialog via PowerShell on Windows.
-base::String RunPicker(const base::String& cmd) {
-  FILE* p = popen(cmd.c_str(), "r");
-  if (!p)
-    return "";
-  base::String out;
-  char buf[1024];
-  size_t n;
-  while ((n = std::fread(buf, 1, sizeof(buf), p)) > 0)
-    out.append(buf, n);
-  pclose(p);
-  while (!out.empty() && (out.back() == '\n' || out.back() == '\r'))
-    out.pop_back();
-  return out;
+// The folder picker.
+//
+// SDL raises the desktop's own dialog: the XDG portal over D-Bus where there is
+// one (which is also the only route that works inside a flatpak), zenity where
+// there is not, IFileDialog on Windows, NSOpenPanel on macOS. This used to
+// popen `zenity --file-selection` with the title pasted into a shell string,
+// falling back to kdialog, to osascript, to a PowerShell FolderBrowserDialog --
+// which froze the engine for as long as the dialog was open and had nothing to
+// say on a desktop that shipped none of them.
+//
+// It is asynchronous, and it has to be: SDL calls back when the player is done,
+// possibly from another thread, so the answer is parked here and UpdateFirstRun
+// takes it on a later frame. One dialog at a time is all the wizard can ask
+// for, so one slot is enough.
+constexpr int kPickModsDir = 3;  // target for the mods directory, 0..2 are games
+
+struct FolderPick {
+  std::atomic<bool> ready{false};  // a result is parked; written last, read first
+  bool open = false;               // a dialog is up: do not raise a second
+  int target = 0;
+  base::String path;  // empty means cancelled, or the dialog failed to open
+  SDL_PropertiesID props = 0;
+};
+FolderPick g_pick;
+
+void FolderPicked(void* /*userdata*/, const char* const* filelist, int /*filter*/) {
+  // A null list is an error and a list whose first entry is null is a cancel.
+  // Neither is worth a word to the player: nothing happened.
+  g_pick.path = (filelist && filelist[0]) ? filelist[0] : "";
+  g_pick.ready.store(true, std::memory_order_release);
 }
 
-base::String PickFolder(const base::String& title) {
-  // Test hook: skip the GUI dialog and return a fixed path. Lets the browse flow
-  // run without a display (headless capture, CI).
-  if (const char* o = PickOverride.get())
-    return o;
-#if defined(_WIN32)
-  const base::String cmd =
-      "powershell -NoProfile -Command \"Add-Type -AssemblyName System.Windows.Forms; "
-      "$f=New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description='" +
-      title + "'; if($f.ShowDialog() -eq 'OK'){Write-Output $f.SelectedPath}\"";
-  return RunPicker(cmd);
-#elif defined(__APPLE__)
-  return RunPicker("osascript -e 'POSIX path of (choose folder with prompt \"" + title +
-                   "\")' 2>/dev/null");
-#else
-  base::String p =
-      RunPicker("zenity --file-selection --directory --title=\"" + title + "\" 2>/dev/null");
-  if (p.empty())
-    p = RunPicker("kdialog --getexistingdirectory \"$HOME\" --title \"" + title + "\" 2>/dev/null");
-  return p;
-#endif
+void PickFolder(Window& window, int target, const base::String& title) {
+  if (g_pick.open || g_pick.ready.load(std::memory_order_acquire))
+    return;  // one at a time, and never over an answer nobody has read yet
+  g_pick.target = target;
+  // Test hook: answer with a fixed path instead of opening anything, so the
+  // browse flow runs without a display (headless capture, CI).
+  if (const char* o = PickOverride.get()) {
+    g_pick.path = o;
+    g_pick.ready.store(true, std::memory_order_release);
+    return;
+  }
+  g_pick.props = SDL_CreateProperties();
+  if (g_pick.props == 0) {
+    RX_WARN("first-run: no folder dialog ({})", SDL_GetError());
+    return;
+  }
+  SDL_SetStringProperty(g_pick.props, SDL_PROP_FILE_DIALOG_TITLE_STRING, title.c_str());
+  SDL_SetPointerProperty(g_pick.props, SDL_PROP_FILE_DIALOG_WINDOW_POINTER,
+                         window.native_handles().window);
+  g_pick.open = true;
+  SDL_ShowFileDialogWithProperties(SDL_FILEDIALOG_OPENFOLDER, FolderPicked, nullptr, g_pick.props);
+}
+
+// Take the parked answer, if there is one, and free what the dialog held. The
+// properties outlive the call on purpose: the dialog reads them while it is up.
+bool TakePickedFolder(int* target, base::String* path) {
+  if (!g_pick.ready.load(std::memory_order_acquire))
+    return false;
+  *target = g_pick.target;
+  *path = g_pick.path;
+  if (g_pick.props != 0) {
+    SDL_DestroyProperties(g_pick.props);
+    g_pick.props = 0;
+  }
+  g_pick.path.clear();
+  g_pick.open = false;
+  g_pick.ready.store(false, std::memory_order_release);
+  return true;
 }
 
 // Resolve a user-picked folder to a valid Data directory for `game`, or "" if
@@ -185,12 +205,18 @@ void LoadSetupConfig(Engine& engine) {
     d.game = spec.game;
     d.data_dir = it->second;
     d.plugins_txt = it->second + "/../plugins.txt";
-    self->config_.extra_domains.push_back(d);
+    self->config_.known_games.push_back(d);
   }
   if (const auto it = kv.find("mods_dir"); it != kv.end() && !it->second.empty()) {
     self->config_.mods_dir = it->second;
     self->first_run_mods_dir_ = it->second;
   }
+  // The name the wizard collected. Without this the setup wrote it and nothing
+  // ever read it back, so the front screen kept showing the account name.
+  // A --name on the command line was an explicit choice this run and wins.
+  if (const auto it = kv.find("username");
+      it != kv.end() && !it->second.empty() && self->config_.player_name.empty())
+    self->config_.player_name = it->second;
 }
 
 // True once the wizard has been completed (setup.ini exists with done=1).
@@ -239,6 +265,11 @@ void WriteSetupIni(const base::Array<base::String, 3>& data_dirs,
   f << "enable_mods=" << (r.enable_mods ? 1 : 0) << "\n";
   f << "share_diagnostics=" << (r.share_diagnostics ? 1 : 0) << "\n";
   f << "check_updates=" << (r.check_updates ? 1 : 0) << "\n";
+  f << "rich_presence=" << (r.rich_presence ? 1 : 0) << "\n";
+  // Omitted entirely when blank, so "no name chosen" and "chose an empty name"
+  // stay the same thing and the account name keeps standing in.
+  if (!r.username.empty())
+    f << "username=" << r.username.c_str() << "\n";
   RX_INFO("first-run setup saved to {}", SetupFile().string());
 }
 
@@ -252,27 +283,55 @@ void Engine::UpdateFirstRun(f32 dt) {
   // Shared by the browse click and the auto-browse test hook below.
   auto accept_folder = [this](int idx, const base::String& picked) {
     if (idx < 0 || idx >= 3 || picked.empty())
-      return;
+      return;  // cancelled the dialog: nothing happened, say nothing
     MenuUniverse& u = menu_universes_[idx];
     const base::String data = ResolvePickedDataDir(u.game, picked);
     if (data.empty()) {
+      // The pick did not hold the game. Name the file that was looked for, so
+      // the player can tell "wrong folder" from "wrong game" without a log.
+      const auto& profile = bethesda::GameProfile::For(u.game);
+      const base::String master =
+          profile.base_masters.empty() ? base::String("its master file")
+                                       : base::String(profile.base_masters[0].c_str());
+      first_run_notice_ = "No " + master + " in that folder. Pick the Data folder of your " +
+                          u.name + " install, or the install itself.";
       RX_WARN("first-run: {} not found under {}", u.name, picked);
       return;
     }
     u.data_dir = data;
     u.plugins_txt = data + "/../plugins.txt";
     u.available = true;
+    first_run_notice_.clear();
     RX_INFO("first-run: located {} at {}", u.name, data);
   };
 
+  // A folder the dialog has finished with, from whenever the player closed it.
+  {
+    int target = 0;
+    base::String picked;
+    if (TakePickedFolder(&target, &picked)) {
+      if (target == kPickModsDir) {
+        if (!picked.empty())
+          first_run_mods_dir_ = picked;
+      } else {
+        accept_folder(target, picked);
+      }
+    }
+  }
+
   // Test hook: RX_FIRSTRUN_AUTOBROWSE=<0..2> browses that column once on the
-  // first frame (mirrors RX_MENU_AUTOPLAY), so the picker, validation and
-  // locate path run without a mouse. Pair with RX_PICK_OVERRIDE for the folder.
+  // first frame (mirrors RX_MENU_AUTOPLAY), so the validation and locate path
+  // run without a mouse. Pair with RX_PICK_OVERRIDE for the folder, which is
+  // taken here rather than through the dialog so the whole flow still resolves
+  // within the frame it fired on.
   if (const char* ab = FirstrunAutobrowse.get()) {
     static bool fired = false;
     if (!fired) {
       fired = true;
-      accept_folder(std::atoi(ab), PickFolder("auto"));
+      if (const char* o = PickOverride.get())
+        accept_folder(std::atoi(ab), o);
+      else
+        PickFolder(*window_, std::atoi(ab), "auto");
     }
   }
 
@@ -293,6 +352,7 @@ void Engine::UpdateFirstRun(f32 dt) {
     view.games.push_back(g);
   }
   view.mods_dir = first_run_mods_dir_;
+  view.notice = first_run_notice_;
   game_ui_.SetFirstRunView(view);
 
   // Test hook: RX_FIRSTRUN_AUTOLAUNCH advances one page per frame to the end and
@@ -306,19 +366,18 @@ void Engine::UpdateFirstRun(f32 dt) {
     case FirstRunRequest::Kind::kBrowseGame: {
       if (req.index < 0 || req.index >= 3)
         break;
-      accept_folder(req.index,
-                    PickFolder("Locate the " + menu_universes_[req.index].name + " Data folder"));
+      PickFolder(*window_, req.index,
+                 "Locate the " + menu_universes_[req.index].name + " Data folder");
       break;
     }
-    case FirstRunRequest::Kind::kBrowseMods: {
-      const base::String p = PickFolder("Choose the Recreation mods directory");
-      if (!p.empty())
-        first_run_mods_dir_ = p;
+    case FirstRunRequest::Kind::kBrowseMods:
+      PickFolder(*window_, kPickModsDir, "Choose the Recreation mods directory");
       break;
-    }
     case FirstRunRequest::Kind::kLaunch: {
-      // Fold the located universes into config_.extra_domains so the SetupMainMenu
-      // that follows re-resolves to the same paths, and gather them for the ini.
+      // Record the located universes so the SetupMainMenu that follows resolves
+      // to the same paths, and gather them for the ini. known_games, not
+      // extra_domains: these are the games the player owns, not games to mount
+      // all at once (see EngineConfig).
       base::Array<base::String, 3> data_dirs;
       for (int i = 0; i < 3; ++i) {
         const MenuUniverse& u = menu_universes_[i];
@@ -329,9 +388,14 @@ void Engine::UpdateFirstRun(f32 dt) {
         d.game = kGameSpecs[i].game;
         d.data_dir = u.data_dir;
         d.plugins_txt = u.plugins_txt.empty() ? (u.data_dir + "/../plugins.txt") : u.plugins_txt;
-        config_.extra_domains.push_back(d);
+        config_.known_games.push_back(d);
       }
       config_.mods_dir = first_run_mods_dir_.empty() ? DefaultModsDir() : first_run_mods_dir_;
+      // Apply the name now, not just persist it: the front screen this hands off
+      // to reads config_.player_name, and waiting for a restart to show the name
+      // someone just typed is the kind of thing that reads as "it did not work".
+      if (!req.username.empty())
+        config_.player_name = req.username;
       WriteSetupIni(data_dirs, config_.mods_dir, req);
       first_run_active_ = false;
       game_ui_.CloseFirstRun();

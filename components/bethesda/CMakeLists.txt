@@ -22,6 +22,7 @@ recreation_add_module(bethesda
   animation_data.cc
   starfield_mesh.cc
   material_db.cc
+  load_screen.cc
   biom.cc
   planet.cc
   shader_package.cc

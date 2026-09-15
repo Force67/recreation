@@ -144,6 +144,18 @@ void Engine::ServerSimulateActors(f32 /*dt*/) {
 // OnInitialize).
 void Engine::OnSimulate(f32 raw_frame_delta) {
   const f32 frame_delta = LongestStep(raw_frame_delta);
+  // Age the world, and lift the bring-up grace once the start-up quests have had
+  // their turn. Until then their MovePlayer calls are ignored, which is what
+  // keeps a freshly spawned player on the ground they spawned on rather than
+  // inside whichever interior a quest alias happened to name last. See the
+  // on_move_player hook in content_load.cc.
+  if (!quest_moves_allowed_.load(std::memory_order_relaxed)) {
+    world_age_ += frame_delta;
+    if (world_age_ >= kQuestMoveGraceSeconds) {
+      quest_moves_allowed_.store(true, std::memory_order_relaxed);
+      RX_INFO("world settled after {:.1f}s; quest player-moves are live", world_age_);
+    }
+  }
 #if RECREATION_HAS_NET
   // Apply a requested live mod reload; drained on the main thread where the Vfs
   // is not being read (a fresh mount is picked up by next frame's streaming).
@@ -406,6 +418,11 @@ void Engine::OnUpdate(f32 raw_frame_delta) {
         }
       }
       TickMenuCapture();  // grab a clean backdrop frame after entering a universe
+      // The loading screen outlives the load itself, covering the world as it
+      // streams in; this is what eventually takes it down. It has to run from
+      // here rather than block inside the load, because the cells it waits for
+      // are streamed by this very loop.
+      TickLoadingScreen(*this, frame_delta);
       debug_ui_.BeginFrame();
       UpdateCamera(frame_delta);
       UpdateSettings();          // pause-menu controls: rebind capture + sensitivity
@@ -434,6 +451,15 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
       // depth-sink behavior; the view carries a single rect).
       if (streamer_ && !streamer_->in_interior()) {
         std::memcpy(view.detail_rect, streamer_->detail_rect(), sizeof(view.detail_rect));
+      }
+      // While the loading screen is up the world behind it is still assembling
+      // itself, and none of it belongs in shot: the screen shows one object on
+      // a black stage. Emit that object alone and skip the world gather, which
+      // also hands the streaming the GPU time it is competing for.
+      if (load_screen_up_) {
+        AppendLoadScreenModel(*this, view);
+        game_ui_.Build(*window_, *renderer_, camera_, frame_delta, &view);
+        return;
       }
       // Rebuilt every frame so destroyed entities drop out on their own.
       base::UnorderedMap<u64, Mat4> transforms;
