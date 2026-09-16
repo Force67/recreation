@@ -53,7 +53,9 @@ the sibling repos (rx, zetanet, libultragui) and report anything still missing.
 Building recreation requires a sibling rx checkout (the engine); its SDK deps
 (FidelityFX/DLSS/NRD/Jolt) are fetched into that checkout by
 `../rx/tools/get_*.sh`. Point at an rx elsewhere with
-`-DRECREATION_RX_DIR=/path/to/rx`.
+`-DRECREATION_RX_DIR=/path/to/rx`. libultragui is required too, and not only
+for the HUD: rx draws its engine splash with it (`rx::ui`), so every build
+needs the checkout even where no HUD is built.
 
 ```sh
 scripts/setup.sh                 # Linux/macOS: do everything
@@ -75,6 +77,8 @@ cmake --build build
 Vulkan headers and the volk loader are pinned and fetched at configure time,
 no SDK install needed. At runtime a Vulkan 1.3 driver is required for
 rendering, without one (or without a window) the renderer degrades to a stub.
+A windowed run opens on the rx engine splash for a couple of seconds; `RX_SPLASH=0`
+suppresses it, and a headless or fixed-timestep run (every capture) never shows it.
 SDL3 and zlib stay optional at build time: without SDL3 the runtime is
 headless (pass `-DRECREATION_FETCH_SDL3=ON` to download it), without zlib
 compressed plugin records are rejected at load time.

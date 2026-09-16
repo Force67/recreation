@@ -15,10 +15,10 @@ on:
 # Pin them. Bumping is a deliberate edit of these four lines, which is also the
 # commit that carries whatever source changes the new revision needs.
 env:
-  RX_REF: 45a9ed78751e9f13a347d13ae8f10a27440d4db4  # main
+  RX_REF: 26345666e341d3ccf2cf1c631ccde4ec4bac6094  # main: the rx::ui splash module
   KINEMA_REF: 5cee20221bff4eba4027e99068c35261bb45a60b
-  LIBULTRAGUI_REF: 1e5f02d636155775c780ef84948cb57c15350e68  # main: arrow-key focus navigation
-  ZETANET_REF: 5fbc7549c9ec1803bccd0f6dfbc781ae43ebd1f7  # develop
+  LIBULTRAGUI_REF: 03a73206ca6f1ec3bef9d7b229c1343d66b3722b  # main: fonts from memory
+  ZETANET_REF: 80ed00c4c71a4a204d79a82636fa7819f046db18  # develop: explicit <string.h>
 
 jobs:
   linux:
@@ -26,7 +26,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive  # third_party/equilibrium
+          # third_party/equilibrium, and only it: equilibrium's own eight
+          # submodules (googletest, musl, mbedtls, tracy, ...) are test and
+          # platform deps behind EQ_BUILD_TESTS, which this build turns off.
+          submodules: true
       - name: zetanet
         uses: actions/checkout@v4
         with:
@@ -47,7 +50,9 @@ jobs:
           repository: Force67/rx
           ref: ${{ env.RX_REF }}
           path: rx
-          submodules: recursive
+          # Its only submodule is equilibrium, which rx skips here anyway
+          # (recreation supplies equilibrium::base before rx is added).
+          submodules: true
       - name: kinema
         uses: actions/checkout@v4
         with:
@@ -131,7 +136,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive  # third_party/equilibrium
+          # third_party/equilibrium, and only it: equilibrium's own eight
+          # submodules (googletest, musl, mbedtls, tracy, ...) are test and
+          # platform deps behind EQ_BUILD_TESTS, which this build turns off.
+          submodules: true
       - name: zetanet
         uses: actions/checkout@v4
         with:
@@ -152,7 +160,9 @@ jobs:
           repository: Force67/rx
           ref: ${{ env.RX_REF }}
           path: rx
-          submodules: recursive
+          # Its only submodule is equilibrium, which rx skips here anyway
+          # (recreation supplies equilibrium::base before rx is added).
+          submodules: true
       - name: kinema
         uses: actions/checkout@v4
         with:
@@ -217,7 +227,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive  # third_party/equilibrium
+          # third_party/equilibrium, and only it: equilibrium's own eight
+          # submodules (googletest, musl, mbedtls, tracy, ...) are test and
+          # platform deps behind EQ_BUILD_TESTS, which this build turns off.
+          submodules: true
       - name: zetanet
         uses: actions/checkout@v4
         with:
@@ -238,7 +251,9 @@ jobs:
           repository: Force67/rx
           ref: ${{ env.RX_REF }}
           path: rx
-          submodules: recursive
+          # Its only submodule is equilibrium, which rx skips here anyway
+          # (recreation supplies equilibrium::base before rx is added).
+          submodules: true
       - name: kinema
         uses: actions/checkout@v4
         with:
@@ -317,7 +332,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive  # third_party/equilibrium
+          # third_party/equilibrium, and only it: equilibrium's own eight
+          # submodules (googletest, musl, mbedtls, tracy, ...) are test and
+          # platform deps behind EQ_BUILD_TESTS, which this build turns off.
+          submodules: true
       - name: zetanet
         uses: actions/checkout@v4
         with:
@@ -338,7 +356,9 @@ jobs:
           repository: Force67/rx
           ref: ${{ env.RX_REF }}
           path: rx
-          submodules: recursive
+          # Its only submodule is equilibrium, which rx skips here anyway
+          # (recreation supplies equilibrium::base before rx is added).
+          submodules: true
       - name: kinema
         uses: actions/checkout@v4
         with:
@@ -408,7 +428,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive  # third_party/equilibrium
+          # third_party/equilibrium, and only it: equilibrium's own eight
+          # submodules (googletest, musl, mbedtls, tracy, ...) are test and
+          # platform deps behind EQ_BUILD_TESTS, which this build turns off.
+          submodules: true
       - name: zetanet
         uses: actions/checkout@v4
         with:
@@ -416,13 +439,25 @@ jobs:
           ref: ${{ env.ZETANET_REF }}
           path: zetanet
           submodules: recursive
+      # No HUD is built here (no SDL3 on this target), but rx::ui draws the
+      # engine splash for every rx application, so the library is checked out
+      # for the engine's sake and built against the cross-compiled text stack.
+      - name: libultragui
+        uses: actions/checkout@v4
+        with:
+          repository: Force67/libultragui
+          ref: ${{ env.LIBULTRAGUI_REF }}
+          path: libultragui
+          submodules: recursive
       - name: rx
         uses: actions/checkout@v4
         with:
           repository: Force67/rx
           ref: ${{ env.RX_REF }}
           path: rx
-          submodules: recursive
+          # Its only submodule is equilibrium, which rx skips here anyway
+          # (recreation supplies equilibrium::base before rx is added).
+          submodules: true
       - name: kinema
         uses: actions/checkout@v4
         with:
@@ -442,6 +477,7 @@ jobs:
           -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake
           -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29
           -DCMAKE_BUILD_TYPE=Release -DRECREATION_BUILD_TOOLS=OFF -DRECREATION_MIMALLOC=ON          -DRECREATION_ZETANET_DIR=${{ github.workspace }}/zetanet
+          -DRECREATION_LIBULTRAGUI_DIR=${{ github.workspace }}/libultragui
           -DRECREATION_RX_DIR=${{ github.workspace }}/rx
       - name: build
         run: cmake --build build-android

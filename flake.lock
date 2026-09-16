@@ -1,16 +1,76 @@
 {
   "nodes": {
+    "equilibrium-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1789583988,
+        "narHash": "sha256-J/JtwyLitdCrSun603VjDnxu1jIaBaxHiIC0OF1ZERI=",
+        "owner": "Force67",
+        "repo": "equilibrium",
+        "rev": "f961dcb8c9965c54c961086144158e043f68a80c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Force67",
+        "repo": "equilibrium",
+        "rev": "f961dcb8c9965c54c961086144158e043f68a80c",
+        "type": "github"
+      }
+    },
+    "kinema-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1783682744,
+        "narHash": "sha256-S374E4GNMX/4OrjMDee7zTidPo7nMAKyVeE0WTfgi5Q=",
+        "ref": "main",
+        "rev": "5cee20221bff4eba4027e99068c35261bb45a60b",
+        "revCount": 15,
+        "type": "git",
+        "url": "https://github.com/Force67/kinema"
+      },
+      "original": {
+        "ref": "main",
+        "rev": "5cee20221bff4eba4027e99068c35261bb45a60b",
+        "type": "git",
+        "url": "https://github.com/Force67/kinema"
+      }
+    },
+    "libultragui-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1789582989,
+        "narHash": "sha256-zMCGsdWXH8NMOQtNULZhzI+wMrzNTY+VKX6fmVvJte4=",
+        "ref": "main",
+        "rev": "03a73206ca6f1ec3bef9d7b229c1343d66b3722b",
+        "revCount": 104,
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/Force67/libultragui"
+      },
+      "original": {
+        "ref": "main",
+        "rev": "03a73206ca6f1ec3bef9d7b229c1343d66b3722b",
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/Force67/libultragui"
+      }
+    },
     "nanobuf-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1782284556,
-        "narHash": "sha256-fSmTFYFx1nCVoe6WQHwSs9CjK0pohSdX0rYE/QH68DI=",
-        "path": "/home/captainspark/Documents/Projects/nanobuf",
-        "type": "path"
+        "lastModified": 1782300000,
+        "narHash": "sha256-UGpLijH9tUXiJ1Ftiixshuxf9gFSbkCZ/5V1nPejDM0=",
+        "ref": "main",
+        "rev": "7cb0cd95a7b06ac2fb335924816b7ac8cb6fa092",
+        "revCount": 21,
+        "type": "git",
+        "url": "https://github.com/Force67/nanobuf"
       },
       "original": {
-        "path": "/home/captainspark/Documents/Projects/nanobuf",
-        "type": "path"
+        "ref": "main",
+        "rev": "7cb0cd95a7b06ac2fb335924816b7ac8cb6fa092",
+        "type": "git",
+        "url": "https://github.com/Force67/nanobuf"
       }
     },
     "nixpkgs": {
@@ -31,6 +91,9 @@
     },
     "root": {
       "inputs": {
+        "equilibrium-src": "equilibrium-src",
+        "kinema-src": "kinema-src",
+        "libultragui-src": "libultragui-src",
         "nanobuf-src": "nanobuf-src",
         "nixpkgs": "nixpkgs",
         "rx-src": "rx-src",
@@ -44,14 +107,21 @@
     "rx-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1783636570,
-        "narHash": "sha256-dM0aURbyJ+LH5Ee0Ig1gMqwyCQzrDcYeWYCWWIx/Byk=",
-        "path": "/home/captainspark/Documents/Projects/rx",
-        "type": "path"
+        "lastModified": 1789583286,
+        "narHash": "sha256-b44kRkYfCFHqRD6vS8NroJezxaNe2h/dhZ9/19Xgir4=",
+        "ref": "main",
+        "rev": "26345666e341d3ccf2cf1c631ccde4ec4bac6094",
+        "revCount": 148,
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/Force67/rx"
       },
       "original": {
-        "path": "/home/captainspark/Documents/Projects/rx",
-        "type": "path"
+        "ref": "main",
+        "rev": "26345666e341d3ccf2cf1c631ccde4ec4bac6094",
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/Force67/rx"
       }
     },
     "sse2neon-src": {
@@ -124,14 +194,21 @@
     "zetanet-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1781183570,
-        "narHash": "sha256-hBOOiMf7bZLSBM3qameQLP9Zqik2ECg2eKpAZFWztuA=",
-        "path": "/home/captainspark/Documents/Projects/zetanet",
-        "type": "path"
+        "lastModified": 1789584335,
+        "narHash": "sha256-U1CPKeHG+cJZ+7Fm50HTP66T5WVZVXeRQZThO1RLNvQ=",
+        "ref": "develop",
+        "rev": "80ed00c4c71a4a204d79a82636fa7819f046db18",
+        "revCount": 66,
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/Force67/zetanet"
       },
       "original": {
-        "path": "/home/captainspark/Documents/Projects/zetanet",
-        "type": "path"
+        "ref": "develop",
+        "rev": "80ed00c4c71a4a204d79a82636fa7819f046db18",
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/Force67/zetanet"
       }
     }
   },

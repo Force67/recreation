@@ -95,10 +95,11 @@ the imgui debug overlay; three things are still missing, and each says so in the
 log:
 
 - **No HUD or menus.** ultragui's backend (`runtime/ui/gui_backend.cc`) records
-  raw Vulkan and bails on anything else, so the game interface is absent. The
-  debug overlay used to be in the same position and is not any more: it draws
-  through `engine/render/util/imgui_renderer.h`, the RHI backend, and an
-  equivalent for ultragui is the work that would close this.
+  raw Vulkan and bails on anything else, so the game interface is absent, and
+  the engine splash (rx::ui, the same kind of backend) skips itself with a line
+  in the log. The debug overlay used to be in the same position and is not any
+  more: it draws through `engine/render/util/imgui_renderer.h`, the RHI backend,
+  and an equivalent for ultragui is the work that would close this.
 - **No mesh-shader or virtual-geometry passes.** Those shaders read buffers
   through device addresses (`vk::RawBufferLoad`), which has no DXIL spelling;
   they are on `RX_SHADER_NO_DXIL` and the engine falls back.

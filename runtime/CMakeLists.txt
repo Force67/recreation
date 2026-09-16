@@ -123,7 +123,8 @@ endif()
 
 # libultragui HUD: only the windowed client builds it; the dedicated server
 # compiles ui/game_ui.cc to a stub. The draw list is rendered by gui_backend.cc
-# with engine-embedded shaders.
+# with the ugui pipeline shaders rx::ui embeds (see gui_backend.cc); the client
+# has to wait for that embed, which nothing but this dependency orders.
 if(RECREATION_HAS_UGUI)
   target_sources(recreation PRIVATE ui/gui_backend.cc ui/shader_pack.cc ui/vanilla_ui.cc
                                      ui/vanilla_list.cc
@@ -131,7 +132,7 @@ if(RECREATION_HAS_UGUI)
   # The vanilla screens' own ActionScript runs on the swf module's interpreter.
   target_link_libraries(recreation PRIVATE ultragui recreation::stb recreation::swf)
   target_compile_definitions(recreation PRIVATE RECREATION_HAS_UGUI=1)
-  # The recreation-owned HUD/thumbnail shaders ship in this archive; the engine
+  # The recreation-owned thumbnail shaders ship in this archive; the engine
   # mounts it under shaders:// at startup (override the path with the env var
   # RECREATION_SHADER_PACK). Absolute so the dev build finds the build output.
   target_compile_definitions(recreation PRIVATE
@@ -151,15 +152,10 @@ if(RECREATION_HAS_UGUI)
   target_compile_definitions(recreation PRIVATE
     RECREATION_UI_ART_DIR_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/ui/art")
   recreation_embed_shaders(recreation
-    ui/shaders/ugui_quad.vs.hlsl
-    ui/shaders/ugui_quad.ps.hlsl
-    ui/shaders/ugui_text.vs.hlsl
-    ui/shaders/ugui_text.ps.hlsl
-    ui/shaders/ugui_frost.vs.hlsl
-    ui/shaders/ugui_frost.ps.hlsl
     ui/shaders/thumb.vs.hlsl
     ui/shaders/thumb.ps.hlsl
   )
+  add_dependencies(recreation rx_ui_shaders)
 endif()
 
 # Dedicated server: same engine, headless config baked in. Still links the

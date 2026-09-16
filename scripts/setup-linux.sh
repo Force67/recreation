@@ -165,7 +165,7 @@ do_doctor() {
   [ -e "$REPO_DIR/../zetanet/CMakeLists.txt" ] && ok "zetanet sibling" \
     || blocker "zetanet missing - run: scripts/setup-linux.sh --deps"
   [ -e "$REPO_DIR/../libultragui/CMakeLists.txt" ] && ok "libultragui sibling" \
-    || warn "libultragui missing - HUD/menus compile out (scripts/setup-linux.sh --deps)"
+    || blocker "libultragui missing - rx::ui needs it for the engine splash (scripts/setup-linux.sh --deps)"
 }
 
 # ---- arg parsing ----------------------------------------------------------

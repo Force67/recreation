@@ -90,7 +90,7 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
             "ui headings will render at regular weight");
   }
 
-  ui::GuiRenderBackend::InitInfo bi;
+  ui::HudRenderBackend::InitInfo bi;
   bi.instance = vk.instance;
   bi.physical_device = vk.physical_device;
   bi.device = vk.device;

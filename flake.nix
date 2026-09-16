@@ -19,29 +19,65 @@
       flake = false;
     };
 
-    # Sibling checkout on the devel branch, vendored equilibrium included.
-    # A path input so local fixes land in the sandbox without a commit.
+    # The co-developed siblings, at the revisions .github/workflows/build.yml
+    # pins: the sandbox and CI then compile the same engine, and moving either
+    # one is the same deliberate edit. They are fetched rather than read out of
+    # a working copy, so no checkout has to sit next to this one -- at the cost
+    # that local edits only reach the sandbox once pushed.
+    #
+    # `submodules=1` where CI checks out with `submodules: recursive`, which is
+    # the flag a github: tarball input cannot carry. Of rx's third_party tree
+    # only what git tracks arrives: the FidelityFX/DLSS/NRD/Jolt SDKs are
+    # downloads (rx/tools/get_*.sh), so this build turns those features off
+    # (physics included) with a line in the configure log. A working copy with
+    # the SDKs fetched is still the way to build with them -- point
+    # RECREATION_RX_DIR at one.
+
+    # zetanet: the UDP transport and reliability layer, vendored equilibrium
+    # included. Its branch is develop, not main.
     zetanet-src = {
-      url = "path:/home/captainspark/Documents/Projects/zetanet";
+      url = "git+https://github.com/Force67/zetanet?submodules=1&ref=develop&rev=80ed00c4c71a4a204d79a82636fa7819f046db18";
       flake = false;
     };
 
     # nanobuf: the wire-message toolchain. Provides nanoc (the schema
-    # compiler) and the header-only C++ runtime. Same co-developed-sibling
-    # treatment as zetanet: a path input so local schema/runtime edits reach
-    # the sandbox without a commit. Upstream is github:Force67/nanobuf; swap
-    # the url for a github ref + rev to pin to upstream instead.
+    # compiler) and the header-only C++ runtime.
     nanobuf-src = {
-      url = "path:/home/captainspark/Documents/Projects/nanobuf";
+      url = "git+https://github.com/Force67/nanobuf?ref=main&rev=7cb0cd95a7b06ac2fb335924816b7ac8cb6fa092";
       flake = false;
     };
 
     # rx: the extracted generic engine (core/ecs/asset/render/physics/anim/
-    # audio/rpc + the imgui/cgltf/stb vendored libs and the FSR3/DLSS/NRD/Jolt
-    # SDKs). Same co-developed-sibling treatment as zetanet/nanobuf: a path
-    # input so local engine edits reach the sandbox without a commit.
+    # audio/rpc/ui + the imgui/cgltf/stb vendored libs).
     rx-src = {
-      url = "path:/home/captainspark/Documents/Projects/rx";
+      url = "git+https://github.com/Force67/rx?submodules=1&ref=main&rev=26345666e341d3ccf2cf1c631ccde4ec4bac6094";
+      flake = false;
+    };
+
+    # libultragui: the GPU UI middleware behind the HUD, the menus and (since
+    # rx grew an rx::ui module) the engine splash every rx application shows,
+    # which is what makes it a hard requirement of any build rather than an
+    # optional one.
+    libultragui-src = {
+      url = "git+https://github.com/Force67/libultragui?submodules=1&ref=main&rev=03a73206ca6f1ec3bef9d7b229c1343d66b3722b";
+      flake = false;
+    };
+
+    # kinema: the skeletal animation runtime rx links.
+    kinema-src = {
+      url = "git+https://github.com/Force67/kinema?ref=main&rev=5cee20221bff4eba4027e99068c35261bb45a60b";
+      flake = false;
+    };
+
+    # equilibrium: base:: containers, strings and atomics. It is a submodule of
+    # this repository, and `src = self` is the git tree without submodules, so
+    # the sandbox takes it as an input instead -- at the revision the submodule
+    # records (git ls-tree HEAD third_party/equilibrium), which is the head of
+    # devel5, the branch .gitmodules tracks. A tarball input, not
+    # git+submodules: equilibrium's own eight submodules are test and platform
+    # deps behind EQ_BUILD_TESTS, and this build reads none of them.
+    equilibrium-src = {
+      url = "github:Force67/equilibrium/f961dcb8c9965c54c961086144158e043f68a80c";
       flake = false;
     };
 
@@ -54,7 +90,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, vulkan-headers-src, volk-src, vma-src, zetanet-src, nanobuf-src, rx-src, sse2neon-src }:
+  outputs = { self, nixpkgs, vulkan-headers-src, volk-src, vma-src, zetanet-src, nanobuf-src, rx-src, libultragui-src, kinema-src, equilibrium-src, sse2neon-src }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems
@@ -111,7 +147,9 @@
           version = "0.1.0";
           src = self;
 
-          nativeBuildInputs = with pkgs; [ cmake ninja directx-shader-compiler pkg-config ];
+          # dxc compiles the .hlsl shaders, slangc the .slang ones rx's renderer
+          # has carried since it took a second shader language.
+          nativeBuildInputs = with pkgs; [ cmake ninja directx-shader-compiler shader-slang pkg-config ];
           # ffmpeg supplies libav* for the compressed game audio codecs (xWMA,
           # Wwise, the WMA inside FUZ voice files), enabled below.
           # wayland: libwayland-client for the KDE HDR-toggle monitor (linux).
@@ -122,6 +160,11 @@
             "-DRECREATION_ZETANET_DIR=${zetanet-src}"
             "-DRECREATION_NANOBUF_DIR=${nanobuf-src}"
             "-DRECREATION_RX_DIR=${rx-src}"
+            "-DRECREATION_LIBULTRAGUI_DIR=${libultragui-src}"
+            "-DRECREATION_EQUILIBRIUM_DIR=${equilibrium-src}"
+            # rx looks for kinema beside its own source; in the store it is not
+            # there, so hand it the path.
+            "-DRX_KINEMA_DIR=${kinema-src}"
             "-DRECREATION_AUDIO_FFMPEG=ON"
           ];
 

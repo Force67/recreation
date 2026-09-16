@@ -137,9 +137,19 @@ include(mimalloc)
 # submodule) and is its single source of truth, so base:: containers, strings
 # and atomics are shared between the engine and the network stack.
 # EQ_USE_STD_ATOMIC matches the std::memory_order_* zetanet hands to base::Atomic.
-if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/equilibrium/CMakeLists.txt")
+#
+# The submodule is the default, not the only way in: a build whose source tree
+# has no submodules (the nix sandbox, an exported tarball) points this at a
+# checkout of its own. Only what the submodule records is ever compiled either
+# way -- equilibrium's own eight submodules sit behind EQ_BUILD_TESTS, which is
+# off below, so nothing here needs them cloned.
+set(RECREATION_EQUILIBRIUM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/equilibrium"
+  CACHE PATH "Path to an equilibrium checkout (default: the submodule)")
+if(NOT EXISTS "${RECREATION_EQUILIBRIUM_DIR}/CMakeLists.txt")
   message(FATAL_ERROR
-    "equilibrium submodule missing; run: git submodule update --init third_party/equilibrium")
+    "equilibrium not found at ${RECREATION_EQUILIBRIUM_DIR}; run: "
+    "git submodule update --init third_party/equilibrium "
+    "(or set RECREATION_EQUILIBRIUM_DIR)")
 endif()
 set(EQ_USE_STD_ATOMIC ON CACHE BOOL "" FORCE)
 set(EQ_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -158,7 +168,7 @@ set(RECREATION_ZETANET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../zetanet" CACHE PATH
 if(WIN32 AND NOT EQ_FMTLIB_DIR)
   set(EQ_FMTLIB_DIR "${RECREATION_ZETANET_DIR}/vendor/fmtlib" CACHE PATH "" FORCE)
 endif()
-add_subdirectory(third_party/equilibrium equilibrium EXCLUDE_FROM_ALL)
+add_subdirectory(${RECREATION_EQUILIBRIUM_DIR} equilibrium EXCLUDE_FROM_ALL)
 
 if(RECREATION_NET)
   if(NOT EXISTS "${RECREATION_ZETANET_DIR}/CMakeLists.txt")
@@ -282,24 +292,6 @@ set(RECREATION_RX_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../rx" CACHE PATH "Path to an
 if(NOT EXISTS "${RECREATION_RX_DIR}/CMakeLists.txt")
   message(FATAL_ERROR "rx not found at ${RECREATION_RX_DIR}, set RECREATION_RX_DIR")
 endif()
-set(RX_BUILD_RUNTIME OFF CACHE BOOL "" FORCE)
-set(RX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(RX_FSR3 ${RECREATION_FSR3} CACHE BOOL "" FORCE)
-set(RX_DLSS ${RECREATION_DLSS} CACHE BOOL "" FORCE)
-set(RX_NRD ${RECREATION_NRD} CACHE BOOL "" FORCE)
-set(RX_JOLT ${RECREATION_JOLT} CACHE BOOL "" FORCE)
-set(RX_AUDIO_FFMPEG ${RECREATION_AUDIO_FFMPEG} CACHE BOOL "" FORCE)
-set(RX_SANITIZE ${RECREATION_SANITIZE} CACHE BOOL "" FORCE)
-set(RX_MIMALLOC OFF CACHE BOOL "" FORCE)
-# RX discovers a sibling zetanet independently, so mirror recreation's network gate.
-if(NOT RECREATION_NET)
-  # scene links rx::script unconditionally, so it has to stay in the slice.
-  set(RX_MODULES core ecs script asset scene edit render physics anim audio rpc nav
-                 character inventory app)
-endif()
-add_subdirectory(${RECREATION_RX_DIR} rx)
-
-add_subdirectory(third_party)
 
 # The text stack libultragui needs. A cross build has no pkg-config answer for
 # the target platform -- the host's freetype2.pc is the wrong architecture and
@@ -348,8 +340,18 @@ endif()
 # pulls in neither GLFW nor a second Vulkan path; the engine renders its draw
 # list with its own pipelines. Only freetype + harfbuzz + yoga are needed.
 # Skipped (HUD compiles out) when the checkout or SDL3 is missing.
+#
+# Configured before rx, not after: rx::ui (the engine splash) links ultragui and
+# adds the checkout itself when no such target exists yet. That copy would come
+# with ultragui's own Lua scripting instead of recreation's C# host, and adding
+# the same source directory twice is a hard CMake error. Whoever gets there
+# first decides how the library is built, so it is us.
 set(RECREATION_LIBULTRAGUI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../libultragui" CACHE PATH
   "Path to a libultragui checkout")
+# Where rx looks for it when the block below does not run (no SDL3: android).
+# rx::ui is not optional over there -- every rx application shows the splash --
+# so the engine needs a path even when recreation builds no HUD of its own.
+set(RX_LIBULTRAGUI_DIR "${RECREATION_LIBULTRAGUI_DIR}" CACHE PATH "" FORCE)
 set(RECREATION_HAS_UGUI OFF)
 if(SDL3_FOUND AND EXISTS "${RECREATION_LIBULTRAGUI_DIR}/CMakeLists.txt")
   set(ULTRAGUI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -361,9 +363,12 @@ if(SDL3_FOUND AND EXISTS "${RECREATION_LIBULTRAGUI_DIR}/CMakeLists.txt")
   set(ULTRAGUI_VIDEO OFF CACHE BOOL "" FORCE)
   set(ULTRAGUI_PLATFORM_GLFW OFF CACHE BOOL "" FORCE)
   set(ULTRAGUI_BUILD_SHADERS OFF CACHE BOOL "" FORCE)
-  set(ULTRAGUI_PLATFORM_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/runtime/ui/ugui_platform.cc"
+  # The platform and RHI shims are rx's copies: the engine carries the same two
+  # files for its own ugui integration (rx::ui), and recreation held a verbatim
+  # duplicate of both until the engine grew one.
+  set(ULTRAGUI_PLATFORM_SOURCE "${RECREATION_RX_DIR}/engine/ui/ugui_platform.cc"
     CACHE FILEPATH "" FORCE)
-  set(ULTRAGUI_RHI_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/runtime/ui/ugui_rhi.cc"
+  set(ULTRAGUI_RHI_SOURCE "${RECREATION_RX_DIR}/engine/ui/ugui_rhi.cc"
     CACHE FILEPATH "" FORCE)
   # Swap ultragui's scripting runtime for recreation's: ugui handlers run in the
   # hosted .NET (C#) world instead of Lua. The backend stays library-agnostic and
@@ -371,9 +376,9 @@ if(SDL3_FOUND AND EXISTS "${RECREATION_LIBULTRAGUI_DIR}/CMakeLists.txt")
   set(ULTRAGUI_SCRIPT_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/runtime/ui/ugui_script_csharp.cc"
     CACHE FILEPATH "" FORCE)
   add_subdirectory(${RECREATION_LIBULTRAGUI_DIR} libultragui EXCLUDE_FROM_ALL)
-  # The three recreation-owned backends above are compiled into libultragui, so
-  # that target needs recreation's header root to resolve "runtime/ui/..." and
-  # equilibrium::base for the base:: containers those backends use.
+  # The C# script backend above is compiled into libultragui, so that target
+  # needs recreation's header root to resolve "runtime/ui/..." and
+  # equilibrium::base for the base:: containers it uses.
   target_include_directories(ultragui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_link_libraries(ultragui PRIVATE equilibrium::base)
   set(RECREATION_HAS_UGUI ON)
@@ -381,6 +386,27 @@ if(SDL3_FOUND AND EXISTS "${RECREATION_LIBULTRAGUI_DIR}/CMakeLists.txt")
 else()
   message(STATUS "libultragui not found, hud disabled")
 endif()
+
+set(RX_BUILD_RUNTIME OFF CACHE BOOL "" FORCE)
+set(RX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(RX_FSR3 ${RECREATION_FSR3} CACHE BOOL "" FORCE)
+set(RX_DLSS ${RECREATION_DLSS} CACHE BOOL "" FORCE)
+set(RX_NRD ${RECREATION_NRD} CACHE BOOL "" FORCE)
+set(RX_JOLT ${RECREATION_JOLT} CACHE BOOL "" FORCE)
+set(RX_AUDIO_FFMPEG ${RECREATION_AUDIO_FFMPEG} CACHE BOOL "" FORCE)
+set(RX_SANITIZE ${RECREATION_SANITIZE} CACHE BOOL "" FORCE)
+set(RX_MIMALLOC OFF CACHE BOOL "" FORCE)
+# RX discovers a sibling zetanet independently, so mirror recreation's network gate.
+if(NOT RECREATION_NET)
+  # scene links rx::script unconditionally, so it has to stay in the slice, and
+  # app links ui (the engine splash) -- which also has to be listed ahead of
+  # app, since the alias has to exist by the time app's CMakeLists runs.
+  set(RX_MODULES core ecs script asset scene edit render physics anim audio rpc nav
+                 character inventory ui app)
+endif()
+add_subdirectory(${RECREATION_RX_DIR} rx)
+
+add_subdirectory(third_party)
 
 # The generic engine modules (core/ecs/asset/render/physics/anim/rpc) and the
 # kinema animation runtime now come from rx; recreation keeps only its Bethesda
