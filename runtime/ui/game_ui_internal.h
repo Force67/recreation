@@ -90,7 +90,7 @@ inline base::Option<float> PauseAt{"ui.pause_at", 0.0f, "RX_PAUSE_AT"};
 // With RX_PAUSE_AT, walk this many rows down the category list a second later
 // and pick that entry, so a sub-panel can be captured the same way.
 inline base::Option<int> PausePick{"ui.pause_pick", -1, "RX_PAUSE_PICK"};
-constexpr f32 kLegalSeconds = 5.0f;
+constexpr f32 kLegalSeconds = 6.0f;
 // The stage the front screens (legal notice, setup wizard, NEXUS menu) are
 // authored against. ugui's design space here is the raw backbuffer, so they are
 // fitted to the viewport while one of them is up; left alone, a 1920-wide
