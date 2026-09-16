@@ -27,7 +27,10 @@
     panel { position: absolute; left: 130; right: 130; top: 64; bottom: 0; layout: column;
 
       panel { layout: row; align: end; justify: space-between; width: 100%;
-        text { class: t_mast; font-size: 32; letter-spacing: 13; text: "Recreation"; }
+        // The wordmark is artwork, not set type: ApplyMainMenu rasterizes
+        // recreation_wordmark.svg into this box (aspect 8.3:1, so the width
+        // follows the height) and binds it like the other emblems.
+        image mm_wordmark { width: 266; height: 32; }
         panel { layout: row; align: center; gap: 16; margin: 0 -10 0 0;
           // The guided demo leads the nav and is the one entry at full white:
           // it is not a utility beside Mods and Settings, it is the answer to

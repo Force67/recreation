@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1210" height="144" viewBox="844 77 606 73" role="img" aria-labelledby="title desc">
+  <title id="title">recreation — option 02</title>
+  <desc id="desc">Vector reconstruction of the red and silver recreation wordmark, on a transparent background. All lettering is outlined.</desc>
+  <defs>
+    <linearGradient id="red" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff292f"/>
+      <stop offset="0.5" stop-color="#ff2029"/>
+      <stop offset="1" stop-color="#f91c29"/>
+    </linearGradient>
+    <linearGradient id="silver" gradientUnits="userSpaceOnUse" x1="0" y1="78" x2="0" y2="150">
+      <stop offset="0" stop-color="#f4f5f7"/>
+      <stop offset="0.32" stop-color="#e9ecf1"/>
+      <stop offset="0.67" stop-color="#cdd2db"/>
+      <stop offset="1" stop-color="#e4e7ec"/>
+    </linearGradient>
+  </defs>
+  <g fill="url(#red)">
+    <path id="r-red" d="M845 98H904V110H864Q860 110 860 114V149H845Z"/>
+    <path id="e-red" fill-rule="evenodd" d="M911 98H974Q982 98 982 101V121Q982 129 969 129H928V138H982V149H911ZM928 110V118H966V110Z"/>
+  </g>
+  <g fill="url(#silver)">
+    <path id="c" d="M1007 99H1050V111H1011Q1007 111 1007 114V135Q1007 138 1011 138H1050V149H1007Q994 149 994 137V111Q994 99 1007 99Z"/>
+    <path id="r-silver" d="M1072 99H1101V111H1076Q1072 111 1072 115V149H1059V112Q1059 99 1072 99Z"/>
+    <path id="e-silver" fill-rule="evenodd" d="M1120 99H1155Q1168 99 1168 112V124Q1165 129 1156 129H1120V135Q1120 138 1124 138H1168V149H1120Q1107 149 1107 137V111Q1107 99 1120 99ZM1120 111V118H1155V111Z"/>
+    <path id="a" fill-rule="evenodd" d="M1180 99H1225Q1240 99 1240 113V149H1190Q1177 149 1177 137V130Q1177 118 1190 118H1227V114Q1227 111 1223 111H1180ZM1190 129V135Q1190 138 1194 138H1223Q1227 138 1227 135V129Z"/>
+    <path id="t" d="M1253 82H1266V99H1284V111H1266V134Q1266 138 1270 138H1284V149H1268Q1253 149 1253 135V111H1247V99H1253Z"/>
+    <path id="i" d="M1292 78H1305V90H1292ZM1292 99H1305V149H1292Z"/>
+    <path id="o" fill-rule="evenodd" d="M1328 99H1365Q1378 99 1378 112V136Q1378 149 1365 149H1328Q1314 149 1314 136V112Q1314 99 1328 99ZM1332 111Q1328 111 1328 115V134Q1328 138 1332 138H1361Q1365 138 1365 134V115Q1365 111 1361 111Z"/>
+    <path id="n" d="M1386 99H1399V102L1403 99H1435Q1449 99 1449 113V149H1436V116Q1436 111 1431 111H1403Q1400 111 1400 115V149H1386Z"/>
+  </g>
+</svg>

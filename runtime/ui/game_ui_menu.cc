@@ -6,6 +6,8 @@
 
 #if defined(RECREATION_HAS_UGUI)
 
+#include <ugui/svg/svg.h>  // the masthead wordmark is vector art, not set type
+
 namespace rx {
 
 base::String BuildCharGenSection() {
@@ -289,6 +291,19 @@ void GameUi::Impl::ApplyMainMenu() {
   auto setText = [&](const base::String& n, const base::String& t) {
     SetText(n.c_str(), t.c_str());
   };
+
+  // The masthead wordmark, rasterized the first time the screen comes up and
+  // then carried by the emblem rebind below. Twice the 266x32 box the markup
+  // lays out, so it holds up where the front screens are scaled past 1:1.
+  if (!mm_wordmark_tried) {
+    mm_wordmark_tried = true;
+    const fs::path svg = UiDir() / "recreation_wordmark.svg";
+    const ugui::TextureId tex = ugui::LoadSvgTexture(&backend, svg.string().c_str(), 532, 64);
+    if (tex == ugui::kNullTextureId)
+      RX_WARN("ui: cannot rasterize the wordmark: {}", svg.string());
+    else
+      mm_glyphs.emplace_back("mm_wordmark", tex);
+  }
 
   // Emblems: rebind each frame so they survive a hot-reload tree rebuild. The
   // targets are optional (a screen may not carry that mark), hence FindWidget.

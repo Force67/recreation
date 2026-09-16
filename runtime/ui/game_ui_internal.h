@@ -388,6 +388,7 @@ struct GameUi::Impl {
   base::Vector<MenuNewsItem> mm_news;
   u64 mm_backdrop[kMenuUniverses] = {0, 0, 0};
   base::Vector<base::Pair<base::String, u64>> mm_glyphs;  // emblem widget -> texture
+  bool mm_wordmark_tried = false;  // the masthead SVG is rasterized once, not per frame
   bool mm_prev_open = false;  // edge-detect to hide the gameplay HUD while open
 
   int mm_page() const { return mm_entry / kMenuTiles; }
