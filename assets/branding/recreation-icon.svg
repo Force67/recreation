@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="835 11 225 225" role="img" aria-labelledby="title desc">
+  <title id="title">recreation icon</title>
+  <desc id="desc">The "rec" of the recreation wordmark, red re and silver c, centred on a square transparent field. Same paths, coordinates and gradients as the full lockup, so the icon and the masthead cannot drift apart.</desc>
+  <defs>
+    <linearGradient id="red" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff292f"/>
+      <stop offset="0.5" stop-color="#ff2029"/>
+      <stop offset="1" stop-color="#f91c29"/>
+    </linearGradient>
+    <linearGradient id="silver" gradientUnits="userSpaceOnUse" x1="0" y1="78" x2="0" y2="150">
+      <stop offset="0" stop-color="#f4f5f7"/>
+      <stop offset="0.32" stop-color="#e9ecf1"/>
+      <stop offset="0.67" stop-color="#cdd2db"/>
+      <stop offset="1" stop-color="#e4e7ec"/>
+    </linearGradient>
+  </defs>
+  <g fill="url(#red)">
+    <path id="r-red" d="M845 98H904V110H864Q860 110 860 114V149H845Z"/>
+    <path id="e-red" fill-rule="evenodd" d="M911 98H974Q982 98 982 101V121Q982 129 969 129H928V138H982V149H911ZM928 110V118H966V110Z"/>
+  </g>
+  <g fill="url(#silver)">
+    <path id="c" d="M1007 99H1050V111H1011Q1007 111 1007 114V135Q1007 138 1011 138H1050V149H1007Q994 149 994 137V111Q994 99 1007 99Z"/>
+  </g>
+</svg>

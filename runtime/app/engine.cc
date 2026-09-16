@@ -18,7 +18,10 @@
 #include "runtime/interaction/item_bridge.h"
 
 #if defined(RECREATION_HAS_UGUI)
+#include <ugui/svg/svg.h>
+
 #include "asset/pack.h"
+#include "branding/recreation_icon_svg.h"
 #include "runtime/ui/shader_pack.h"
 #endif
 
@@ -96,6 +99,20 @@ bool Engine::OnInitialize(app::Services& services) {
       RX_INFO("shaders: loose override dir {} shadows the archive", dir);
     }
     shaderpack::SetVfs(vfs_);
+  }
+
+  // The taskbar icon. Rasterized big and handed over once: the desktop scales
+  // it down to whatever each surface (dock, alt-tab, title bar) asks for, and
+  // scaling one good raster beats shipping a size that is wrong everywhere.
+  if (window_ && !config_.headless) {
+    ugui::SvgImage icon;
+    if (ugui::LoadSvgMemory(reinterpret_cast<const char*>(kRecreationIconSvg),
+                            sizeof(kRecreationIconSvg), icon, 256, 256) &&
+        !icon.pixels.empty()) {
+      window_->SetIcon(icon.pixels.data(), icon.width, icon.height);
+    } else {
+      RX_WARN("branding: cannot rasterize the window icon");
+    }
   }
 #endif
 

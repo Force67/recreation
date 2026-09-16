@@ -10,7 +10,8 @@ sdk/**/bin/
 .idea/
 .direnv/
 result
-assets/
+assets/*
+!assets/branding/
 third_party/FidelityFX-SDK/
 third_party/JoltPhysics/
 third_party/DLSS/

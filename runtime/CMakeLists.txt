@@ -106,6 +106,15 @@ target_compile_definitions(recreation PRIVATE RECREATION_VERSION="${PROJECT_VERS
 recreation_set_warnings(recreation)
 recreation_enable_mimalloc(recreation)
 
+# The exe icon Explorer and the Windows taskbar read off the PE itself. The
+# running window sets its own icon from the embedded svg either way; this is
+# what the file has before it is launched. Client only: a dedicated server is
+# a console binary nobody pins.
+if(WIN32)
+  enable_language(RC)
+  target_sources(recreation PRIVATE recreation.rc)
+endif()
+
 if(RECREATION_NET)
   target_link_libraries(recreation PRIVATE recreation::gamenet rx::net_viz)
   target_compile_definitions(recreation PRIVATE RECREATION_HAS_NET=1)
@@ -142,6 +151,22 @@ if(RECREATION_HAS_UGUI)
   # RECREATION_UI_DIR. Absolute so the dev build finds the source files.
   target_compile_definitions(recreation PRIVATE
     RECREATION_UI_DIR_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/ui/screens")
+  # The taskbar icon travels inside the binary the way rx carries its splash
+  # wordmark (engine/ui/brand/README.md): a window that comes up before any
+  # archive is mounted cannot go looking for a file, and a shipped tree has no
+  # assets/ to find it in. Same embed script, rasterized at startup.
+  set(recreation_icon_svg ${CMAKE_SOURCE_DIR}/assets/branding/recreation-icon.svg)
+  set(recreation_icon_header ${CMAKE_BINARY_DIR}/generated/branding/recreation_icon_svg.h)
+  set(recreation_embed_script ${RECREATION_RX_DIR}/cmake/embed_bytes.cmake)
+  add_custom_command(OUTPUT ${recreation_icon_header}
+    COMMAND ${CMAKE_COMMAND} -DSOURCE=${recreation_icon_svg} -DHEADER=${recreation_icon_header}
+            -DSYMBOL=kRecreationIconSvg -P ${recreation_embed_script}
+    DEPENDS ${recreation_icon_svg} ${recreation_embed_script}
+    COMMENT "embed recreation-icon.svg"
+    VERBATIM)
+  add_custom_target(recreation_branding DEPENDS ${recreation_icon_header})
+  add_dependencies(recreation recreation_branding)
+  target_include_directories(recreation PRIVATE ${CMAKE_BINARY_DIR}/generated)
   # Default location of the screens tools/swfdump translated out of the games'
   # own Scaleform movies. RX_VANILLA_UI names which ones to load, RX_VANILLA_UI_DIR
   # overrides this path.

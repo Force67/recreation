@@ -1,0 +1,7 @@
+// Windows exe icon. The shell shows the lowest-numbered ICON resource in the
+// taskbar, alt-tab and Explorer, so this one is 1 and the only one.
+//
+// A running window sets its own icon from the svg embedded in the binary
+// (Engine::OnInitialize), which is the path that works on Linux too. This is
+// what the file shows before anyone launches it.
+1 ICON "../assets/branding/recreation.ico"
