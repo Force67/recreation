@@ -154,7 +154,7 @@ function Do-Doctor {
   if ((Have glslangValidator) -or (Have glslang)) { Ok "glslang" } else { Block "glslang missing - scripts\setup-windows.ps1 -Dxc" }
   if (Have dotnet) { Ok "dotnet ($(dotnet --version))" } else { Warn "dotnet SDK 9 not found (only needed for C# scripting)" }
   if (Test-Path (Join-Path $RepoDir '..\zetanet\CMakeLists.txt')) { Ok "zetanet sibling" } else { Block "zetanet missing - scripts\setup-windows.ps1 -Deps" }
-  if (Test-Path (Join-Path $RepoDir '..\libultragui\CMakeLists.txt')) { Ok "libultragui sibling" } else { Warn "libultragui missing - HUD/menus compile out (-Deps)" }
+  if (Test-Path (Join-Path $RepoDir '..\libultragui\CMakeLists.txt')) { Ok "libultragui sibling" } else { Block "libultragui missing - rx::ui needs it for the engine splash (-Deps)" }
 }
 
 function Print-Report {

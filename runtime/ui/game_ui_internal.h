@@ -47,7 +47,7 @@
 #include "render/core/renderer.h"
 #include "render/rhi/vulkan_interop.h"
 #include "runtime/ui/gui_backend.h"
-#include "runtime/ui/ugui_platform.h"
+#include "ui/ugui_platform.h"
 #include "runtime/ui/vanilla_list.h"
 #include "runtime/ui/vanilla_runtime.h"
 #include "runtime/ui/vanilla_ui.h"
@@ -270,7 +270,7 @@ const char* FindBoldFont();
 struct GameUi::Impl {
   ugui::UIContext ui;
   ui::UguiHostState host;
-  ui::GuiRenderBackend backend;
+  ui::HudRenderBackend backend;
   ugui::FontHandle font = ugui::kInvalidFont;
   u32 font_revision = ~0u;
   const ugui::DrawData* draw_data = nullptr;

@@ -7,7 +7,6 @@
 #include <cstring>
 
 #include "render/util/shader_util.h"
-#include "runtime/ui/shader_pack.h"
 #include "shaders/ugui_frost_ps_hlsl.h"
 #include "shaders/ugui_frost_vs_hlsl.h"
 #include "shaders/ugui_quad_ps_hlsl.h"
@@ -42,7 +41,7 @@ void RhiFormatToVk(ugui::RHIFormat f, VkFormat& fmt, uint32_t& pixel_size) {
 
 }  // namespace
 
-uint32_t GuiRenderBackend::FindMemoryType(uint32_t type_filter, VkMemoryPropertyFlags props) const {
+uint32_t HudRenderBackend::FindMemoryType(uint32_t type_filter, VkMemoryPropertyFlags props) const {
   VkPhysicalDeviceMemoryProperties mp;
   vkGetPhysicalDeviceMemoryProperties(info_.physical_device, &mp);
   for (uint32_t i = 0; i < mp.memoryTypeCount; ++i) {
@@ -52,7 +51,7 @@ uint32_t GuiRenderBackend::FindMemoryType(uint32_t type_filter, VkMemoryProperty
   return 0;
 }
 
-void GuiRenderBackend::CreateBuffer(VkDeviceSize size,
+void HudRenderBackend::CreateBuffer(VkDeviceSize size,
                                     VkBufferUsageFlags usage,
                                     VkMemoryPropertyFlags props,
                                     GpuBuffer& out) {
@@ -71,7 +70,7 @@ void GuiRenderBackend::CreateBuffer(VkDeviceSize size,
   out.capacity = size;
 }
 
-void GuiRenderBackend::DestroyBuffer(GpuBuffer& b) {
+void HudRenderBackend::DestroyBuffer(GpuBuffer& b) {
   if (b.buffer)
     vkDestroyBuffer(info_.device, b.buffer, nullptr);
   if (b.memory)
@@ -79,7 +78,7 @@ void GuiRenderBackend::DestroyBuffer(GpuBuffer& b) {
   b = {};
 }
 
-void GuiRenderBackend::UploadBuffer(GpuBuffer& b,
+void HudRenderBackend::UploadBuffer(GpuBuffer& b,
                                     VkBufferUsageFlags usage,
                                     const void* src,
                                     VkDeviceSize bytes) {
@@ -97,7 +96,7 @@ void GuiRenderBackend::UploadBuffer(GpuBuffer& b,
   vkUnmapMemory(info_.device, b.memory);
 }
 
-VkPipeline GuiRenderBackend::CreatePipeline(const unsigned char* vs,
+VkPipeline HudRenderBackend::CreatePipeline(const unsigned char* vs,
                                             size_t vs_size,
                                             const unsigned char* fs,
                                             size_t fs_size,
@@ -213,7 +212,7 @@ VkPipeline GuiRenderBackend::CreatePipeline(const unsigned char* vs,
   return pipeline;
 }
 
-VkSampler GuiRenderBackend::MakeSampler(VkFilter filter) {
+VkSampler HudRenderBackend::MakeSampler(VkFilter filter) {
   VkSamplerCreateInfo s{.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
   s.magFilter = filter;
   s.minFilter = filter;
@@ -225,7 +224,7 @@ VkSampler GuiRenderBackend::MakeSampler(VkFilter filter) {
   return out;
 }
 
-GuiRenderBackend::Texture GuiRenderBackend::MakeTexture(uint32_t w,
+HudRenderBackend::Texture HudRenderBackend::MakeTexture(uint32_t w,
                                                         uint32_t h,
                                                         VkFormat fmt,
                                                         uint32_t pixel_size,
@@ -335,7 +334,7 @@ GuiRenderBackend::Texture GuiRenderBackend::MakeTexture(uint32_t w,
   return t;
 }
 
-VkDescriptorPool GuiRenderBackend::NewDescriptorPool() {
+VkDescriptorPool HudRenderBackend::NewDescriptorPool() {
   VkDescriptorPoolSize ps{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 256};
   VkDescriptorPoolCreateInfo dpci{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
   dpci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
@@ -348,7 +347,7 @@ VkDescriptorPool GuiRenderBackend::NewDescriptorPool() {
   return pool;
 }
 
-VkDescriptorSet GuiRenderBackend::AllocateTextureSet(VkDescriptorPool& out_pool) {
+VkDescriptorSet HudRenderBackend::AllocateTextureSet(VkDescriptorPool& out_pool) {
   for (int attempt = 0; attempt < 2; ++attempt) {
     if (texture_pools_.empty()) {
       VkDescriptorPool fresh = NewDescriptorPool();
@@ -375,7 +374,7 @@ VkDescriptorSet GuiRenderBackend::AllocateTextureSet(VkDescriptorPool& out_pool)
   return VK_NULL_HANDLE;
 }
 
-void GuiRenderBackend::FreeTexture(Texture& t) {
+void HudRenderBackend::FreeTexture(Texture& t) {
   if (t.set && t.pool)
     vkFreeDescriptorSets(info_.device, t.pool, 1, &t.set);
   if (t.view)
@@ -387,7 +386,7 @@ void GuiRenderBackend::FreeTexture(Texture& t) {
   t = {};
 }
 
-bool GuiRenderBackend::Init(const InitInfo& info) {
+bool HudRenderBackend::Init(const InitInfo& info) {
   info_ = info;
   if (info_.frames_in_flight < 1)
     info_.frames_in_flight = 2;
@@ -427,28 +426,18 @@ bool GuiRenderBackend::Init(const InitInfo& info) {
   linear_sampler_ = MakeSampler(VK_FILTER_LINEAR);
   nearest_sampler_ = MakeSampler(VK_FILTER_NEAREST);
 
-  // Shader blobs come from the mounted shaders:// archive, falling back to the
-  // bytes embedded in the binary when the pack is missing (shaderpack::Load).
-  const base::Vector<u8> quad_vs =
-      shaderpack::Load("ugui_quad.vs", k_ugui_quad_vs_hlsl, sizeof(k_ugui_quad_vs_hlsl));
-  const base::Vector<u8> quad_ps =
-      shaderpack::Load("ugui_quad.ps", k_ugui_quad_ps_hlsl, sizeof(k_ugui_quad_ps_hlsl));
-  const base::Vector<u8> text_vs =
-      shaderpack::Load("ugui_text.vs", k_ugui_text_vs_hlsl, sizeof(k_ugui_text_vs_hlsl));
-  const base::Vector<u8> text_ps =
-      shaderpack::Load("ugui_text.ps", k_ugui_text_ps_hlsl, sizeof(k_ugui_text_ps_hlsl));
-  const base::Vector<u8> frost_vs =
-      shaderpack::Load("ugui_frost.vs", k_ugui_frost_vs_hlsl, sizeof(k_ugui_frost_vs_hlsl));
-  const base::Vector<u8> frost_ps =
-      shaderpack::Load("ugui_frost.ps", k_ugui_frost_ps_hlsl, sizeof(k_ugui_frost_ps_hlsl));
-  quad_pipeline_ =
-      CreatePipeline(quad_vs.data(), quad_vs.size(), quad_ps.data(), quad_ps.size(), 9);
-  text_pipeline_ =
-      CreatePipeline(text_vs.data(), text_vs.size(), text_ps.data(), text_ps.size(), 3);
+  // The ugui pipeline shaders belong to the engine: rx::ui compiles and embeds
+  // these six blobs for its own backend, so the game links those arrays rather
+  // than compiling a second copy of shaders it does not own. They are the one
+  // group missing from shaders.rxp, which carries the shaders recreation owns.
+  quad_pipeline_ = CreatePipeline(k_ugui_quad_vs_hlsl, sizeof(k_ugui_quad_vs_hlsl),
+                                  k_ugui_quad_ps_hlsl, sizeof(k_ugui_quad_ps_hlsl), 9);
+  text_pipeline_ = CreatePipeline(k_ugui_text_vs_hlsl, sizeof(k_ugui_text_vs_hlsl),
+                                  k_ugui_text_ps_hlsl, sizeof(k_ugui_text_ps_hlsl), 3);
   // The frosted-glass pipeline shares the quad vertex layout and pipeline layout
   // (one combined image sampler = the blurred backdrop; vertex push constant).
-  frost_pipeline_ =
-      CreatePipeline(frost_vs.data(), frost_vs.size(), frost_ps.data(), frost_ps.size(), 9);
+  frost_pipeline_ = CreatePipeline(k_ugui_frost_vs_hlsl, sizeof(k_ugui_frost_vs_hlsl),
+                                   k_ugui_frost_ps_hlsl, sizeof(k_ugui_frost_ps_hlsl), 9);
   if (!quad_pipeline_ || !text_pipeline_ || !frost_pipeline_)
     return false;
 
@@ -470,7 +459,7 @@ bool GuiRenderBackend::Init(const InitInfo& info) {
   return true;
 }
 
-void GuiRenderBackend::Shutdown() {
+void HudRenderBackend::Shutdown() {
   if (!info_.device)
     return;
   vkDeviceWaitIdle(info_.device);
@@ -508,16 +497,16 @@ void GuiRenderBackend::Shutdown() {
   info_ = {};
 }
 
-void GuiRenderBackend::NewFrame() {
+void HudRenderBackend::NewFrame() {
   frame_index_ = (frame_index_ + 1) % info_.frames_in_flight;
 }
 
-void GuiRenderBackend::SetBackdrop(VkImageView view, VkSampler sampler) {
+void HudRenderBackend::SetBackdrop(VkImageView view, VkSampler sampler) {
   backdrop_view_ = view;
   backdrop_sampler_ = sampler;
 }
 
-bool GuiRenderBackend::UpdateFontAtlas(const uint8_t* pixels, uint32_t width, uint32_t height) {
+bool HudRenderBackend::UpdateFontAtlas(const uint8_t* pixels, uint32_t width, uint32_t height) {
   if (!pixels || width == 0 || height == 0)
     return false;
   vkDeviceWaitIdle(info_.device);
@@ -526,7 +515,7 @@ bool GuiRenderBackend::UpdateFontAtlas(const uint8_t* pixels, uint32_t width, ui
   return font_.image != VK_NULL_HANDLE;
 }
 
-void GuiRenderBackend::Render(const ugui::DrawData& dd, VkCommandBuffer cmd) {
+void HudRenderBackend::Render(const ugui::DrawData& dd, VkCommandBuffer cmd) {
   if (!dd.valid || dd.command_count == 0)
     return;
   if (dd.display_size.x <= 0.0f || dd.display_size.y <= 0.0f)
@@ -622,7 +611,7 @@ void GuiRenderBackend::Render(const ugui::DrawData& dd, VkCommandBuffer cmd) {
   }
 }
 
-ugui::TextureId GuiRenderBackend::CreateTexture(uint32_t width,
+ugui::TextureId HudRenderBackend::CreateTexture(uint32_t width,
                                                 uint32_t height,
                                                 ugui::RHIFormat format,
                                                 const void* pixels,
@@ -642,7 +631,7 @@ ugui::TextureId GuiRenderBackend::CreateTexture(uint32_t width,
   return id;
 }
 
-void GuiRenderBackend::UpdateTexture(ugui::TextureId id, const void* pixels) {
+void HudRenderBackend::UpdateTexture(ugui::TextureId id, const void* pixels) {
   auto* it = user_textures_.find(id);
   if (it == nullptr || !pixels)
     return;
@@ -652,7 +641,7 @@ void GuiRenderBackend::UpdateTexture(ugui::TextureId id, const void* pixels) {
   ut.tex = MakeTexture(ut.width, ut.height, ut.fmt, ut.pixel_size, pixels, ut.sampler);
 }
 
-void GuiRenderBackend::DestroyTexture(ugui::TextureId id) {
+void HudRenderBackend::DestroyTexture(ugui::TextureId id) {
   auto* it = user_textures_.find(id);
   if (it == nullptr)
     return;

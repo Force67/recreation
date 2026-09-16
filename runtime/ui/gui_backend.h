@@ -11,14 +11,19 @@
 #include <cstdint>
 namespace rx::ui {
 
-// Vulkan renderer backend for ultragui draw data. Adapted from the bundled
-// ugui_impl_vulkan to the recreation engine's conventions: volk entry points,
-// dynamic rendering (no VkRenderPass) and shaders embedded as SPIR-V at build
-// time. It records into a command buffer the engine already opened with
-// vkCmdBeginRendering on the backbuffer, exactly where the debug ImGui overlay
-// records. Also serves as ultragui's TextureBackend so Image/SVG textures work
-// in draw-data mode.
-class GuiRenderBackend final : public ugui::TextureBackend {
+// Vulkan renderer backend for the game's ultragui draw data. Adapted from the
+// bundled ugui_impl_vulkan: volk entry points, dynamic rendering (no
+// VkRenderPass) and the engine's SPIR-V blobs. It records into a command buffer
+// the engine already opened with vkCmdBeginRendering on the backbuffer, exactly
+// where the debug ImGui overlay records. Also serves as ultragui's
+// TextureBackend so Image/SVG textures work in draw-data mode.
+//
+// rx::ui::GuiRenderBackend is the engine's own copy of this (it draws the rx
+// splash). The game keeps this one for the descriptor pools below: a screen
+// translated from a vanilla Scaleform movie needs far more texture sets than
+// the engine's single fixed block holds. Drop this class the day that pool
+// chain lands in rx::ui.
+class HudRenderBackend final : public ugui::TextureBackend {
  public:
   struct InitInfo {
     VkInstance instance = VK_NULL_HANDLE;
@@ -30,10 +35,10 @@ class GuiRenderBackend final : public ugui::TextureBackend {
     uint32_t frames_in_flight = 2;
   };
 
-  GuiRenderBackend() = default;
-  ~GuiRenderBackend() override = default;
-  GuiRenderBackend(const GuiRenderBackend&) = delete;
-  GuiRenderBackend& operator=(const GuiRenderBackend&) = delete;
+  HudRenderBackend() = default;
+  ~HudRenderBackend() override = default;
+  HudRenderBackend(const HudRenderBackend&) = delete;
+  HudRenderBackend& operator=(const HudRenderBackend&) = delete;
 
   bool Init(const InitInfo& info);
   void Shutdown();
