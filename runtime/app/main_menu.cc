@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -36,6 +37,7 @@
 #include "core/log.h"
 #include "core/paths.h"
 #include "runtime/app/engine_internal.h"
+#include "runtime/app/savegame_scan.h"
 #include "runtime/ui/thumbnailer.h"  // off-screen clay render of the hero centerpiece
 
 #if defined(RECREATION_HAS_UGUI)
@@ -59,6 +61,10 @@ namespace rx {
 // Config toggles formerly read from getenv (populated by base::InitOptionsFromEnv).
 static base::Option<bool> HideDebugUi{"hide.debug.ui", false, "RX_HIDE_DEBUG_UI"};
 static base::Option<bool> MenuCapture{"menu.capture", false, "RX_MENU_CAPTURE"};
+// Fills the save rail and the Load/Join screens with example rows so the new
+// flows can be driven and shot before save discovery and the server-list
+// client exist. A fixture, never reached without the flag.
+static base::Option<bool> MenuSample{"menu.sample", false, "RX_MENU_SAMPLE"};
 static base::Option<const char*> MenuAutoplay{"menu.autoplay", nullptr, "RX_MENU_AUTOPLAY"};
 // One more Steam install directory to search, for a layout the standard
 // locations miss (a second drive's copy, a portable install, a test rig).
@@ -564,6 +570,138 @@ void ArmConfiguredGameMode(Engine& engine) {
   RX_INFO("arming game mode {} from the command line", self->menu_mode_id_);
 }
 
+static void PushSampleMenuLists(GameUi& ui);
+
+// ---------------------------------------------------------------------------
+// Savegames on the front screen. The scan (savegame_scan.cc) answers where they
+// are and what each one is; this turns that into rows, which is a question of
+// wording rather than of files: a player reads "2 h ago", not a unix second.
+
+// At most this many per world. Two hundred saves is already a hoarder's folder
+// and the list pages, so the cap is about bounding the scan, not the screen.
+constexpr int kMenuSavesPerWorld = 200;
+// How many of them get their screenshot decoded up front. The rail shows six;
+// the rest of the list draws its card without one until something asks.
+constexpr int kMenuSaveArt = 12;
+
+base::String PlayedLabel(f32 seconds) {
+  const int total = static_cast<int>(seconds + 0.5f);
+  const int hours = total / 3600;
+  const int minutes = (total % 3600) / 60;
+  if (hours <= 0)
+    return base::ToString(minutes) + " m";
+  return base::ToString(hours) + " h " + (minutes < 10 ? "0" : "") + base::ToString(minutes) + " m";
+}
+
+// Skyrim SE names a quicksave after its character, worldspace, coordinates and
+// timestamp, which is far wider than the card it has to sit on. A ugui text
+// widget neither wraps nor clips, so an untrimmed name draws straight over its
+// neighbours: keep both ends, which is what identifies the file.
+base::String Shorten(const base::String& text, mem_size limit) {
+  if (text.size() <= limit)
+    return text;
+  const mem_size head = limit * 2 / 3;
+  const mem_size tail = limit - head - 3;
+  return base::String(text.c_str(), head) + "..." +
+         base::String(text.c_str() + text.size() - tail, tail);
+}
+
+base::String SizeLabel(u64 bytes) {
+  if (bytes >= 1024ull * 1024)
+    return base::ToString(static_cast<int>(bytes / (1024ull * 1024))) + " MB";
+  return base::ToString(static_cast<int>(bytes / 1024)) + " KB";
+}
+
+// Coarse on purpose: the exact minute a save was written stops mattering within
+// the hour, and "3 days ago" is what a player is actually looking for.
+base::String WhenLabel(u64 unix_seconds) {
+  if (unix_seconds == 0)
+    return {};
+  const u64 now = static_cast<u64>(std::time(nullptr));
+  if (now <= unix_seconds)
+    return "just now";
+  const u64 ago = now - unix_seconds;
+  if (ago < 90)
+    return "just now";
+  if (ago < 3600)
+    return base::ToString(static_cast<int>(ago / 60)) + " m ago";
+  if (ago < 7200)
+    return "1 h ago";
+  if (ago < 86400)
+    return base::ToString(static_cast<int>(ago / 3600)) + " h ago";
+  if (ago < 172800)
+    return "Yesterday";
+  if (ago < 2592000)
+    return base::ToString(static_cast<int>(ago / 86400)) + " days ago";
+  if (ago < 31536000)
+    return base::ToString(static_cast<int>(ago / 2592000)) + " months ago";
+  return base::ToString(static_cast<int>(ago / 31536000)) + " years ago";
+}
+
+// Every save of every world the menu offers, newest first, with the first few
+// screenshots decoded. Called once when the menu opens: a folder does not change
+// under a player who is looking at it, and re-reading two hundred headers every
+// frame to find that out would be absurd.
+void RefreshMenuSaves(Engine& engine) {
+  Engine* const self = &engine;
+  base::Vector<GameUi::MenuSave> rows;
+  base::Vector<FoundSave> art_sources;  // parallel to the rows that get a texture
+  base::Vector<int> art_rows;
+
+  for (int universe = 0; universe < static_cast<int>(self->menu_universes_.size()); ++universe) {
+    const Engine::MenuUniverse& u = self->menu_universes_[universe];
+    if (u.game == bethesda::Game::kUnknown)
+      continue;
+    int with_art = 0;
+    for (const FoundSave& found : ScanSaves(u.game, kMenuSavesPerWorld)) {
+      GameUi::MenuSave save;
+      save.universe = universe;
+      save.character = found.character.empty() ? base::String("Unnamed") : found.character;
+      save.location = found.location.empty() ? base::String("Unknown") : found.location;
+      // The game's own counter is what it calls the save; a quicksave has one
+      // too, and the file name is the only place the kind is recorded.
+      save.slot = found.number > 0 ? ("Save " + base::ToString(static_cast<int>(found.number)))
+                                   : found.file;
+      save.kind = found.kind;
+      save.level = base::ToString(static_cast<int>(found.level));
+      save.played = PlayedLabel(found.played_seconds);
+      save.when = WhenLabel(found.modified);
+      save.file = Shorten(found.file, 30);
+      save.size = SizeLabel(found.size);
+      save.path = found.path;
+      save.loadable = true;
+      // The load-order verdict needs the save's plugin list, which sits past
+      // the compressed body: a question for the selected save, not for two
+      // hundred of them at menu time. Until then the column stays empty rather
+      // than claiming a match nobody checked.
+      if (with_art < kMenuSaveArt && found.shot_width > 0) {
+        art_rows.push_back(static_cast<int>(rows.size()));
+        art_sources.push_back(found);
+        ++with_art;
+      }
+      rows.push_back(base::move(save));
+    }
+  }
+
+  const int total = static_cast<int>(rows.size());
+  self->game_ui_.SetMainMenuSaves(rows);
+
+  int painted = 0;
+  base::Vector<u8> rgba;
+  for (int i = 0; i < static_cast<int>(art_rows.size()); ++i) {
+    int width = 0;
+    int height = 0;
+    if (!ReadSaveThumbnail(art_sources[i], 320, 180, rgba, width, height))
+      continue;
+    const u64 texture = self->game_ui_.CreateUiTexture(width, height, rgba.data());
+    if (texture == 0)
+      continue;
+    self->game_ui_.SetMainMenuSaveArt(art_rows[i], texture);
+    ++painted;
+  }
+  RX_INFO("saves: {} found, {} with a picture", total, painted);
+}
+
 void SetupMainMenu(Engine& engine) {
   Engine* const self = &engine;
   self->main_menu_active_ = true;
@@ -580,7 +718,108 @@ void SetupMainMenu(Engine& engine) {
   self->game_ui_.SetMainMenuNews({{"Welcome to Recreation", "v" RECREATION_VERSION}});
   self->GenerateMenuBackdrops();      // original procedural concept art per universe
   self->debug_ui_.SetVisible(false);  // a clean front screen, no debug overlays
+  RefreshMenuSaves(engine);
+  if (MenuSample)
+    PushSampleMenuLists(self->game_ui_);
   RX_INFO("nexus main menu open");
+}
+
+// A fixture, not content. Nothing queries a server list yet, so RX_MENU_SAMPLE=1
+// fills the rail, the Load screen and the Join screen with rows a real one
+// would produce. It exists to drive and screenshot the flow (with RX_UI_CLICK /
+// RX_UI_SHOT) before the sources land, and is never reached without the flag.
+static void PushSampleMenuLists(GameUi& ui) {
+  using Save = GameUi::MenuSave;
+  using Server = GameUi::MenuServer;
+  using Need = GameUi::MenuRequirement;
+
+  const base::String home = std::getenv("HOME") ? std::getenv("HOME") : "/tmp";
+  auto save = [&](const char* character, const char* slot, const char* location,
+                  const char* level, const char* played, const char* when, const char* kind,
+                  int universe, bool loadable, const char* verdict) {
+    Save s;
+    s.character = character;
+    s.slot = slot;
+    s.location = location;
+    s.level = level;
+    s.played = played;
+    s.when = when;
+    s.kind = kind;
+    s.universe = universe;
+    s.loadable = loadable;
+    s.verdict = verdict;
+    s.size = "11 MB";
+    s.file = base::String(slot) + ".ess";
+    s.path = home + "/.sample/" + slot + ".ess";
+    s.order.push_back(Need{"Skyrim.esm  ·  139 more", "Present", true});
+    if (!loadable) {
+      s.order.push_back(Need{"Wyrmstooth.esp", "Missing", false});
+      s.order.push_back(Need{"3DNPC.esp", "Missing", false});
+    }
+    return s;
+  };
+
+  base::Vector<Save> saves;
+  saves.push_back(save("Vince", "Save 214", "Riverwood", "42", "63 h 12 m", "2 h ago", "", 0,
+                       true, "Matches"));
+  saves.push_back(save("Vince", "Save 213", "Bleak Falls Barrow", "42", "62 h 40 m", "4 h ago",
+                       "Auto", 0, true, "Matches"));
+  saves.push_back(save("Vince", "Save 212", "Dragonsreach", "41", "61 h 04 m", "Yesterday",
+                       "Quick", 0, true, "Matches"));
+  saves.push_back(save("Vince", "Save 211", "Helgen Keep", "41", "59 h 51 m", "Yesterday", "", 0,
+                       true, "Matches"));
+  saves.push_back(save("Vince", "Save 207", "Blue Palace", "39", "54 h 22 m", "3 days ago", "", 0,
+                       false, "2 plugins missing"));
+  saves.push_back(save("Vince", "Save 204", "College of Winterhold", "38", "51 h 06 m",
+                       "4 days ago", "", 0, true, "Matches"));
+  saves.push_back(save("Brynja", "Save 177", "Windhelm", "12", "14 h 30 m", "3 weeks ago", "", 0,
+                       true, "Matches"));
+  saves.push_back(save("Nora", "Save 061", "Sanctuary Hills", "18", "14 h 02 m", "6 days ago", "",
+                       1, true, "Matches"));
+  ui.SetMainMenuSaves(saves);
+
+  auto server = [&](const char* name, const char* world, const char* gametype,
+                    const char* players, const char* ping, const char* entry, const char* address,
+                    int universe, bool joinable) {
+    Server s;
+    s.name = name;
+    s.world = world;
+    s.gametype = gametype;
+    s.players = players;
+    s.ping = ping;
+    s.entry = entry;
+    s.address = address;
+    s.universe = universe;
+    s.joinable = joinable;
+    s.host = "Vince";
+    s.detail = base::String(world) + "  ·  open 41 minutes";
+    s.arrive = "Brynja  ·  level 12";
+    s.progress = "Yours, in your own save";
+    s.note = "Before you can enter";
+    s.requirements.push_back(Need{"Skyrim.esm  ·  139 more", "Match", true});
+    s.requirements.push_back(Need{"4 resources  ·  22 MB", "Streams on join", true});
+    return s;
+  };
+
+  base::Vector<Server> servers;
+  servers.push_back(server("Vince's Campaign", "Skyrim", "Campaign  ·  co-op", "2 / 4", "12 ms",
+                           "Friend", "127.0.0.1:29700", 0, true));
+  servers.push_back(server("Brynja's Riften Run", "Skyrim", "Campaign  ·  co-op", "3 / 4",
+                           "28 ms", "Friend", "127.0.0.1:29701", 0, true));
+  servers.push_back(server("Whiterun Roleplay", "Skyrim", "Roleplay", "64 / 128", "34 ms", "Open",
+                           "127.0.0.1:29702", 0, true));
+  servers.push_back(server("Commonwealth RP", "Fallout 4", "Roleplay", "88 / 128", "41 ms",
+                           "Open", "127.0.0.1:29703", 1, true));
+  servers.push_back(server("Cart Racing EU #2", "Skyrim", "Racing", "12 / 16", "22 ms", "Open",
+                           "127.0.0.1:29704", 0, true));
+  servers.push_back(server("Frostfall Survival", "Skyrim", "Survival", "24 / 32", "44 ms",
+                           "Password", "127.0.0.1:29705", 0, true));
+  servers.push_back(server("Tamriel Free Roam", "Skyrim", "Sandbox", "128 / 128", "31 ms", "Full",
+                           "127.0.0.1:29706", 0, false));
+  servers.push_back(server("Deep Survey Co-op", "Starfield", "Survey", "3 / 8", "58 ms", "Open",
+                           "127.0.0.1:29707", 2, true));
+  ui.SetMainMenuServers(
+      servers, "Joining takes the host's world  ·  your saves stay yours");
 }
 
 void EnterUniverse(Engine& engine,
@@ -685,10 +924,25 @@ void Engine::UpdateMainMenu(f32 dt) {
   // No RefreshMenuData here: the render path runs it every frame, menu or not,
   // because the HUD reads the same block.
   const MainMenuRequest req = game_ui_.PollMainMenuRequest();
+  // Friends and Public both host. They differ only in whether the session is
+  // announced to the server list, and the client that would announce it is
+  // not wired yet.
+  const bool hosting = req.session != MenuSession::kSolo;
+  if (hosting && req.session == MenuSession::kPublic)
+    RX_INFO("session: public hosting asked for; the announce is not wired yet");
+
   switch (req.kind) {
     case MainMenuRequest::Kind::kEnterUniverse:
       menu_mode_id_ = req.mode_id;  // empty for a base game tile
-      EnterUniverse(*this, req.universe, false, false, "");
+      EnterUniverse(*this, req.universe, hosting, hosting, "");
+      break;
+    case MainMenuRequest::Kind::kResumeSave:
+      // The save is the world for a solo resume, and the character the host
+      // brings when the segment reads Friends or Public.
+      menu_mode_id_.clear();
+      config_.load_save = req.save_path;
+      RX_INFO("resuming {}", req.save_path);
+      EnterUniverse(*this, req.universe, hosting, hosting, "");
       break;
     case MainMenuRequest::Kind::kEnterTour:
       // The nav entry carries no ids; BuildMenuEntries already resolved which
@@ -806,6 +1060,20 @@ void Engine::RefreshMenuData() {
   }
 #endif
   game_ui_.SetMainMenuStats(stats);
+
+  // The footer's live session line. Solo says nothing at all rather than the
+  // word "Offline": there is no session to report, and a permanent negative in
+  // the footer is noise. An invite code needs the server-list client, which is
+  // not wired yet, so the line stops at the address.
+  base::String session;
+  if (stats.net_status != "Offline") {
+    session = stats.net_status;
+    if (stats.players_online > 0)
+      session += "  ·  " + base::ToString(stats.players_online) +
+                 (stats.players_online == 1 ? " peer" : " peers");
+  }
+  game_ui_.SetMainMenuSessionLine(session);
+
   // A mode tile shows the modules of the game it runs in, so the Mods screen
   // follows the grid selection rather than the universe column.
   const int selected = game_ui_.selected_entry();

@@ -247,11 +247,19 @@ struct MenuNewsItem {
 // once per frame (PollMainMenuRequest) and clears it by consuming. Loading a
 // universe makes that game the primary content domain, which boots its C#
 // gameplay module (SkyrimMod / Fallout / StarfieldMod gate on the primary).
+// Who a launch is for. Not a destination in the nav: the front screen states it
+// once, above the grid and the rail, and every launch below it inherits it.
+// Solo plays alone, Friends opens the session to an invite, Public lists it on
+// the server list. Joining someone else's world is a different verb (kJoinServer)
+// and does not read this.
+enum class MenuSession { kSolo, kFriends, kPublic };
+
 struct MainMenuRequest {
   enum class Kind {
     kNone,
     kEnterUniverse,
     kEnterTour,  // the guided demo from the top nav; the engine knows which
+    kResumeSave,  // boot a world from a savegame (save_path), solo or hosting
     kHostServer,
     kJoinServer,
     kQuit,
@@ -265,7 +273,11 @@ struct MainMenuRequest {
   int universe = 0;          // 0 Skyrim, 1 Fallout 4, 2 Starfield
   base::String address;      // join target ("ip[:port]"), for kJoinServer
   base::String url;          // external link to open, for kOpenUrl
+  base::String save_path;    // savegame to resume, for kResumeSave
   bool multiplayer = false;  // kEnterUniverse also opened a session
+  // What the session segment read when this launch was raised. The engine turns
+  // Friends and Public into a hosted session; only the listing differs.
+  MenuSession session = MenuSession::kSolo;
 };
 
 // Live data the engine feeds the first-run setup wizard each frame: the three
@@ -576,6 +588,57 @@ class GameUi {
     u64 art = 0;            // key-art texture, 0 until the thumbnail is ready
   };
 
+  // One line of the "before you can enter" block on a detail card: a plugin the
+  // save names, or a resource pack a server will stream. `met` false is the
+  // thing standing between the player and the world, and reads bright.
+  struct MenuRequirement {
+    base::String name;
+    base::String state;  // "Present" / "Missing" / "Streams on join"
+    bool met = true;
+  };
+
+  // One savegame, as the rail and the Load screen show it. Pre-formatted: the
+  // menu draws strings and never does arithmetic on a timestamp, so the same
+  // struct serves a 260px card and a 42px row.
+  struct MenuSave {
+    base::String character;  // "Vince"
+    base::String slot;       // "Save 214" / "Autosave 3"
+    base::String location;   // "Riverwood"
+    base::String level;      // "42", bare so the row's LVL column stays a number
+    base::String played;     // "63 h 12 m"
+    base::String when;       // "2 h ago"
+    base::String kind;       // "" / "Auto" / "Quick"
+    base::String size;       // "11.4 MB"; the header carries no in-game date
+    base::String file;       // "Autosave3.ess  ·  11 MB"
+    base::String path;       // what kResumeSave carries
+    base::String verdict;    // "Matches" / "2 plugins missing" / "Unreadable"
+    base::Vector<MenuRequirement> order;  // the load-order block, at most four
+    int universe = 0;
+    bool loadable = true;  // false greys the row and disables Resume
+    u64 art = 0;           // the screenshot the save file itself holds
+  };
+
+  // One session in the Join list: a friend's coop campaign or a public server,
+  // deliberately the same row with a different gametype.
+  struct MenuServer {
+    base::String name;
+    base::String world;     // display name of the domain it runs
+    base::String gametype;  // "Campaign  ·  co-op" / "Roleplay"
+    base::String players;   // "2 / 4"
+    base::String ping;      // "12 ms", measured by the client, never the list
+    base::String entry;     // "Friend" / "Open" / "Password" / "Full"
+    base::String address;   // what kJoinServer dials
+    base::String host;
+    base::String detail;    // card sub-line ("Skyrim Special Edition · open 41 m")
+    base::String arrive;    // which character the player brings
+    base::String progress;  // where that character's progress goes
+    base::String note;      // heading over the requirements block
+    base::Vector<MenuRequirement> requirements;
+    int universe = 0;
+    bool joinable = true;
+    u64 art = 0;
+  };
+
   // The full grid, in display order. Replaces SetMainMenuUniverses; the menu
   // pages over it internally.
   void SetMainMenuEntries(const base::Vector<MenuEntry>& entries);
@@ -601,6 +664,22 @@ class GameUi {
   // The guided demo offered in the top nav: its display name, and whether the
   // world it runs in is actually located. An empty title collapses the entry.
   void SetMainMenuTour(const base::String& title, bool available);
+  // The savegames the front-end offers, newest first. The rail shows the ones
+  // belonging to the focused world; the Load screen shows all of them, tabbed.
+  // Art is bound per save by SetMainMenuSaveArt once a screenshot is decoded.
+  void SetMainMenuSaves(const base::Vector<MenuSave>& saves);
+  void SetMainMenuSaveArt(int save, u64 texture);
+  // The Join list, plus the line under it ("142 live · 2 friends hosting", or
+  // why the list is empty).
+  void SetMainMenuServers(const base::Vector<MenuServer>& servers,
+                          const base::String& status);
+  // The live session line in the footer: slots, invite code, address. Empty
+  // when nothing is hosted.
+  void SetMainMenuSessionLine(const base::String& line);
+  // What the session segment currently reads, so the engine can mirror it into
+  // a launch it raises itself (autoplay, a deep link).
+  MenuSession menu_session() const;
+  void SetMenuSession(MenuSession session);
   // The universe column currently selected (0 Skyrim, 1 Fallout 4, 2 Starfield).
   int selected_universe() const;
   // Consume the pending request (kNone if none). Called by the engine each frame.

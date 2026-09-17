@@ -314,6 +314,7 @@ class Engine : public app::Application {
   friend void ResolveUniverses(Engine&);
   friend void BuildMenuEntries(Engine&);
   friend void SetupMainMenu(Engine&);
+  friend void RefreshMenuSaves(Engine&);
   friend void ArmConfiguredGameMode(Engine&);
   friend void EnterUniverse(Engine&, int, bool, bool, const base::String&);
   friend void SetupFirstRun(Engine&);

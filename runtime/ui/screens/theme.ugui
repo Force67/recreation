@@ -62,3 +62,70 @@ component ui_hint {
     text a { font-size: 11; color: #5e5e5e; text: $a; letter-spacing: 3; text-transform: uppercase; } }
 }
 
+// The front-end's three repeated objects. Each is empty at rest: ApplyMainMenu
+// fills every field and hides the rows it has no data for, so an instance costs
+// nothing until the engine has something to put in it.
+
+// One savegame on the rail under the tile grid: the launch tile at quarter
+// scale and deliberately the same object, down to the 2px top rule for focus.
+// `art` carries the screenshot the save file itself holds.
+component ui_save_card {
+  panel box { width: 260; height: 150; position: relative; overflow: hidden;
+    cursor: pointer; border-color: #ffffff1c; border-width: 1; background: #06070a;
+    :hover { border-color: #ffffff5e; }
+    image art { position: absolute; left: 0; top: 0; width: 100%; height: 100%; opacity: 0.72; }
+    panel { position: absolute; left: 0; right: 0; bottom: 0; height: 105;
+      background: #00000000; background-end: #000000f2; gradient-angle: 180; }
+    panel top { position: absolute; left: 0; right: 0; top: 0; height: 2; background: #ffffff; }
+    text when { position: absolute; right: 12; top: 11; font-size: 9; letter-spacing: 2;
+      text-transform: uppercase; color: #ffffff8c; text: ""; }
+    panel { position: absolute; left: 13; right: 13; bottom: 12; layout: column;
+      text no { font-size: 9; letter-spacing: 3; text-transform: uppercase;
+        color: #ffffff8c; text: ""; }
+      text loc { font-size: 13; letter-spacing: 2; text-transform: uppercase;
+        color: #ffffffcc; margin: 6 0 0 0; text: ""; }
+      text meta { font-size: 10; letter-spacing: 1; color: #ffffff7a;
+        margin: 5 0 0 0; text: ""; } }
+  }
+}
+
+// A row of the Load list. The pip is the state at a glance (filled = resumes
+// as it is, hairline = wants attention), and the verdict is a word at the right
+// rather than a colour, per the control rules.
+component ui_save_row {
+  panel row { layout: row; align: center; height: 42; width: 100%; position: relative;
+    cursor: pointer;
+    panel { position: absolute; left: 0; right: 0; bottom: 0; height: 1; background: #ffffff0d; }
+    panel { width: 26;
+      panel pip { width: 5; height: 5; background: #ffffff; } }
+    text no { width: 64; font-size: 12; letter-spacing: 1; color: #5e5e5e; text: ""; }
+    text name { width: 210; font-size: 13; letter-spacing: 1; color: #ffffffd6; text: ""; }
+    text lvl { width: 64; font-size: 12; letter-spacing: 1; color: #5e5e5e; text: ""; }
+    text loc { flex-grow: 1; font-size: 13; letter-spacing: 1; color: #9a9a9a; text: ""; }
+    text play { width: 96; font-size: 11; letter-spacing: 1; color: #5e5e5e; text: ""; }
+    text when { width: 132; font-size: 11; letter-spacing: 1; color: #5e5e5e; text: ""; }
+    panel { width: 210; layout: row; justify: end;
+      text state { font-size: 9; letter-spacing: 3; text-transform: uppercase;
+        color: #5e5e5e; text: ""; } }
+  }
+}
+
+// A row of the Join list. A friend's coop session and a 128-slot server are the
+// same row with a different gametype, which is the whole argument for one list.
+component ui_server_row {
+  panel row { layout: row; align: center; height: 42; width: 100%; position: relative;
+    cursor: pointer;
+    panel { position: absolute; left: 0; right: 0; bottom: 0; height: 1; background: #ffffff0d; }
+    panel { width: 26;
+      panel pip { width: 5; height: 5; background: #ffffff; } }
+    text name { flex-grow: 1; font-size: 13; letter-spacing: 1; color: #ffffffd6; text: ""; }
+    text world { width: 126; font-size: 12; letter-spacing: 1; color: #5e5e5e; text: ""; }
+    text kind { width: 196; font-size: 12; letter-spacing: 1; color: #5e5e5e; text: ""; }
+    text slots { width: 96; font-size: 11; letter-spacing: 1; color: #5e5e5e; text: ""; }
+    text ping { width: 82; font-size: 11; letter-spacing: 1; color: #5e5e5e; text: ""; }
+    panel { width: 196; layout: row; justify: end;
+      text state { font-size: 9; letter-spacing: 3; text-transform: uppercase;
+        color: #5e5e5e; text: ""; } }
+  }
+}
+

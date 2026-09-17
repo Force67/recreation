@@ -195,6 +195,14 @@ constexpr int kMenuTiles = 8;        // pooled tiles: two rows, and one page
 constexpr int kMenuSpineTicks = 10;  // pooled load-order ticks per tile
 constexpr int kMenuPips = 8;         // pooled page pips
 constexpr int kMenuModRows = 16;     // pooled rows on the Mods sub-screen
+constexpr int kMenuRailCards = 6;    // save cards on the rail under the grid
+constexpr int kMenuListRows = 12;    // pooled rows on the Load and Join screens
+constexpr int kMenuDeps = 4;         // "before you can enter" lines on a card
+constexpr int kMenuJoinTabs = 5;     // all, friends, favourites, history, direct
+// A second click on the same row within this long acts on it. ugui reports
+// clicks one at a time with no count, so the pairing is ours to do; this is the
+// window desktops settle on.
+constexpr f32 kMenuDoubleClickSecs = 0.45f;
 constexpr int kFirstRunSteps = 6;  // welcome, locate, play, storage, profile, summary
 constexpr f32 kFirstRunPageFade = 0.16f;  // seconds a page turn takes to settle
 constexpr int kFirstRunGames = 3;   // game rows on the locate page
@@ -371,7 +379,8 @@ struct GameUi::Impl {
   // NEXUS main menu state, driven by the engine and the click router. The
   // request is raised here (click / keyboard) and consumed by PollMainMenuRequest.
   bool main_menu_open = false;
-  int mm_screen = 0;   // 0 root, 1 multiplayer, 2 mods, 3 settings, 4 profile
+  int mm_screen = 0;   // 0 root, 1 multiplayer, 2 mods, 3 settings, 4 profile,
+                       // 5 load, 6 join
   int mm_mp_mode = 0;  // last multiplayer choice: 0 host, 1 join
   MainMenuRequest mm_request;
   MainMenuStats mm_stats;
@@ -395,6 +404,43 @@ struct GameUi::Impl {
   int mm_pages() const {
     return base::Max(1, (static_cast<int>(mm_entries.size()) + kMenuTiles - 1) / kMenuTiles);
   }
+
+  // Savegames and sessions. The menu owns which one is selected and which tab
+  // is up; the engine only pushes the lists.
+  base::Vector<GameUi::MenuSave> mm_saves;
+  base::Vector<GameUi::MenuServer> mm_servers;
+  base::String mm_server_status;
+  base::String mm_session_line;  // footer: the live session, empty when solo
+  MenuSession mm_session = MenuSession::kSolo;
+  int mm_save = 0;      // selected row on the Load screen
+  int mm_server = 0;    // selected row on the Join screen
+  int mm_load_tab = 0;  // which world's saves the Load screen lists
+  int mm_join_tab = 0;  // all / friends / favourites / history / direct
+  // Which rail card has focus, -1 while focus is up in the tile grid. The rail
+  // is a second focus axis on the same screen, so it cannot share mm_entry.
+  int mm_rail = -1;
+  // First row of the visible window, so a long list scrolls instead of paging.
+  int mm_load_top = 0;
+  int mm_join_top = 0;
+
+  // The universe a tab index means on the Load screen. Tabs list only worlds
+  // that actually hold saves, so tab 0 is not always Skyrim.
+  base::Vector<int> LoadTabUniverses() const;
+  // Indices into mm_saves for the current Load tab, and for one world (the
+  // rail). Both keep mm_saves' order, which is newest first.
+  base::Vector<int> SavesForTab() const;
+  base::Vector<int> SavesForUniverse(int universe) const;
+  base::Vector<int> ServersForTab() const;
+  // The world the grid has focused, which is what the rail follows.
+  int FocusedUniverse() const;
+  // True when this click pairs with the last one on the same thing. `key`
+  // names what was clicked, not which widget took the click, so a second click
+  // that lands on a different cell of the same row still counts.
+  bool DoubleClicked(const base::String& key);
+  base::String mm_click_key;
+  f32 mm_click_time = -1000.0f;
+  void ResumeSave(int save);
+  void JoinServer(int server);
 
   // First-run setup wizard state. The wizard owns its page (fr_step) and its
   // interactive selections (dropdowns, toggles); the engine pushes the located
@@ -424,6 +470,9 @@ struct GameUi::Impl {
   // Drives every main-menu widget from the state above each frame; collapses the
   // whole overlay when closed. Launch boots the focused tile, if it is playable.
   void ApplyMainMenu();
+  void ApplyMenuRail();  // the save rail under the tile grid
+  void ApplyMenuLoad();  // the Load sub-screen: saves list + detail card
+  void ApplyMenuJoin();  // the Join sub-screen: sessions list + detail card
   void LaunchFocusedEntry();
   // Stands a tile grid up from the three located universes, so the menu works
   // before anything calls SetMainMenuEntries. A pushed grid wins.

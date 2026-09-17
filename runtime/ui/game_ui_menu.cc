@@ -378,6 +378,26 @@ void GameUi::Impl::ApplyMainMenu() {
       SetBackground(Pooled("mm_pip", i), Rgba(i == page ? 0xffffffffu : 0xffffff26u));
   }
 
+  // Session segment: the live member takes the rule and full white, the other
+  // two sit at the disabled value. It governs the grid and the rail below it,
+  // which is why it sits in their header and not in the nav. The header rides
+  // above the sub-screen overlay, so it goes down with the grid.
+  // The grid and its header sit above mm_screen's top edge, so a sub-screen
+  // takes them down rather than half-covering them.
+  SetVisible("mm_playrow", mm_screen == 0);
+  SetVisible("mm_grid", mm_screen == 0);
+  for (int i = 0; i < 3; ++i) {
+    const bool on = static_cast<int>(mm_session) == i;
+    const base::String id = base::ToString(i);
+    SetTextColor(("mm_sess" + id + "_t").c_str(), Rgba(on ? 0xffffffffu : 0x5e5e5effu));
+    SetVisible(("mm_sess" + id + "_r").c_str(), on);
+  }
+  // The footer used to state the session as one word. It now carries the live
+  // one, and says nothing at all when there is nothing hosted.
+  setText("mm_sess_line", mm_session_line);
+
+  ApplyMenuRail();
+
   // Profile banner: real handle + system line; peer count only when in session.
   const base::String sysline =
       mm_stats.in_game && !mm_stats.universe.empty()
@@ -408,10 +428,17 @@ void GameUi::Impl::ApplyMainMenu() {
   SetVisible("mm_body_mods", mm_screen == 2);
   SetVisible("mm_body_settings", mm_screen == 3);
   SetVisible("mm_body_profile", mm_screen == 4);
+  SetVisible("mm_body_load", mm_screen == 5);
+  SetVisible("mm_body_join", mm_screen == 6);
   if (mm_screen != 0) {
-    const char* titles[5] = {"", "MULTIPLAYER", "MODS", "SETTINGS", "PROFILE"};
+    const char* titles[7] = {"",         "MULTIPLAYER", "MODS", "SETTINGS",
+                             "PROFILE",  "LOAD",        "JOIN"};
     setText("mm_screen_title", titles[mm_screen]);
   }
+  if (mm_screen == 5)
+    ApplyMenuLoad();
+  if (mm_screen == 6)
+    ApplyMenuJoin();
   if (mm_screen == 1) {
     const int universe = mm_entry < count ? mm_entries[mm_entry].universe : 0;
     setText("mm_mp_universe", universe < static_cast<int>(mm_universe_names.size())
@@ -463,7 +490,415 @@ void GameUi::Impl::ApplyMainMenu() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Savegames and sessions: the rail under the grid, the Load screen behind it,
+// and the Join screen. The menu owns which row is selected and which tab is up;
+// the engine only ever pushes the lists.
+
+int GameUi::Impl::FocusedUniverse() const {
+  if (mm_entry >= 0 && mm_entry < static_cast<int>(mm_entries.size()))
+    return mm_entries[mm_entry].universe;
+  return 0;
+}
+
+base::Vector<int> GameUi::Impl::SavesForUniverse(int universe) const {
+  base::Vector<int> out;
+  for (int i = 0; i < static_cast<int>(mm_saves.size()); ++i)
+    if (mm_saves[i].universe == universe)
+      out.push_back(i);
+  return out;
+}
+
+// Only worlds that actually hold a save get a tab, so tab 0 is not always
+// Skyrim and an empty world never offers an empty list.
+base::Vector<int> GameUi::Impl::LoadTabUniverses() const {
+  base::Vector<int> out;
+  for (const GameUi::MenuSave& save : mm_saves) {
+    bool seen = false;
+    for (int universe : out)
+      if (universe == save.universe) {
+        seen = true;
+        break;
+      }
+    if (!seen)
+      out.push_back(save.universe);
+  }
+  return out;
+}
+
+base::Vector<int> GameUi::Impl::SavesForTab() const {
+  const base::Vector<int> tabs = LoadTabUniverses();
+  if (tabs.empty())
+    return {};
+  const int tab = base::Clamp(mm_load_tab, 0, static_cast<int>(tabs.size()) - 1);
+  return SavesForUniverse(tabs[tab]);
+}
+
+base::Vector<int> GameUi::Impl::ServersForTab() const {
+  base::Vector<int> out;
+  for (int i = 0; i < static_cast<int>(mm_servers.size()); ++i) {
+    // Friends is the only cut the menu can make on its own. Favourites and
+    // history live in the managed browser model, and Direct is a dial rather
+    // than a list, so both arrive already filtered.
+    if (mm_join_tab == 1 && mm_servers[i].entry != "Friend")
+      continue;
+    out.push_back(i);
+  }
+  return out;
+}
+
+bool GameUi::Impl::DoubleClicked(const base::String& key) {
+  const bool paired = key == mm_click_key && (ui_time - mm_click_time) <= kMenuDoubleClickSecs;
+  mm_click_key = key;
+  // Reset the clock on a pair, so a third click starts a new one instead of
+  // firing again on the way past.
+  mm_click_time = paired ? -1000.0f : ui_time;
+  return paired;
+}
+
+void GameUi::Impl::ResumeSave(int save) {
+  if (save < 0 || save >= static_cast<int>(mm_saves.size()))
+    return;
+  const GameUi::MenuSave& s = mm_saves[save];
+  if (!s.loadable || s.path.empty())
+    return;
+  mm_request.kind = MainMenuRequest::Kind::kResumeSave;
+  mm_request.universe = s.universe;
+  mm_request.save_path = s.path;
+  mm_request.session = mm_session;
+  mm_request.multiplayer = mm_session != MenuSession::kSolo;
+}
+
+void GameUi::Impl::JoinServer(int server) {
+  if (server < 0 || server >= static_cast<int>(mm_servers.size()))
+    return;
+  const GameUi::MenuServer& s = mm_servers[server];
+  if (!s.joinable || s.address.empty())
+    return;
+  // Joining reads someone else's session, so the segment above the grid has no
+  // say here: the host decides what this is.
+  mm_request.kind = MainMenuRequest::Kind::kJoinServer;
+  mm_request.universe = s.universe;
+  mm_request.address = s.address;
+  mm_request.multiplayer = true;
+}
+
+void GameUi::Impl::ApplyMenuRail() {
+  const int universe = FocusedUniverse();
+  const base::Vector<int> rail = SavesForUniverse(universe);
+  // A world with nothing to continue collapses the rail whole, and the front
+  // screen is the grid it has always been.
+  SetVisible("mm_rail", !rail.empty() && mm_screen == 0);
+  if (rail.empty()) {
+    mm_rail = -1;
+    return;
+  }
+  const int shown_cards =
+      base::Min(static_cast<int>(rail.size()), static_cast<int>(kMenuRailCards));
+  mm_rail = base::Clamp(mm_rail, -1, shown_cards - 1);
+
+  const base::String world = universe < static_cast<int>(mm_universe_names.size())
+                                 ? mm_universe_names[universe]
+                                 : base::String();
+  SetText("mm_rail_head", world.empty() ? base::String("Continue") : "Continue in " + world);
+  const GameUi::MenuSave& newest = mm_saves[rail[0]];
+  SetText("mm_rail_sub",
+          newest.character + "  ·  level " + newest.level + "  ·  " + newest.played);
+  SetText("mm_rail_count",
+          base::ToString(static_cast<int>(rail.size())) + (rail.size() == 1 ? " save" : " saves"));
+
+  for (int i = 0; i < kMenuRailCards; ++i) {
+    const bool shown = i < static_cast<int>(rail.size());
+    SetVisible(Pooled("mm_sv", i), shown);
+    if (!shown)
+      continue;
+    const GameUi::MenuSave& s = mm_saves[rail[i]];
+    const bool on = i == mm_rail;
+    const base::String id = base::ToString(i);
+    const base::String art = "mm_sv" + id + "_art";
+
+    const bool has_art = s.art != 0;
+    if (has_art)
+      ugui::SetImageTexture(Need(art.c_str()), s.art, 1.0f, 1.0f);
+    SetVisible(art.c_str(), has_art);
+    SetVisible(("mm_sv" + id + "_top").c_str(), on);
+    SetBorderColor(Pooled("mm_sv", i), Rgba(on ? 0xffffff8cu : 0xffffff1cu));
+    SetText(("mm_sv" + id + "_when").c_str(),
+            s.kind.empty() ? s.when : (s.kind + "  ·  " + s.when));
+    SetTextColor(("mm_sv" + id + "_when").c_str(), Rgba(on ? 0xffffffffu : 0xffffff8cu));
+    SetText(("mm_sv" + id + "_no").c_str(), s.slot);
+    SetText(("mm_sv" + id + "_loc").c_str(), s.location);
+    SetTextColor(("mm_sv" + id + "_loc").c_str(), Rgba(on ? 0xffffffffu : 0xffffffccu));
+    // A save that will not resume as it is says so where the stats would go:
+    // the number it replaces is the one thing that stops being interesting.
+    SetText(("mm_sv" + id + "_meta").c_str(),
+            s.loadable ? ("Level " + s.level + "  ·  " + s.played) : s.verdict);
+    SetTextColor(("mm_sv" + id + "_meta").c_str(), Rgba(s.loadable ? 0xffffff7au : 0xffffffccu));
+  }
+}
+
+void GameUi::Impl::ApplyMenuLoad() {
+  const base::Vector<int> tabs = LoadTabUniverses();
+  if (!tabs.empty())
+    mm_load_tab = base::Clamp(mm_load_tab, 0, static_cast<int>(tabs.size()) - 1);
+  for (int i = 0; i < kMenuUniverses; ++i) {
+    const base::String id = base::ToString(i);
+    const bool shown = i < static_cast<int>(tabs.size());
+    SetVisible(("mm_ld_tab" + id).c_str(), shown);
+    if (!shown)
+      continue;
+    const int universe = tabs[i];
+    SetText(("mm_ld_tab" + id + "_t").c_str(),
+            universe < static_cast<int>(mm_universe_names.size()) ? mm_universe_names[universe]
+                                                                  : base::String("World"));
+    const bool on = i == mm_load_tab;
+    SetTextColor(("mm_ld_tab" + id + "_t").c_str(), Rgba(on ? 0xffffffffu : 0x5e5e5effu));
+    SetVisible(("mm_ld_tab" + id + "_r").c_str(), on);
+  }
+
+  const base::Vector<int> rows = SavesForTab();
+  const int total = static_cast<int>(rows.size());
+  SetText("mm_ld_count", total == 0 ? base::String()
+                                    : base::ToString(total) + (total == 1 ? " save" : " saves"));
+  SetVisible("mm_ld_empty", total == 0);
+  SetVisible("mm_ld_card", total > 0);
+
+  // A selection from another tab is not a selection here.
+  bool selected_here = false;
+  for (int index : rows)
+    if (index == mm_save) {
+      selected_here = true;
+      break;
+    }
+  if (!selected_here)
+    mm_save = total > 0 ? rows[0] : -1;
+
+  // Scroll the window rather than page it, so arrowing down a long list never
+  // jumps the rows the eye is following.
+  int selected_row = -1;
+  for (int i = 0; i < total; ++i)
+    if (rows[i] == mm_save) {
+      selected_row = i;
+      break;
+    }
+  mm_load_top = base::Clamp(mm_load_top, 0, base::Max(0, total - kMenuListRows));
+  if (selected_row >= 0) {
+    if (selected_row < mm_load_top)
+      mm_load_top = selected_row;
+    if (selected_row >= mm_load_top + kMenuListRows)
+      mm_load_top = selected_row - kMenuListRows + 1;
+  }
+
+  int unloadable = 0;
+  for (int index : rows)
+    if (!mm_saves[index].loadable)
+      ++unloadable;
+  SetVisible("mm_ld_statusrow", unloadable > 0);
+  if (unloadable > 0)
+    SetText("mm_ld_status",
+            base::ToString(unloadable) +
+                (unloadable == 1 ? " save needs attention" : " saves need attention"));
+
+  for (int i = 0; i < kMenuListRows; ++i) {
+    const int at = mm_load_top + i;
+    const bool shown = at < total;
+    SetVisible(Pooled("mm_ld", i), shown);
+    if (!shown)
+      continue;
+    const GameUi::MenuSave& s = mm_saves[rows[at]];
+    const bool on = rows[at] == mm_save;
+    const base::String id = base::ToString(i);
+    const u32 body = s.loadable ? (on ? 0xffffffffu : 0xffffffd6u) : 0x5e5e5effu;
+    const u32 dim = s.loadable ? 0x9a9a9affu : 0x4a4a4affu;
+
+    SetBackground(Pooled("mm_ld", i), Rgba(on ? 0xffffff0au : 0x00000000u));
+    // Filled pip resumes as it is, hairline wants attention. Value, not hue.
+    SetBackground(("mm_ld" + id + "_pip").c_str(),
+                  Rgba(s.loadable ? 0xffffffffu : 0x00000000u));
+    SetBorderColor(("mm_ld" + id + "_pip").c_str(),
+                   Rgba(s.loadable ? 0x00000000u : 0xffffff5eu));
+    SetStyleField(
+        ("mm_ld" + id + "_pip").c_str(),
+        [](ugui::Style& style, float v) { style.border_width = v; }, s.loadable ? 0.0f : 1.0f);
+    SetText(("mm_ld" + id + "_no").c_str(), s.slot);
+    SetText(("mm_ld" + id + "_name").c_str(),
+            s.kind.empty() ? s.character : (s.character + "   " + s.kind));
+    SetTextColor(("mm_ld" + id + "_name").c_str(), Rgba(body));
+    SetText(("mm_ld" + id + "_lvl").c_str(), s.level);
+    SetText(("mm_ld" + id + "_loc").c_str(), s.location);
+    SetTextColor(("mm_ld" + id + "_loc").c_str(), Rgba(on ? 0xffffffffu : dim));
+    SetText(("mm_ld" + id + "_play").c_str(), s.played);
+    SetText(("mm_ld" + id + "_when").c_str(), s.when);
+    SetText(("mm_ld" + id + "_state").c_str(), s.verdict);
+    SetTextColor(("mm_ld" + id + "_state").c_str(),
+                 Rgba(s.loadable ? 0x5e5e5effu : 0xffffffffu));
+  }
+
+  if (mm_save < 0 || mm_save >= static_cast<int>(mm_saves.size()))
+    return;
+  const GameUi::MenuSave& s = mm_saves[mm_save];
+  const bool has_art = s.art != 0;
+  if (has_art)
+    ugui::SetImageTexture(Need("mm_ld_shot"), s.art, 1.0f, 1.0f);
+  SetVisible("mm_ld_shot", has_art);
+  SetVisible("mm_ld_noshot", !has_art);
+  SetText("mm_ld_micro", s.kind.empty() ? s.slot : (s.slot + "  ·  " + s.kind));
+  SetText("mm_ld_name", s.character);
+  const base::String world = s.universe < static_cast<int>(mm_universe_names.size())
+                                 ? mm_universe_names[s.universe]
+                                 : base::String();
+  SetText("mm_ld_sub", "Level " + s.level + (world.empty() ? "" : "  ·  " + world));
+  SetText("mm_ld_kv0", s.when.empty() ? "-" : s.when);
+  SetText("mm_ld_kv1", s.played.empty() ? "-" : s.played);
+  SetText("mm_ld_kv2", s.location.empty() ? "-" : s.location);
+  SetText("mm_ld_kv3", s.file.empty() ? "-" : s.file);
+  SetText("mm_ld_kv4", s.size.empty() ? "-" : s.size);
+  // The heading stays a label; the verdict is the row's own state word. With
+  // nothing checked yet there is nothing to head, so it goes too.
+  SetVisible("mm_ld_order", !s.order.empty());
+  SetText("mm_ld_order", "Load order");
+  for (int i = 0; i < kMenuDeps; ++i) {
+    const base::String id = base::ToString(i);
+    const bool shown = i < static_cast<int>(s.order.size());
+    SetVisible(("mm_ld_dep" + id).c_str(), shown);
+    if (!shown)
+      continue;
+    const GameUi::MenuRequirement& r = s.order[i];
+    SetBackground(("mm_ld_dp" + id).c_str(), Rgba(r.met ? 0xffffffffu : 0x00000000u));
+    SetBorderColor(("mm_ld_dp" + id).c_str(), Rgba(r.met ? 0x00000000u : 0xffffff5eu));
+    SetStyleField(
+        ("mm_ld_dp" + id).c_str(), [](ugui::Style& style, float v) { style.border_width = v; },
+        r.met ? 0.0f : 1.0f);
+    SetText(("mm_ld_dn" + id).c_str(), r.name);
+    SetText(("mm_ld_ds" + id).c_str(), r.state);
+    SetTextColor(("mm_ld_ds" + id).c_str(), Rgba(r.met ? 0x5e5e5effu : 0xffffffffu));
+  }
+  // Resume is the only white thing on the screen, so it has to stop being white
+  // the moment it would not work.
+  SetBackground("mm_ld_resume", Rgba(s.loadable ? 0xffffffffu : 0x1a1a1affu));
+  SetTextColor("mm_ld_resume_t", Rgba(s.loadable ? 0x000000ffu : 0x5e5e5effu));
+}
+
+void GameUi::Impl::ApplyMenuJoin() {
+  for (int i = 0; i < kMenuJoinTabs; ++i) {
+    const base::String id = base::ToString(i);
+    const bool on = i == mm_join_tab;
+    SetTextColor(("mm_jn_tab" + id + "_t").c_str(), Rgba(on ? 0xffffffffu : 0x5e5e5effu));
+    SetVisible(("mm_jn_tab" + id + "_r").c_str(), on);
+  }
+
+  const base::Vector<int> rows = ServersForTab();
+  const int total = static_cast<int>(rows.size());
+  SetVisible("mm_jn_empty", total == 0);
+  SetVisible("mm_jn_card", total > 0);
+  SetText("mm_jn_count",
+          total == 0 ? base::String() : base::ToString(total) + " live");
+  SetVisible("mm_jn_statusrow", !mm_server_status.empty());
+  SetText("mm_jn_status", mm_server_status);
+
+  bool selected_here = false;
+  for (int index : rows)
+    if (index == mm_server) {
+      selected_here = true;
+      break;
+    }
+  if (!selected_here)
+    mm_server = total > 0 ? rows[0] : -1;
+
+  int selected_row = -1;
+  for (int i = 0; i < total; ++i)
+    if (rows[i] == mm_server) {
+      selected_row = i;
+      break;
+    }
+  mm_join_top = base::Clamp(mm_join_top, 0, base::Max(0, total - kMenuListRows));
+  if (selected_row >= 0) {
+    if (selected_row < mm_join_top)
+      mm_join_top = selected_row;
+    if (selected_row >= mm_join_top + kMenuListRows)
+      mm_join_top = selected_row - kMenuListRows + 1;
+  }
+
+  for (int i = 0; i < kMenuListRows; ++i) {
+    const int at = mm_join_top + i;
+    const bool shown = at < total;
+    SetVisible(Pooled("mm_jn", i), shown);
+    if (!shown)
+      continue;
+    const GameUi::MenuServer& s = mm_servers[rows[at]];
+    const bool on = rows[at] == mm_server;
+    const base::String id = base::ToString(i);
+    const u32 body = s.joinable ? (on ? 0xffffffffu : 0xffffffd6u) : 0x5e5e5effu;
+
+    SetBackground(Pooled("mm_jn", i), Rgba(on ? 0xffffff0au : 0x00000000u));
+    SetBackground(("mm_jn" + id + "_pip").c_str(),
+                  Rgba(s.joinable ? 0xffffffffu : 0x00000000u));
+    SetBorderColor(("mm_jn" + id + "_pip").c_str(),
+                   Rgba(s.joinable ? 0x00000000u : 0xffffff5eu));
+    SetStyleField(
+        ("mm_jn" + id + "_pip").c_str(),
+        [](ugui::Style& style, float v) { style.border_width = v; }, s.joinable ? 0.0f : 1.0f);
+    SetText(("mm_jn" + id + "_name").c_str(), s.name);
+    SetTextColor(("mm_jn" + id + "_name").c_str(), Rgba(body));
+    SetText(("mm_jn" + id + "_world").c_str(), s.world);
+    SetText(("mm_jn" + id + "_kind").c_str(), s.gametype);
+    SetTextColor(("mm_jn" + id + "_kind").c_str(), Rgba(on ? 0xffffffffu : 0x5e5e5effu));
+    SetText(("mm_jn" + id + "_slots").c_str(), s.players);
+    SetText(("mm_jn" + id + "_ping").c_str(), s.ping);
+    SetText(("mm_jn" + id + "_state").c_str(), s.entry);
+    // A friend hosting, a password, a full server: the states worth acting on
+    // read bright, "Open" stays quiet.
+    const bool loud = s.entry != "Open" && !s.entry.empty();
+    SetTextColor(("mm_jn" + id + "_state").c_str(), Rgba(loud ? 0xffffffffu : 0x5e5e5effu));
+  }
+
+  if (mm_server < 0 || mm_server >= static_cast<int>(mm_servers.size()))
+    return;
+  const GameUi::MenuServer& s = mm_servers[mm_server];
+  const bool has_art = s.art != 0;
+  if (has_art)
+    ugui::SetImageTexture(Need("mm_jn_shot"), s.art, 1.0f, 1.0f);
+  SetVisible("mm_jn_shot", has_art);
+  SetVisible("mm_jn_noshot", !has_art);
+  SetText("mm_jn_micro", s.gametype);
+  SetText("mm_jn_name", s.name);
+  SetText("mm_jn_sub", s.detail);
+  SetText("mm_jn_kv0", s.host.empty() ? s.address : (s.host + "  ·  " + s.address));
+  SetText("mm_jn_kv1", s.world.empty() ? "-" : s.world);
+  SetText("mm_jn_kv2", s.arrive.empty() ? "-" : s.arrive);
+  SetText("mm_jn_kv3", s.progress.empty() ? "-" : s.progress);
+  SetText("mm_jn_kv4", s.players + (s.ping.empty() ? "" : "  ·  " + s.ping));
+  SetText("mm_jn_order", s.note.empty() ? base::String("Before you can enter") : s.note);
+  for (int i = 0; i < kMenuDeps; ++i) {
+    const base::String id = base::ToString(i);
+    const bool shown = i < static_cast<int>(s.requirements.size());
+    SetVisible(("mm_jn_dep" + id).c_str(), shown);
+    if (!shown)
+      continue;
+    const GameUi::MenuRequirement& r = s.requirements[i];
+    SetBackground(("mm_jn_dp" + id).c_str(), Rgba(r.met ? 0xffffffffu : 0x00000000u));
+    SetBorderColor(("mm_jn_dp" + id).c_str(), Rgba(r.met ? 0x00000000u : 0xffffff5eu));
+    SetStyleField(
+        ("mm_jn_dp" + id).c_str(), [](ugui::Style& style, float v) { style.border_width = v; },
+        r.met ? 0.0f : 1.0f);
+    SetText(("mm_jn_dn" + id).c_str(), r.name);
+    SetText(("mm_jn_ds" + id).c_str(), r.state);
+    SetTextColor(("mm_jn_ds" + id).c_str(), Rgba(r.met ? 0x5e5e5effu : 0xffffffffu));
+  }
+  SetBackground("mm_jn_join", Rgba(s.joinable ? 0xffffffffu : 0x1a1a1affu));
+  SetTextColor("mm_jn_join_t", Rgba(s.joinable ? 0x000000ffu : 0x5e5e5effu));
+}
+
 void GameUi::Impl::LaunchFocusedEntry() {
+  // The rail is a second focus axis on the same screen: when a card has it,
+  // Enter resumes that save rather than booting the world fresh.
+  if (mm_rail >= 0) {
+    const base::Vector<int> rail = SavesForUniverse(FocusedUniverse());
+    if (mm_rail < static_cast<int>(rail.size())) {
+      ResumeSave(rail[mm_rail]);
+      return;
+    }
+  }
   if (mm_entry < 0 || mm_entry >= static_cast<int>(mm_entries.size()))
     return;
   const GameUi::MenuEntry& e = mm_entries[mm_entry];
@@ -474,7 +909,10 @@ void GameUi::Impl::LaunchFocusedEntry() {
   mm_request.kind = MainMenuRequest::Kind::kEnterUniverse;
   mm_request.universe = e.universe;
   mm_request.mode_id = e.mode_id;
-  mm_request.multiplayer = false;
+  // Friends and Public both host; the segment is what the engine reads to know
+  // whether the session is listed.
+  mm_request.session = mm_session;
+  mm_request.multiplayer = mm_session != MenuSession::kSolo;
 }
 
 
@@ -500,6 +938,7 @@ bool GameUi::Impl::RouteMainMenuClick(ugui::wid target) {
         const int index = mm_page() * kMenuTiles + slot;
         if (index < count)
           mm_entry = index;
+        mm_rail = -1;  // focus is back in the grid
       };
       using K = MainMenuRequest::Kind;
       if (name == "mm_back") {
@@ -541,6 +980,103 @@ bool GameUi::Impl::RouteMainMenuClick(ugui::wid target) {
         mm_request.universe = mm_entry < count ? mm_entries[mm_entry].universe : 0;
         return true;
       }
+      if (name == "mm_util_join") {
+        mm_screen = 6;
+        return true;
+      }
+      if (name == "mm_rail_all") {
+        // The rail's overflow: everything six cards cannot hold, on the world
+        // the rail is already showing.
+        const base::Vector<int> tabs = LoadTabUniverses();
+        const int focused = FocusedUniverse();
+        for (int t = 0; t < static_cast<int>(tabs.size()); ++t)
+          if (tabs[t] == focused)
+            mm_load_tab = t;
+        mm_screen = 5;
+        return true;
+      }
+      if (name == "mm_ld_resume") {
+        ResumeSave(mm_save);
+        return true;
+      }
+      if (name == "mm_ld_file") {
+        // SDL_OpenURL takes a file:// url and hands it to the desktop's own
+        // handler, which is what "show me this save on disk" means.
+        if (mm_save >= 0 && mm_save < static_cast<int>(mm_saves.size()) &&
+            !mm_saves[mm_save].path.empty()) {
+          mm_request.kind = K::kOpenUrl;
+          mm_request.url = "file://" + mm_saves[mm_save].path;
+        }
+        return true;
+      }
+      if (name == "mm_jn_join") {
+        JoinServer(mm_server);
+        return true;
+      }
+      if (name == "mm_jn_char") {
+        // The character picker in the small: every save of that world is a
+        // character you could bring, so this walks them.
+        if (mm_server >= 0 && mm_server < static_cast<int>(mm_servers.size())) {
+          const base::Vector<int> mine = SavesForUniverse(mm_servers[mm_server].universe);
+          if (!mine.empty()) {
+            int at = 0;
+            for (int i = 0; i < static_cast<int>(mine.size()); ++i)
+              if (mine[i] == mm_save)
+                at = i + 1;
+            mm_save = mine[at % static_cast<int>(mine.size())];
+            mm_servers[mm_server].arrive = mm_saves[mm_save].character + "  ·  level " +
+                                           mm_saves[mm_save].level;
+          }
+        }
+        return true;
+      }
+      if (int i = pref("mm_sess"); i >= 0 && i < 3) {
+        mm_session = static_cast<MenuSession>(i);
+        return true;
+      }
+      if (int i = pref("mm_ld_tab"); i >= 0) {
+        mm_load_tab = i;
+        mm_load_top = 0;
+        return true;
+      }
+      if (int i = pref("mm_jn_tab"); i >= 0) {
+        mm_join_tab = i;
+        mm_join_top = 0;
+        return true;
+      }
+      // A rail card takes focus off the grid: the two axes cannot both hold it.
+      // One click picks the moment, two resume it, which is what every save
+      // list in every game does and what the button alone does not give.
+      if (int i = pref("mm_sv"); i >= 0) {
+        const base::Vector<int> rail = SavesForUniverse(FocusedUniverse());
+        if (i < static_cast<int>(rail.size())) {
+          mm_rail = i;
+          mm_save = rail[i];
+          if (DoubleClicked("sv" + base::ToString(mm_save)))
+            ResumeSave(mm_save);
+        }
+        return true;
+      }
+      if (int i = pref("mm_ld"); i >= 0) {
+        const base::Vector<int> rows = SavesForTab();
+        const int at = mm_load_top + i;
+        if (at < static_cast<int>(rows.size())) {
+          mm_save = rows[at];
+          if (DoubleClicked("ld" + base::ToString(mm_save)))
+            ResumeSave(mm_save);
+        }
+        return true;
+      }
+      if (int i = pref("mm_jn"); i >= 0) {
+        const base::Vector<int> rows = ServersForTab();
+        const int at = mm_join_top + i;
+        if (at < static_cast<int>(rows.size())) {
+          mm_server = rows[at];
+          if (DoubleClicked("jn" + base::ToString(mm_server)))
+            JoinServer(mm_server);
+        }
+        return true;
+      }
       // Play sits inside its tile, so it has to win the match on the way up.
       if (int i = pref("mm_play"); i >= 0) {
         focusSlot(i);
@@ -549,6 +1085,8 @@ bool GameUi::Impl::RouteMainMenuClick(ugui::wid target) {
       }
       if (int i = pref("mm_tile"); i >= 0) {
         focusSlot(i);
+        if (DoubleClicked("tile" + base::ToString(mm_entry)))
+          LaunchFocusedEntry();
         return true;
       }
       if (int i = pref("mm_pip"); i >= 0) {

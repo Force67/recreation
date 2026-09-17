@@ -300,11 +300,72 @@ void GameUi::MainMenuMove(int dx, int dy) {
     }
     return;
   }
-  if (!impl_->initialized || !impl_->main_menu_open || impl_->mm_screen != 0)
+  if (!impl_->initialized || !impl_->main_menu_open)
+    return;
+  // The list screens are one column of rows with tabs across the top, so dy
+  // walks the rows and dx changes the tab.
+  if (impl_->mm_screen == 5) {
+    if (dx != 0) {
+      const int tabs = static_cast<int>(impl_->LoadTabUniverses().size());
+      if (tabs > 0) {
+        impl_->mm_load_tab = base::Clamp(impl_->mm_load_tab + dx, 0, tabs - 1);
+        impl_->mm_load_top = 0;
+      }
+    }
+    if (dy != 0) {
+      const base::Vector<int> rows = impl_->SavesForTab();
+      const int total = static_cast<int>(rows.size());
+      int at = 0;
+      for (int i = 0; i < total; ++i)
+        if (rows[i] == impl_->mm_save)
+          at = i;
+      if (total > 0)
+        impl_->mm_save = rows[base::Clamp(at + dy, 0, total - 1)];
+    }
+    return;
+  }
+  if (impl_->mm_screen == 6) {
+    if (dx != 0)
+      impl_->mm_join_tab = base::Clamp(impl_->mm_join_tab + dx, 0, kMenuJoinTabs - 1);
+    if (dy != 0) {
+      const base::Vector<int> rows = impl_->ServersForTab();
+      const int total = static_cast<int>(rows.size());
+      int at = 0;
+      for (int i = 0; i < total; ++i)
+        if (rows[i] == impl_->mm_server)
+          at = i;
+      if (total > 0)
+        impl_->mm_server = rows[base::Clamp(at + dy, 0, total - 1)];
+    }
+    return;
+  }
+  if (impl_->mm_screen != 0)
     return;
   const int count = static_cast<int>(impl_->mm_entries.size());
   if (count == 0)
     return;
+
+  // The rail is the screen's second focus axis. Down out of the bottom grid row
+  // enters it, up leaves it, and while it holds focus dx walks the cards.
+  const base::Vector<int> rail = impl_->SavesForUniverse(impl_->FocusedUniverse());
+  const int cards = base::Min(static_cast<int>(rail.size()), static_cast<int>(kMenuRailCards));
+  if (impl_->mm_rail >= 0) {
+    if (dy < 0) {
+      impl_->mm_rail = -1;
+      return;
+    }
+    if (dx != 0 && cards > 0)
+      impl_->mm_rail = base::Clamp(impl_->mm_rail + dx, 0, cards - 1);
+    return;
+  }
+  const bool bottom_row = (impl_->mm_entry % kMenuTiles) >= kMenuTileCols ||
+                          count - impl_->mm_page() * kMenuTiles <= kMenuTileCols;
+  // One step down, not a page: Q/E come through here as dy of +-2 and must keep
+  // paging the grid rather than falling into the rail.
+  if (dy == 1 && cards > 0 && bottom_row) {
+    impl_->mm_rail = 0;
+    return;
+  }
   // One flat index across every page: dx walks the row and rolls onto the next,
   // dy drops a grid row, and dy of +-2 is exactly a page (the Q/E step), since
   // the page is always mm_entry / kMenuTiles.
@@ -322,6 +383,14 @@ void GameUi::MainMenuActivate() {
       runtime.Navigate(impl_->ui, "enter");
     return;
   }
+  if (impl_->mm_screen == 5) {
+    impl_->ResumeSave(impl_->mm_save);
+    return;
+  }
+  if (impl_->mm_screen == 6) {
+    impl_->JoinServer(impl_->mm_server);
+    return;
+  }
   if (impl_->mm_screen != 0)
     return;
   impl_->LaunchFocusedEntry();
@@ -332,6 +401,12 @@ bool GameUi::MainMenuBack() {
     return false;
   if (impl_->mm_screen != 0) {
     impl_->mm_screen = 0;
+    return true;
+  }
+  // Back out of the rail before backing out of the menu: the rail is a focus
+  // axis, not a screen, so Esc has to walk it first.
+  if (impl_->mm_rail >= 0) {
+    impl_->mm_rail = -1;
     return true;
   }
   return false;
@@ -366,6 +441,52 @@ int GameUi::selected_entry() const {
   if (!impl_->initialized || impl_->mm_entries.empty())
     return -1;
   return impl_->mm_entry;
+}
+
+void GameUi::SetMainMenuSaves(const base::Vector<MenuSave>& saves) {
+  if (!impl_->initialized)
+    return;
+  base::Vector<MenuSave> next = saves;
+  // Screenshots are decoded off the list push (SetMainMenuSaveArt), so a
+  // refresh that carries none keeps the textures already bound to those saves.
+  for (size_t i = 0; i < next.size() && i < impl_->mm_saves.size(); ++i)
+    if (!next[i].art && next[i].path == impl_->mm_saves[i].path)
+      next[i].art = impl_->mm_saves[i].art;
+  impl_->mm_saves = base::move(next);
+  impl_->mm_save =
+      base::Clamp(impl_->mm_save, impl_->mm_saves.empty() ? -1 : 0,
+                  static_cast<int>(impl_->mm_saves.size()) - 1);
+}
+
+void GameUi::SetMainMenuSaveArt(int save, u64 texture) {
+  if (!impl_->initialized || save < 0 || save >= static_cast<int>(impl_->mm_saves.size()))
+    return;
+  impl_->mm_saves[save].art = texture;
+}
+
+void GameUi::SetMainMenuServers(const base::Vector<MenuServer>& servers,
+                                const base::String& status) {
+  if (!impl_->initialized)
+    return;
+  impl_->mm_servers = servers;
+  impl_->mm_server_status = status;
+  impl_->mm_server =
+      base::Clamp(impl_->mm_server, impl_->mm_servers.empty() ? -1 : 0,
+                  static_cast<int>(impl_->mm_servers.size()) - 1);
+}
+
+void GameUi::SetMainMenuSessionLine(const base::String& line) {
+  if (impl_->initialized)
+    impl_->mm_session_line = line;
+}
+
+MenuSession GameUi::menu_session() const {
+  return impl_->initialized ? impl_->mm_session : MenuSession::kSolo;
+}
+
+void GameUi::SetMenuSession(MenuSession session) {
+  if (impl_->initialized)
+    impl_->mm_session = session;
 }
 
 void GameUi::SetMainMenuUniverses(const base::Vector<base::String>& names,
@@ -1587,6 +1708,14 @@ int GameUi::selected_entry() const {
   return -1;
 }
 void GameUi::SetMainMenuUniverses(const base::Vector<base::String>&, const base::Vector<bool>&) {}
+void GameUi::SetMainMenuSaves(const base::Vector<MenuSave>&) {}
+void GameUi::SetMainMenuSaveArt(int, u64) {}
+void GameUi::SetMainMenuServers(const base::Vector<MenuServer>&, const base::String&) {}
+void GameUi::SetMainMenuSessionLine(const base::String&) {}
+MenuSession GameUi::menu_session() const {
+  return MenuSession::kSolo;
+}
+void GameUi::SetMenuSession(MenuSession) {}
 void GameUi::SetMainMenuTour(const base::String&, bool) {}
 void GameUi::SetMainMenuBackdrop(int, u64) {}
 void GameUi::SetMainMenuStats(const MainMenuStats&) {}
