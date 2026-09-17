@@ -4,6 +4,7 @@
 // Helpers shared between the Engine translation units (engine*.cc). Kept inline
 // in a header so each unit that needs them gets one definition.
 
+#include <base/containers/vector.h>
 #include <base/strings/xstring.h>
 
 #include <cstdarg>
@@ -14,6 +15,11 @@
 #include "core/math.h"
 
 namespace rx {
+
+// Every Steam library on this machine as ".../steamapps/common" directories,
+// read out of Steam's own libraryfolders.vdf (main_menu.cc). Shared because
+// savegames live beside the games, in the Proton prefix under the same root.
+base::Vector<base::String> SteamCommonRoots();
 
 // A stable per-game slug stored in the editor's layout file, so a saved
 // placement reloads against the same game next run. Shared by the content-load

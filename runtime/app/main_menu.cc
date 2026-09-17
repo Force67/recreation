@@ -338,6 +338,8 @@ base::String GameKeyArt(bethesda::Game game) {
   return {};
 }
 
+}  // namespace
+
 // Every Steam library on this machine, as ".../steamapps/common" directories.
 // Games live wherever the player put them, so guessing paths only ever works on
 // the machine the guess was written on: the list comes from Steam's own
@@ -403,8 +405,6 @@ base::Vector<base::String> SteamCommonRoots() {
   }
   return roots;
 }
-
-}  // namespace
 
 void ResolveUniverses(Engine& engine) {
   Engine* const self = &engine;

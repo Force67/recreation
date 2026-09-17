@@ -9,6 +9,7 @@ set(RECREATION_RUNTIME_SOURCES
   app/managed_rpc.cc
   app/content_load.cc
   app/savegame_load.cc
+  app/savegame_scan.cc
   app/map_state.cc
   app/player_map.cc
   app/managed_scripting.cc
@@ -211,4 +212,6 @@ if(RECREATION_BUILD_TOOLS)
   recreation_add_test(editor/editor_layouttest rx::core)
   recreation_add_test(character/chargen_presettest rx::core)
   recreation_add_test(ui/touch_pointertest rx::core)
+  recreation_add_test(app/savegame_scantest recreation::bethesda rx::core
+    SRCS app/savegame_scan.cc)
 endif()
