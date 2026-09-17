@@ -543,6 +543,10 @@ int GameUi::selected_universe() const {
   return impl_->mm_entries[impl_->mm_entry].universe;
 }
 
+bool GameUi::join_screen_open() const {
+  return impl_->initialized && impl_->main_menu_open && impl_->mm_screen == 6;
+}
+
 MainMenuRequest GameUi::PollMainMenuRequest() {
   MainMenuRequest r;
   if (impl_->initialized) {
@@ -1724,6 +1728,9 @@ void GameUi::SetMainMenuNews(const base::Vector<MenuNewsItem>&) {}
 void GameUi::SetMainMenuGlyph(const base::String&, u64) {}
 int GameUi::selected_universe() const {
   return 0;
+}
+bool GameUi::join_screen_open() const {
+  return false;
 }
 MainMenuRequest GameUi::PollMainMenuRequest() {
   return {};

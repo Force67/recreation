@@ -35,6 +35,7 @@
 #include "asset/mesh.h"
 #include "components/script/games/skyrim/skyrim_bindings.h"
 #include "core/log.h"
+#include "runtime/app/server_list.h"
 #include "core/paths.h"
 #include "runtime/app/engine_internal.h"
 #include "runtime/app/savegame_scan.h"
@@ -921,15 +922,24 @@ void Engine::UpdateMainMenu(f32 dt) {
   if (actions_->pressed(Action::kMenuCancel))
     game_ui_.MainMenuBack();
 
+#if RECREATION_HAS_NET
+  // The browser asks the list the moment the player opens Join, and the answer
+  // lands a few frames later through the poll.
+  const bool join_open = game_ui_.join_screen_open();
+  if (join_open && !join_screen_open_)
+    RequestServerList(*this);
+  join_screen_open_ = join_open;
+  PollServerList(*this);
+#endif
+
   // No RefreshMenuData here: the render path runs it every frame, menu or not,
   // because the HUD reads the same block.
   const MainMenuRequest req = game_ui_.PollMainMenuRequest();
-  // Friends and Public both host. They differ only in whether the session is
-  // announced to the server list, and the client that would announce it is
-  // not wired yet.
+  // Friends and Public both host the same session. They differ only in whether
+  // it goes on the server list, which is what announce carries into the
+  // networking bring-up.
   const bool hosting = req.session != MenuSession::kSolo;
-  if (hosting && req.session == MenuSession::kPublic)
-    RX_INFO("session: public hosting asked for; the announce is not wired yet");
+  config_.announce = hosting && req.session == MenuSession::kPublic;
 
   switch (req.kind) {
     case MainMenuRequest::Kind::kEnterUniverse:

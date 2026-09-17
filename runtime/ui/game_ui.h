@@ -682,6 +682,9 @@ class GameUi {
   void SetMenuSession(MenuSession session);
   // The universe column currently selected (0 Skyrim, 1 Fallout 4, 2 Starfield).
   int selected_universe() const;
+  // True while the Join screen is the one on screen, which is when the engine
+  // asks the server list for its contents.
+  bool join_screen_open() const;
   // Consume the pending request (kNone if none). Called by the engine each frame.
   MainMenuRequest PollMainMenuRequest();
 
