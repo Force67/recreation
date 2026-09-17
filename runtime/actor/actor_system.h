@@ -172,12 +172,31 @@ class ActorSystem {
  private:
   // One part of an actor: a skinned mesh sharing the skeleton pose, or a rigid
   // mesh (head, hair) riding a single bone.
+  // Skinned ray tracing: how near an actor has to be to get its animated pose
+  // into the acceleration structure, and how many may hold one at once. The
+  // release radius is wider than the acquire radius so an actor walking the
+  // boundary does not take and give back a handle every frame.
+  static constexpr f32 kRtSkinNear = 22.0f;   // metres
+  static constexpr f32 kRtSkinFar = 28.0f;    // metres
+  static constexpr u32 kRtSkinBudget = 24;    // concurrent skinned draws
+
   struct ActorPart {
     asset::AssetId mesh;
     asset::SkinBinding skin;
     base::Vector<i32> remap;  // skin bone -> skeleton bone index
     i32 attach_bone = -1;
     Mat4 attach_inverse_bind = Mat4::Identity();
+    // Last frame's skin palette, in the same order as this frame's. The
+    // renderer needs it to give a vertex that moved because a BONE moved a
+    // motion vector of its own; without it the reprojection reads an animating
+    // limb as still. Empty on the first frame a part is drawn.
+    base::Vector<Mat4> prev_palette;
+    // Skinned ray-tracing actor (Renderer::AcquireSkinnedRt), 0 = none. A
+    // skinned mesh's BLAS holds its BIND pose, so without one the ray-traced
+    // world carries a T-posed copy of this body and every traced effect
+    // occludes the animated one against a silhouette it does not have. Held
+    // while the actor is near the camera; the pose error is sub-pixel at range.
+    u32 rt_skin = 0;
   };
   // A decoded Havok clip: the spline animation plus the per-track remap into
   // the actor's (NIF) skeleton, resolved by bone name through the Havok
@@ -466,6 +485,7 @@ class ActorSystem {
   bool fp_has_weapon_ = false;                  // a weapon part is attached
   Mat4 fp_view_ = Mat4::Identity();             // camera-to-world for this frame
   Mat4 fp_prev_model_ = Mat4::Identity();       // previous FP model (motion vectors)
+  u32 rt_skin_live_ = 0;  // skinned-rt handles out, against kRtSkinBudget
   Mat4 fp_prev_weapon_ = Mat4::Identity();      // previous weapon transform (motion vectors)
   std::shared_ptr<const HavokClip> fp_idle_, fp_equip_, fp_unequip_, fp_attack_;
 };

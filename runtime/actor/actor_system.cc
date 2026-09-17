@@ -2127,6 +2127,39 @@ void ActorSystem::EmitOneActor(Actor& actor, render::FrameView& view) {
       anim::BuildSkinPalette(actor.bone_model, part.skin, part.remap, &palette);
       for (const Mat4& m : palette)
         view.bone_matrices.push_back(m);
+      // Skinned motion is per bone, not per draw: prev_transform alone says the
+      // actor moved as a rigid body, which is a lie for every animating limb.
+      // Hand the reprojection last frame's palette so a shoulder that swung
+      // gets a motion vector instead of blending the history from where it was,
+      // which is what smears the body over itself.
+      if (part.prev_palette.size() == palette.size()) {
+        item.prev_skin_offset = static_cast<i32>(view.prev_bone_matrices.size());
+        for (const Mat4& m : part.prev_palette)
+          view.prev_bone_matrices.push_back(m);
+      }
+      part.prev_palette = palette;
+      // And the same pose for the ray-traced world: a skinned BLAS is the bind
+      // pose, so an actor without this is a T-posed body standing inside the
+      // animated one, and rtao/gi/shadows occlude the character against a
+      // silhouette it does not have. The handle is per skinned draw, kept while
+      // the actor is near, because each one costs a deform dispatch and a BLAS
+      // refit every frame.
+      const f32 dx = model.m[12] - view.camera.eye.x;
+      const f32 dy = model.m[13] - view.camera.eye.y;
+      const f32 dz = model.m[14] - view.camera.eye.z;
+      const f32 range2 = dx * dx + dy * dy + dz * dz;
+      if (part.rt_skin == 0) {
+        if (range2 < kRtSkinNear * kRtSkinNear && rt_skin_live_ < kRtSkinBudget) {
+          part.rt_skin = renderer_.AcquireSkinnedRt();
+          if (part.rt_skin != 0)
+            ++rt_skin_live_;
+        }
+      } else if (range2 > kRtSkinFar * kRtSkinFar) {
+        renderer_.ReleaseSkinnedRt(part.rt_skin);
+        part.rt_skin = 0;
+        --rt_skin_live_;
+      }
+      item.rt_skin = part.rt_skin;
     }
     view.draws.push_back(item);
   }
@@ -2375,6 +2408,22 @@ void ActorSystem::EmitFpRig(render::FrameView& view) {
       anim::BuildSkinPalette(a.bone_model, part.skin, part.remap, &palette);
       for (const Mat4& m : palette)
         view.bone_matrices.push_back(m);
+      // The arms animate too: the weapon above already carries real motion
+      // vectors, and the hands holding it need the same or they ghost.
+      if (part.prev_palette.size() == palette.size()) {
+        item.prev_skin_offset = static_cast<i32>(view.prev_bone_matrices.size());
+        for (const Mat4& m : part.prev_palette)
+          view.prev_bone_matrices.push_back(m);
+      }
+      part.prev_palette = palette;
+      // The arms are the nearest thing to the camera there is, so they always
+      // take a ray-traced pose rather than casting their bind one.
+      if (part.rt_skin == 0 && rt_skin_live_ < kRtSkinBudget) {
+        part.rt_skin = renderer_.AcquireSkinnedRt();
+        if (part.rt_skin != 0)
+          ++rt_skin_live_;
+      }
+      item.rt_skin = part.rt_skin;
     }
     view.draws.push_back(item);
   }
@@ -2538,8 +2587,21 @@ void ActorSystem::SyncNpcActors() {
         world_.Has<world::Deleted>(entry.value.entity))
       scratch_dead_actors_.push_back(entry.key);
   for (u64 key : scratch_dead_actors_) {
-    if (Actor* a = npc_actors_.find(key); a && a->hair_groom)
-      renderer_.DestroyHairGroom(a->hair_groom);
+    if (Actor* a = npc_actors_.find(key)) {
+      if (a->hair_groom)
+        renderer_.DestroyHairGroom(a->hair_groom);
+      // A skinned-rt handle owns a deformed vertex buffer and a BLAS, so an
+      // actor that walks out of the world has to hand it back or the budget
+      // leaks away one dead bandit at a time.
+      for (ActorPart& part : a->parts) {
+        if (part.rt_skin != 0) {
+          renderer_.ReleaseSkinnedRt(part.rt_skin);
+          part.rt_skin = 0;
+          if (rt_skin_live_ > 0)
+            --rt_skin_live_;
+        }
+      }
+    }
     npc_actors_.erase(key);
   }
 }
