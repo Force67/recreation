@@ -611,10 +611,75 @@ void TestRealFallout4Save() {
 
 }  // namespace
 
+// The header-only reader, which the front-end's save list runs over a whole
+// folder. Two things matter: it agrees with the full parse on every field, and
+// a caller that read a few KB instead of the whole file still gets those
+// fields back rather than a failure.
+void TestHeaderOnly() {
+  std::puts("header-only reader");
+  const base::Vector<u8> file = rx::bethesda::BuildSyntheticSkyrimLeSave();
+  const rx::ByteSpan bytes(file.data(), file.size());
+
+  rx::bethesda::SaveHeader header;
+  if (!rx::bethesda::ReadSaveHeader(bytes, header, true)) {
+    Check("parses", false);
+    return;
+  }
+  Check("format", header.format == SaveFormat::kSkyrimLe);
+  Check("save number 42", header.save_number == 42);
+  Check("player name", header.player_name == "Testinius");
+  Check("player level 37", header.player_level == 37);
+  Check("player location", header.player_location == "Whiterun");
+  Check("play time seconds",
+        header.in_game_seconds == 12 * 3600.0f + 34 * 60.0f + 56.0f);
+
+  // Skyrim LE stores the shot as RGB, and the pixels are there when asked for.
+  Check("screenshot bpp 3", header.screenshot_bpp == 3);
+  const rx::u64 pixels = static_cast<rx::u64>(header.screenshot_width) *
+                         header.screenshot_height * header.screenshot_bpp;
+  Check("screenshot size", pixels > 0 && header.screenshot.size() == pixels);
+  Check("body past the screenshot", header.body_offset > pixels);
+
+  // The same call without asking leaves the pixels alone but keeps the facts.
+  rx::bethesda::SaveHeader light;
+  Check("parses without pixels", rx::bethesda::ReadSaveHeader(bytes, light, false));
+  Check("no pixels read", light.screenshot.empty());
+  Check("same body offset", light.body_offset == header.body_offset);
+
+  // What a folder scan actually hands it: a prefix of the file that stops
+  // inside the screenshot. Every field survives; only the picture has to be
+  // fetched later.
+  const size_t probe = static_cast<size_t>(header.body_offset - pixels) + 1;
+  rx::bethesda::SaveHeader partial;
+  Check("parses a short read",
+        rx::bethesda::ReadSaveHeader(rx::ByteSpan(file.data(), probe), partial, true));
+  Check("short read keeps the name", partial.player_name == "Testinius");
+  Check("short read keeps the level", partial.player_level == 37);
+  Check("short read has no pixels", partial.screenshot.empty());
+  Check("short read still says how big the picture is",
+        partial.screenshot_width == header.screenshot_width);
+
+  // A cosave or a text file in the same folder is not a save.
+  const char* junk = "not a savegame at all, just bytes";
+  rx::bethesda::SaveHeader none;
+  Check("rejects junk",
+        !rx::bethesda::ReadSaveHeader(
+            rx::ByteSpan(reinterpret_cast<const rx::u8*>(junk), std::strlen(junk)), none, false));
+
+  // And Fallout 4's header shape reads the same way.
+  const base::Vector<u8> fo4 = rx::bethesda::BuildSyntheticFallout4Save();
+  rx::bethesda::SaveHeader fo4_header;
+  Check("parses fallout 4",
+        rx::bethesda::ReadSaveHeader(rx::ByteSpan(fo4.data(), fo4.size()), fo4_header, true));
+  Check("fallout 4 name", fo4_header.player_name == "Nate");
+  Check("fallout 4 bpp 4", fo4_header.screenshot_bpp == 4);
+}
+
 int main() {
   std::puts("savegametest");
   TestSynthetic();
   TestSyntheticFallout4();
+  TestHeaderOnly();
   TestTruncation();
   TestRealSave();
   TestRealFallout4Save();

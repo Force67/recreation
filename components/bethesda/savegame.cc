@@ -713,11 +713,78 @@ bool ReadBody(Reader& r,
   return true;
 }
 
+u64 ScreenshotBytes(const SaveHeader& h) {
+  return static_cast<u64>(h.screenshot_width) * h.screenshot_height * h.screenshot_bpp;
+}
+
+// The header walk, shared by ReadSaveHeader and ReadSaveFile so a field that
+// moves cannot be right in one and wrong in the other. Leaves `r` sitting at
+// the screenshot, which is the last thing before the body.
+bool ParseHeader(Reader& r, const FormatTraits& t, SaveHeader& out, u16& codec) {
+  r.Skip(t.magic_size);
+  const u32 header_size = r.U32();
+  const size_t header_start = t.magic_size + 4;
+
+  r.U32();  // header version, already read by MatchFormat
+  out.format = t.format;
+  out.save_number = r.U32();
+  out.player_name = r.WString();
+  out.player_level = r.U32();
+  out.player_location = r.WString();
+  out.game_time = r.WString();
+  r.WString();  // player race editor id
+  r.U16();      // player sex
+  r.F32();      // current experience
+  r.F32();      // experience needed for the next level
+  r.Skip(8);    // FILETIME the save was written at
+  const u32 shot_width = r.U32();
+  const u32 shot_height = r.U32();
+  codec = t.has_codec_field ? r.U16() : kCodecNone;
+  if (!r.ok())
+    return false;
+  out.in_game_seconds = PlayTimeSeconds(out.format, out.game_time);
+
+  if (shot_width > kMaxScreenshotEdge || shot_height > kMaxScreenshotEdge)
+    return false;
+  out.screenshot_width = shot_width;
+  out.screenshot_height = shot_height;
+  out.screenshot_bpp = t.screenshot_bpp;
+
+  // Trust the header's own size over the field walk above, so a version that
+  // appended a field still lands on the screenshot.
+  if (!r.SeekTo(header_start + header_size))
+    return false;
+  out.body_offset = static_cast<u64>(header_start) + header_size + ScreenshotBytes(out);
+  return true;
+}
+
 }  // namespace
 
 SaveFormat DetectSaveFormat(ByteSpan bytes) {
   const FormatTraits* traits = MatchFormat(bytes);
   return traits ? traits->format : SaveFormat::kUnknown;
+}
+
+bool ReadSaveHeader(ByteSpan bytes, SaveHeader& out, bool with_screenshot) {
+  const FormatTraits* traits = MatchFormat(bytes);
+  if (!traits)
+    return false;
+  SaveHeader header;
+  u16 codec = kCodecNone;
+  Reader r(bytes);
+  if (!ParseHeader(r, *traits, header, codec))
+    return false;
+
+  // A caller that read only the first few KB of the file still gets every fact
+  // above; the pixels are the one thing it has to come back for.
+  const u64 shot = ScreenshotBytes(header);
+  if (with_screenshot && shot > 0 && shot <= r.remaining()) {
+    header.screenshot.resize(static_cast<size_t>(shot));
+    std::memcpy(header.screenshot.data(), bytes.data() + (header.body_offset - shot),
+                static_cast<size_t>(shot));
+  }
+  out = base::move(header);
+  return true;
 }
 
 ChangeFormType ChangeFormTypeOf(SaveFormat format, u8 type_byte) {
@@ -734,44 +801,26 @@ bool ReadSaveFile(ByteSpan bytes, SaveFile& out) {
   if (!traits)
     return false;
 
-  SaveFile save;
-  save.format = traits->format;
-
+  SaveHeader header;
+  u16 codec = kCodecNone;
   Reader r(bytes);
-  r.Skip(traits->magic_size);
-  const u32 header_size = r.U32();
-  const size_t header_start = traits->magic_size + 4;
+  if (!ParseHeader(r, *traits, header, codec))
+    return false;
 
-  r.U32();  // header version, already read by MatchFormat
-  save.save_number = r.U32();
-  save.player_name = r.WString();
-  save.player_level = r.U32();
-  save.player_location = r.WString();
-  save.game_time = r.WString();
-  r.WString();  // player race editor id
-  r.U16();      // player sex
-  r.F32();      // current experience
-  r.F32();      // experience needed for the next level
-  r.Skip(8);    // FILETIME the save was written at
-  const u32 shot_width = r.U32();
-  const u32 shot_height = r.U32();
-  const u16 codec = traits->has_codec_field ? r.U16() : kCodecNone;
-  if (!r.ok())
-    return false;
-  save.in_game_seconds = PlayTimeSeconds(save.format, save.game_time);
+  SaveFile save;
+  save.format = header.format;
+  save.save_number = header.save_number;
+  save.player_name = header.player_name;
+  save.player_level = header.player_level;
+  save.player_location = header.player_location;
+  save.game_time = header.game_time;
+  save.in_game_seconds = header.in_game_seconds;
 
-  // Trust the header's own size over the field walk above, so a version that
-  // appended a field still lands on the screenshot.
-  if (!r.SeekTo(header_start + header_size))
-    return false;
-  if (shot_width > kMaxScreenshotEdge || shot_height > kMaxScreenshotEdge)
-    return false;
-  const u64 screenshot_size =
-      static_cast<u64>(shot_width) * shot_height * traits->screenshot_bpp;
+  const u64 screenshot_size = ScreenshotBytes(header);
   if (screenshot_size > r.remaining() || !r.Skip(static_cast<size_t>(screenshot_size)))
     return false;
 
-  const size_t body_base = header_start + header_size + static_cast<size_t>(screenshot_size);
+  const size_t body_base = static_cast<size_t>(header.body_offset);
   base::Vector<u8> storage;
   ByteSpan body;
   if (!ReadBody(r, *traits, codec, &storage, &body))

@@ -169,6 +169,38 @@ struct ChangeForm {
   base::Vector<u8> data;    // decompressed payload
 };
 
+// The header alone: everything a save LIST needs, without touching the body.
+// ReadSaveFile decompresses 13 MB to answer the same questions, which is fine
+// once at load time and hopeless over a folder of two hundred saves at menu
+// time. That difference is the only reason this exists.
+struct SaveHeader {
+  SaveFormat format = SaveFormat::kUnknown;
+  u32 save_number = 0;
+  base::String player_name;
+  u32 player_level = 0;
+  base::String player_location;  // cell/worldspace display name at save time
+  base::String game_time;
+  f32 in_game_seconds = 0.0f;
+
+  // The picture the game took when it wrote the save. The dimensions come out
+  // of the header and are always filled; `screenshot` only when the bytes were
+  // asked for AND the span reached that far, so a caller that read the first
+  // few KB still gets every fact above and can come back for the pixels.
+  u32 screenshot_width = 0;
+  u32 screenshot_height = 0;
+  u32 screenshot_bpp = 0;  // 3 = RGB (Skyrim LE), 4 = RGBA
+  base::Vector<u8> screenshot;
+
+  // File offset the body begins at, so a caller that wants more than this does
+  // not have to walk the header a second time to find it.
+  u64 body_offset = 0;
+};
+
+// Layer 1, the cheap half. Returns false on a file that is not a savegame at
+// all; a truncated span that still holds the header is a success with no
+// screenshot, because that is the useful answer for a list.
+bool ReadSaveHeader(ByteSpan bytes, SaveHeader& out, bool with_screenshot = false);
+
 // The container. Parsing this must never require a loaded game.
 struct SaveFile {
   SaveFormat format = SaveFormat::kUnknown;
