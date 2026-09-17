@@ -692,6 +692,23 @@ void ActorSystem::AttachHead(Actor& actor,
   LoadActorPart("meshes/actors/character/character assets/malehead.nif", actor, head_bone);
   if (hooded)
     return;
+  // Eyes are their own head part, and the default head above is only a face:
+  // without them the sockets read as a dark band. The head is hardcoded, so the
+  // eyes are too. The record scan behind it returns parts in plugin order,
+  // where the first adult male pair is a Khajiit's, which on a human face is
+  // worse than none.
+  if (!LoadActorPart("meshes/actors/character/character assets/eyesmale.nif", actor, head_bone)) {
+    base::Vector<base::String> eyes =
+        FindHeadPartModels(static_cast<u32>(bethesda::HeadPartType::kEyes), 16);
+    for (const base::String& eye : eyes) {
+      if (eye.find("khajiit") != base::String::npos ||
+          eye.find("argonian") != base::String::npos)
+        continue;  // beast eyes on a human head
+      if (LoadActorPart(eye, actor, head_bone))
+        break;
+    }
+  }
+
   base::Vector<base::String> hairs = FindHeadPartModels(/*hair=*/3, 24);
   if (groom && !hairs.empty()) {
     AttachHairGroom(actor, hairs[0], {0.32f, 0.24f, 0.18f}, head_bone);
