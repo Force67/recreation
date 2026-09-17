@@ -102,6 +102,7 @@ bool LoadGameData(Engine& engine) {
 
   auto order = bethesda::LoadOrder::FromPluginsTxt(self->config_.plugins_txt, profile);
   self->load_plugins_ = base::ToString(order.plugins().size());
+  self->load_order_plugins_ = order.plugins();  // digested for the server list
   ReportLoadPhase(engine, LoadPhase::kRecords,
                   "Reading " + base::ToString(order.plugins().size()) + " plugins",
                   "Every form the load order defines, in load order");

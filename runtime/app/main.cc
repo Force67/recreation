@@ -30,6 +30,9 @@ void PrintUsage() {
   RX_INFO("  --connect <address>   join a server");
   RX_INFO("  --port <port>         server port (default: 29700)");
   RX_INFO("  --name <name>         player name sent to the server");
+  RX_INFO("  --masterlist <url>    server list to announce to and browse");
+  RX_INFO("  --server-name <name>  how a hosted session appears in the browser");
+  RX_INFO("  --announce            put the hosted session on the server list");
   RX_INFO("  --cell <x,y>          exterior start cell (default: 5,-3 near Whiterun)");
   RX_INFO("  --interior <id>       load one interior cell (editor id or 0x form id)");
   RX_INFO("  --load-save <path>    resume from a savegame (.ess/.fos)");
@@ -150,6 +153,12 @@ int main(int argc, char** argv) {
       config.mods_dir = next();
     else if (arg == "--asset-cache")
       config.asset_cache_dir = next();
+    else if (arg == "--masterlist")
+      config.masterlist_url = next();
+    else if (arg == "--server-name")
+      config.server_name = next();
+    else if (arg == "--announce")
+      config.announce = true;
     else if (arg == "--cell") {
       base::String cell = next();
       size_t comma = cell.find(',');

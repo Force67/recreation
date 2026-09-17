@@ -111,6 +111,16 @@ struct EngineConfig {
   // back to "recreation_asset_cache" beside the working directory. A connecting
   // client always streams the host's mods into this cache.
   base::String asset_cache_dir;
+  // The server list to announce a hosted session to and to fill the Join screen
+  // from. Empty (the default) falls back to RX_MASTERLIST, and without that
+  // there is no list: the session stays private and the browser says so.
+  base::String masterlist_url;
+  // How a hosted session appears in somebody else's browser. Empty names it
+  // after the host's player name.
+  base::String server_name;
+  // Put the hosted session on the list. Off is what SOLO and FRIENDS mean on
+  // the front screen: the session runs, it is simply not advertised.
+  bool announce = false;
 };
 
 // A dynamic physics body mirrored into an ECS transform after each step.

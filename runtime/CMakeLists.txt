@@ -6,6 +6,7 @@ set(RECREATION_RUNTIME_SOURCES
   app/frame_loop.cc
   app/platform_profile.cc
   app/networking.cc
+  app/server_list.cc
   app/managed_rpc.cc
   app/content_load.cc
   app/savegame_load.cc
@@ -117,7 +118,7 @@ if(WIN32)
 endif()
 
 if(RECREATION_NET)
-  target_link_libraries(recreation PRIVATE recreation::gamenet rx::net_viz)
+  target_link_libraries(recreation PRIVATE recreation::gamenet recreation::masterlist rx::net_viz)
   target_compile_definitions(recreation PRIVATE RECREATION_HAS_NET=1)
 endif()
 
@@ -192,7 +193,8 @@ recreation_set_warnings(recreation-server)
 recreation_enable_mimalloc(recreation-server)
 
 if(RECREATION_NET)
-  target_link_libraries(recreation-server PRIVATE recreation::gamenet rx::net_viz)
+  target_link_libraries(recreation-server PRIVATE recreation::gamenet recreation::masterlist
+                                                  rx::net_viz)
   target_compile_definitions(recreation-server PRIVATE RECREATION_HAS_NET=1)
 endif()
 

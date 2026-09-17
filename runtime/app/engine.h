@@ -53,6 +53,8 @@
 #include "runtime/vehicle/carriage.h"
 
 #if RECREATION_HAS_NET
+#include "components/masterlist/announcer.h"
+#include "components/masterlist/async_list.h"
 #include "components/modstream/content_store.h"
 #include "components/modstream/mod_catalog.h"
 #endif
@@ -331,6 +333,11 @@ class Engine : public app::Application {
 #if RECREATION_HAS_NET
   friend bool StartNetworking(Engine&);
   friend void ReloadMods(Engine&);
+  friend base::String MasterlistUrl(const Engine&);
+  friend void StartServerAnnounce(Engine&);
+  friend void StopServerAnnounce(Engine&);
+  friend void RequestServerList(Engine&);
+  friend void PollServerList(Engine&);
   friend void EngineRpcEmitImpl(Engine&,
                                 std::int32_t,
                                 std::uint64_t,
@@ -437,6 +444,9 @@ class Engine : public app::Application {
   int menu_tour_universe_ = 0;
   bool menu_tour_available_ = false;
   bool main_menu_active_ = false;
+  // Edge-detects the Join screen opening, which is what triggers one server
+  // list query instead of one per frame.
+  bool join_screen_open_ = false;
   // First-run out-of-box wizard: owns the screen on a fresh install until the
   // player finishes setup, at which point it hands off to the main menu. The
   // mods directory the wizard collects is held here until it is persisted.
@@ -487,6 +497,10 @@ class Engine : public app::Application {
   base::String load_title_;
   base::String load_records_;
   base::String load_plugins_;
+  // The load order this run actually loaded, kept because the server list
+  // digests it: a joiner compares that digest against its own before dialling,
+  // which is what turns "failed to load" into "you are missing two plugins".
+  base::Vector<base::String> load_order_plugins_;
 
   // The app::Host owns the window/jobs/frame-timer/clock and drives the loop;
   // these are non-owning views cached from Services at OnInitialize.
@@ -741,6 +755,13 @@ class Engine : public app::Application {
   // 3D overlay of the session's streaming bubbles (RX_NET_BUBBLES=0 hides it).
   // Built lazily on the first frame that has bubbles to draw.
   base::UniquePointer<net::BubbleVisualizer> bubble_viz_;
+  // Server list: the worker that keeps a hosted session listed, and the one the
+  // Join screen polls. The announcer reads the player count off the atomic
+  // below, which the net tick refreshes on the main thread, because the
+  // session's own count is not safe to read from another thread.
+  masterlist::Announcer announcer_;
+  masterlist::AsyncList server_query_;
+  std::atomic<u32> announced_players_{0};
 #endif
 
   // REC_NAV_DEBUG overlay storage: rebuilt each frame, spanned into the view.

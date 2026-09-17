@@ -37,6 +37,9 @@ void PrintUsage() {
   RX_INFO("  --port <port>         listen port (default: 29700)");
   RX_INFO("  --max-clients <n>     player slots (default: 64)");
   RX_INFO("  --mods-dir <path>     UGC resources to stream to clients (FiveM-style)");
+  RX_INFO("  --masterlist <url>    server list to announce to (or RX_MASTERLIST)");
+  RX_INFO("  --server-name <name>  how this server appears in the browser");
+  RX_INFO("  --private             run unlisted (the default is to announce)");
 }
 
 rx::bethesda::Game ParseGame(const base::String& id) {
@@ -61,6 +64,10 @@ int main(int argc, char** argv) {
   rx::EngineConfig config;
   config.headless = true;
   config.host_server = true;
+  // A dedicated server exists to be found. Somebody who wants a private one
+  // says so with --private; the windowed client is the other way round, where
+  // the front screen's SOLO/FRIENDS/PUBLIC segment decides.
+  config.announce = true;
 
   for (int i = 1; i < argc; ++i) {
     base::String arg = argv[i];
@@ -78,6 +85,12 @@ int main(int argc, char** argv) {
       config.max_clients = static_cast<rx::u32>(std::stoi(next().c_str()));
     else if (arg == "--mods-dir")
       config.mods_dir = next();
+    else if (arg == "--masterlist")
+      config.masterlist_url = next();
+    else if (arg == "--server-name")
+      config.server_name = next();
+    else if (arg == "--private")
+      config.announce = false;
     else {
       PrintUsage();
       return arg == "--help" ? 0 : 1;

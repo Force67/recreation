@@ -1,5 +1,7 @@
 #include "runtime/app/engine.h"
 
+#include "runtime/app/server_list.h"
+
 #include <base/memory/move.h>
 #include <base/memory/unique_pointer.h>
 #include <base/option.h>
@@ -337,6 +339,9 @@ void Engine::OnShutdown() {
   }
 #if RECREATION_HAS_NET
   bubble_viz_.Reset();  // owns a raw pipeline; drop it while the device lives
+  // Retire the listing before the socket goes, so the browser loses the entry
+  // now instead of showing a dead server until it ages out.
+  StopServerAnnounce(*this);
 #endif
 }
 

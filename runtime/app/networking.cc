@@ -12,6 +12,7 @@
 #include "components/script/papyrus/value.h"
 #include "core/log.h"
 #include "runtime/app/engine.h"
+#include "runtime/app/server_list.h"
 
 #if RECREATION_HAS_NET
 #include "components/gamenet/asset_stream.h"
@@ -190,8 +191,34 @@ bool StartNetworking(Engine& engine) {
       return false;
     }
     self->session_ = base::move(server);
+    // On the list only once the socket is actually up: an entry pointing at a
+    // port nothing listens on is worse than no entry.
+    StartServerAnnounce(*self);
   } else if (!self->config_.connect_address.empty()) {
-    net_config.address = base::String(self->config_.connect_address.c_str());
+    // An address from the browser (or a --connect the user typed) carries its
+    // port: "1.2.3.4:29700", or "[::1]:29700" for a v6 literal. The session
+    // takes host and port separately, so the two are split here rather than in
+    // every caller that can produce one.
+    base::String host = self->config_.connect_address;
+    const mem_size bracket = host.find(']');
+    const mem_size first_colon = host.find(':');
+    mem_size colon = base::String::npos;
+    if (bracket != base::String::npos)
+      colon = host.find(':', bracket);
+    else if (first_colon != base::String::npos &&
+             host.find(':', first_colon + 1) == base::String::npos)
+      colon = first_colon;  // a second colon means a bare v6 literal, not a port
+    if (colon != base::String::npos && colon + 1 < host.size()) {
+      const base::String port_text = host.substr(colon + 1);
+      const int port = std::atoi(port_text.c_str());
+      if (port > 0 && port <= 65535) {
+        net_config.port = static_cast<u16>(port);
+        host = host.substr(0, colon);
+      }
+    }
+    if (host.size() >= 2 && host[0] == '[' && host[host.size() - 1] == ']')
+      host = host.substr(1, host.size() - 2);
+    net_config.address = host;
     auto client = base::MakeUnique<net::GameClientSession>(base::move(net_config));
     self->client_session_ = &*client;
     self->ctx_.client_session = self->client_session_;
@@ -275,6 +302,11 @@ bool StartNetworking(Engine& engine) {
 
   self->scheduler_->AddSystem(ecs::Stage::kSim, "net", [self](ecs::World& world, f32 dt) {
     self->session_->Tick(world, dt);
+    // The announcer beats from its own thread and cannot read the session's
+    // client map, so the count it publishes is refreshed here, on the thread
+    // that owns it.
+    if (self->server_session_)
+      self->announced_players_.store(self->server_session_->client_count());
   });
   if (self->client_session_) {
     // Remote transforms blend between snapshots. With a renderer that runs
