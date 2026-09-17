@@ -681,7 +681,7 @@ void ActorSystem::AttachHead(Actor& actor,
       }
       if (groom && !fs.hair_model().empty()) {
         const f32* hc = fs.hair_color();
-        AttachHairGroom(actor, fs.hair_model(), {hc[0], hc[1], hc[2]}, head_bone, inv);
+        AttachHairGroom(actor, fs.hair_model(), {hc[0], hc[1], hc[2]}, head_bone);
       }
       return;
     }
@@ -694,7 +694,7 @@ void ActorSystem::AttachHead(Actor& actor,
     return;
   base::Vector<base::String> hairs = FindHeadPartModels(/*hair=*/3, 24);
   if (groom && !hairs.empty()) {
-    AttachHairGroom(actor, hairs[0], {0.32f, 0.24f, 0.18f}, head_bone, inv);
+    AttachHairGroom(actor, hairs[0], {0.32f, 0.24f, 0.18f}, head_bone);
   } else {
     for (const base::String& hair : hairs)
       if (LoadActorPart(hair, actor, head_bone))
@@ -705,8 +705,7 @@ void ActorSystem::AttachHead(Actor& actor,
 void ActorSystem::AttachHairGroom(Actor& actor,
                                   const base::String& hair_model,
                                   const Vec3& tint,
-                                  i32 head_bone,
-                                  const Mat4& inverse_bind) {
+                                  i32 head_bone) {
   if (actor.hair_groom)
     return;  // one groom per actor
   base::String path = asset::NormalizePath(hair_model);
@@ -740,7 +739,6 @@ void ActorSystem::AttachHairGroom(Actor& actor,
     return;
   actor.hair_groom = id;
   actor.hair_bone = head_bone;
-  actor.hair_inverse_bind = inverse_bind;
 }
 
 bool ActorSystem::LoadStarfieldActorPart(const base::String& path,
@@ -2132,12 +2130,16 @@ void ActorSystem::EmitOneActor(Actor& actor, render::FrameView& view) {
     }
     view.draws.push_back(item);
   }
-  // Ride the strand groom on the head bone. The groom keeps its authored, engine-
-  // scaled head-local coordinates (built with recenter off), so the head part's
-  // own transform, with the skeleton->local scale peeled back off, places it.
+  // Ride the strand groom on the head bone.
   if (actor.hair_groom && actor.hair_bone >= 0 &&
       actor.hair_bone < static_cast<i32>(actor.bone_model.size())) {
-    Mat4 head = model * actor.bone_model[actor.hair_bone] * actor.hair_inverse_bind;
+    // The bone's WHOLE frame, not the bind-relative delta the rigid parts ride.
+    // A rigid part is authored in skeleton space and already sits at head
+    // height, so the delta is all it needs; the groom is authored head-bone
+    // local, around its own origin, so the delta would leave it at the actor's
+    // feet. Peel the skeleton->local scale back off, since the groom's strands
+    // were built in metres already.
+    const Mat4 head = model * actor.bone_model[actor.hair_bone];
     renderer_.SetHairGroomTransform(actor.hair_groom, head * Inverse(actor.skeleton_to_local));
   }
   actor.prev_model = model;

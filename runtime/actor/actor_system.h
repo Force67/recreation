@@ -276,12 +276,11 @@ class ActorSystem {
     physics::CharacterId character = 0;
     f32 yaw = 0;             // facing, radians about engine up (+Y)
     f32 capsule_offset = 0;  // entity origin to capsule centre, along up
-    // Strand-hair groom riding the head bone (0 = none). hair_bone/hair_inv are
+    // Strand-hair groom riding the head bone (0 = none). hair_bone is
     // the head bone + its inverse bind, so EmitOneActor can re-derive the head
     // transform each frame and feed it to the groom.
     u32 hair_groom = 0;
     i32 hair_bone = -1;
-    Mat4 hair_inverse_bind = Mat4::Identity();
   };
 
   // Builds the shared NPC rig template on first use (the body every streamed and
@@ -392,8 +391,7 @@ class ActorSystem {
   void AttachHairGroom(Actor& actor,
                        const base::String& hair_model,
                        const Vec3& tint,
-                       i32 head_bone,
-                       const Mat4& inverse_bind);
+                       i32 head_bone);
   bool LoadStarfieldActorPart(const base::String& path,
                               Actor& actor,
                               const bethesda::StarfieldMaterialDb& mat_db);
