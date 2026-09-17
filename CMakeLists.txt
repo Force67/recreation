@@ -423,7 +423,9 @@ set(RECREATION_MODULES
   modstream
 )
 if(RECREATION_NET)
-  list(APPEND RECREATION_MODULES gamenet)
+  # masterlist rides rx::http, which is only in the rx module slice when the
+  # network is on; both are useless without the sessions anyway.
+  list(APPEND RECREATION_MODULES gamenet masterlist)
 endif()
 
 if(RECREATION_BUILD_TOOLS)
