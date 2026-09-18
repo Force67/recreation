@@ -1,5 +1,6 @@
 recreation_add_module(gamenet
   actor_sync.cc
+  address.cc
   asset_stream.cc
   objective_marker_net.cc
   quest_replication.cc
@@ -26,7 +27,7 @@ target_link_libraries(recreation_gamenet PUBLIC
 )
 
 foreach(t stage_requesttest objective_marker_nettest war_map_nettest
-          bubble_nettest activation_nettest)
+          bubble_nettest activation_nettest address_nettest)
   recreation_add_test(${t} recreation::gamenet)
 endforeach()
 recreation_add_test(quest_nettest recreation::gamenet recreation::quest)
