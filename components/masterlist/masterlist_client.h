@@ -46,7 +46,13 @@ class Client {
 
   AnnounceResult Announce(const ServerInfo& info);
   // `players` is the live count, the only field worth refreshing this often.
-  bool Heartbeat(const base::String& token, u32 players, base::String* error);
+  // `token_rejected` is set when the list says the token is dead (401), which
+  // is the difference between a packet that went missing and a slot that has to
+  // be announced again. Null when the caller does not care.
+  bool Heartbeat(const base::String& token,
+                 u32 players,
+                 base::String* error,
+                 bool* token_rejected = nullptr);
   bool Retire(const base::String& token, base::String* error);
   ListResult List(const ListQuery& query);
 

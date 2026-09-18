@@ -49,6 +49,47 @@ bool ParseHex4(const base::String& text, mem_size& i, u32* out) {
   return true;
 }
 
+// Length of the UTF-8 sequence starting at `at`, or 0 when the bytes there are
+// not one: a bad lead byte, a truncated tail, a continuation byte on its own, an
+// overlong encoding, or a value past U+10FFFF. Used to decide what JsonQuote
+// may pass through untouched.
+mem_size Utf8SequenceLength(const base::String& text, mem_size at) {
+  const auto byte = [&](mem_size k) { return static_cast<unsigned char>(text[k]); };
+  const unsigned char lead = byte(at);
+  mem_size length = 0;
+  u32 cp = 0;
+  if (lead < 0x80) {
+    return 1;
+  } else if ((lead & 0xe0) == 0xc0) {
+    length = 2;
+    cp = lead & 0x1fu;
+  } else if ((lead & 0xf0) == 0xe0) {
+    length = 3;
+    cp = lead & 0x0fu;
+  } else if ((lead & 0xf8) == 0xf0) {
+    length = 4;
+    cp = lead & 0x07u;
+  } else {
+    return 0;  // a continuation byte first, or 0xf8..0xff
+  }
+  if (at + length > text.size())
+    return 0;
+  for (mem_size k = 1; k < length; ++k) {
+    const unsigned char tail = byte(at + k);
+    if ((tail & 0xc0) != 0x80)
+      return 0;
+    cp = (cp << 6) | (tail & 0x3fu);
+  }
+  // Overlongs and surrogates encode a value the shorter form already owns, so
+  // they are as invalid as a truncated sequence.
+  if ((length == 2 && cp < 0x80) || (length == 3 && cp < 0x800) ||
+      (length == 4 && cp < 0x10000))
+    return 0;
+  if (cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff))
+    return 0;
+  return length;
+}
+
 void AppendUtf8(base::String* out, u32 cp) {
   if (cp < 0x80) {
     out->push_back(static_cast<char>(cp));
@@ -246,6 +287,12 @@ bool JsonDoc::ParseString(const base::String& text, mem_size& i, base::String* o
           cp = 0x10000 + ((cp - 0xd800) << 10) + (low - 0xdc00);
         } else if (cp >= 0xdc00 && cp <= 0xdfff) {
           return false;  // a lone low surrogate
+        } else if (cp == 0) {
+          // A raw control byte is refused above, and an escaped NUL has to
+          // go the same way: it leaves a string whose size() is one length and
+          // whose c_str() is a shorter one. An address that compares as one
+          // thing and dials another is the failure that follows.
+          return false;
         }
         AppendUtf8(out, cp);
         break;
@@ -332,7 +379,11 @@ base::String JsonDoc::MemberStr(u32 node, const char* key, const char* fallback)
 
 u64 JsonDoc::MemberU64(u32 node, const char* key, u64 fallback) const {
   const f64 value = Num(Member(node, key), -1.0);
-  if (value < 0)
+  // The range check has to bracket the cast, not just reject negatives: JSON
+  // allows 1e999, strtod answers inf, and casting that to u64 is undefined
+  // (x86 lands on 0, aarch64 saturates). Both answers are wrong and neither is
+  // the fallback this promises.
+  if (!(value >= 0.0) || value > 18446744073709551615.0)
     return fallback;
   return static_cast<u64>(value);
 }
@@ -365,8 +416,18 @@ base::String JsonQuote(const base::String& value) {
           std::snprintf(escape, sizeof(escape), "\\u%04x", static_cast<unsigned>(c));
           out += escape;
         } else {
-          // Anything else, UTF-8 included, is already a legal JSON string byte.
-          out.push_back(c);
+          // Only VALID UTF-8 is already a legal JSON string byte. A server name
+          // out of argv can be anything the shell passed, and one Latin-1 byte
+          // makes the whole announce a 400 the host retries forever, because
+          // the reason comes back as plain text the error decoder cannot read.
+          const mem_size length = Utf8SequenceLength(value, i);
+          if (length == 0) {
+            out += "\\ufffd";  // the replacement character, once per bad byte
+          } else {
+            for (mem_size k = 0; k < length; ++k)
+              out.push_back(value[i + k]);
+            i += length - 1;
+          }
         }
         break;
     }

@@ -27,12 +27,13 @@ bool AsyncList::Start(const base::String& base_url, const ListQuery& query) {
     Client client(base_url);
     client.set_timeout_ms(timeout_ms);
     ListResult result = client.List(query);
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      result_ = std::move(result);
-      ready_ = true;
-    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    result_ = std::move(result);
+    // Clear pending under the same lock that publishes the result, and before
+    // it: outside, a Poll that took the answer could still see pending() true
+    // and the caller's next Start would be refused for nothing.
     pending_ = false;
+    ready_ = true;
   });
   return true;
 }

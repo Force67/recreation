@@ -141,6 +141,15 @@ bool DecodeAnnounce(const base::String& body, AnnounceResult* out) {
     out->heartbeat_secs = 5;
   if (out->heartbeat_secs > 600)
     out->heartbeat_secs = 600;
+  // The cadence and the TTL are independent knobs on the list, so a deployment
+  // can ask for a beat slower than the TTL it sweeps on. Obeying that literally
+  // means the entry expires between beats and the host sits out of the browser
+  // while believing it is listed. A third of the TTL leaves room for two lost
+  // beats, which is also what the re-announce path needs.
+  if (out->entry_ttl_secs > 0 && out->heartbeat_secs > out->entry_ttl_secs / 3) {
+    const u32 third = out->entry_ttl_secs / 3;
+    out->heartbeat_secs = third < 5 ? 5 : third;
+  }
   out->ok = true;
   return true;
 }
@@ -207,6 +216,10 @@ AnnounceResult Client::Announce(const ServerInfo& info) {
   request.body = EncodeAnnounce(info);
   request.content_type = "application/json";
   request.timeout_ms = timeout_ms_;
+  // 301/302/303 are followed as GET, so a masterlist url that redirects (http
+  // to https, say) would turn this POST into a list query that answers 200 with
+  // no token. Refusing the redirect reports the url instead of the symptom.
+  request.max_redirects = 0;
 
   const http::Response response = http::Fetch(request);
   if (response.status == 0) {
@@ -224,7 +237,12 @@ AnnounceResult Client::Announce(const ServerInfo& info) {
   return result;
 }
 
-bool Client::Heartbeat(const base::String& token, u32 players, base::String* error) {
+bool Client::Heartbeat(const base::String& token,
+                       u32 players,
+                       base::String* error,
+                       bool* token_rejected) {
+  if (token_rejected != nullptr)
+    *token_rejected = false;
   if (!valid_) {
     *error = base::String("not a masterlist url: ") + base_url_;
     return false;
@@ -240,6 +258,7 @@ bool Client::Heartbeat(const base::String& token, u32 players, base::String* err
   request.body = writer.Finish();
   request.content_type = "application/json";
   request.timeout_ms = timeout_ms_;
+  request.max_redirects = 0;  // a redirected POST becomes a GET; see Announce
 
   const http::Response response = http::Fetch(request);
   if (response.status == 0) {
@@ -248,6 +267,10 @@ bool Client::Heartbeat(const base::String& token, u32 players, base::String* err
   }
   if (!response.ok()) {
     *error = DecodeError(response.status, response.body);
+    // 401 is the list saying it has never heard of this token: a restarted
+    // list, or a slot that timed out. Only a fresh announce recovers it.
+    if (response.status == 401 && token_rejected != nullptr)
+      *token_rejected = true;
     return false;
   }
   error->clear();
@@ -268,6 +291,7 @@ bool Client::Retire(const base::String& token, base::String* error) {
   request.url = Endpoint("/v1/servers/retire");
   request.body = writer.Finish();
   request.content_type = "application/json";
+  request.max_redirects = 0;  // a redirected POST becomes a GET; see Announce
   // Retire runs on the way out, so it waits a shorter time than the rest: a
   // list that is down must not hold up the shutdown.
   request.timeout_ms = timeout_ms_ < 3000 ? timeout_ms_ : 3000;

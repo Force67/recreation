@@ -67,6 +67,9 @@ bool Announcer::Wait(u32 seconds) {
 
 void Announcer::Run(base::String base_url, ServerInfo info) {
   Client client(base_url);
+  // Shorter than the client's default: Stop() joins this thread, so whatever a
+  // call is waiting on is what the player waits on when they quit.
+  client.set_timeout_ms(4000);
   base::String token;
   u32 heartbeat_secs = 30;
   u32 retry_secs = kFirstRetrySecs;
@@ -110,7 +113,8 @@ void Announcer::Run(base::String base_url, ServerInfo info) {
 
     const u32 players = players_ ? players_() : info.players;
     base::String error;
-    if (client.Heartbeat(token, players, &error)) {
+    bool token_rejected = false;
+    if (client.Heartbeat(token, players, &error, &token_rejected)) {
       missed_beats = 0;
       std::lock_guard<std::mutex> lock(mutex_);
       status_.clear();
@@ -123,11 +127,13 @@ void Announcer::Run(base::String base_url, ServerInfo info) {
       std::lock_guard<std::mutex> lock(mutex_);
       status_ = error;
     }
-    if (missed_beats >= kMissedBeatsBeforeReannounce) {
-      // Either the token expired or the list restarted; announcing again is
-      // the only way back onto it, and it keeps the slot when the address is
-      // unchanged.
-      RX_WARN("masterlist: {} beats failed ({}), announcing again", missed_beats,
+    // A rejected token is definitive, so it costs no further beats: the list has
+    // never heard of us and only a fresh announce puts us back. Anything else
+    // gets the benefit of the doubt until the second failure, because one lost
+    // packet is not a lost slot.
+    if (token_rejected || missed_beats >= kMissedBeatsBeforeReannounce) {
+      RX_WARN("masterlist: {} ({}), announcing again",
+              token_rejected ? "the list rejected our token" : "beats failed",
               error.c_str());
       token.clear();
       std::lock_guard<std::mutex> lock(mutex_);

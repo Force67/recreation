@@ -59,8 +59,19 @@ void TestJsonReader() {
   CHECK(Contains(value, "a\"b\\c\nd"));
   CHECK(value.size() == 13);  // 7 ascii + 2 for é + 4 for the rocket
 
+  // A number JSON allows but u64 cannot hold answers the fallback rather than
+  // casting an infinity (undefined: 0 on x86, saturated on aarch64).
+  JsonDoc huge;
+  CHECK(huge.Parse("{\"a\":1e999,\"b\":-5,\"c\":1e30}"));
+  CHECK(huge.MemberU64(huge.root(), "a", 42) == 42u);
+  CHECK(huge.MemberU32(huge.root(), "a", 7) == 7u);
+  CHECK(huge.MemberU64(huge.root(), "b", 42) == 42u);
+  CHECK(huge.MemberU32(huge.root(), "c", 7) == 7u);
+
   JsonDoc bad;
   CHECK(!bad.Parse(""));
+  // An escaped NUL would leave a string whose size() and c_str() disagree.
+  CHECK(!bad.Parse("{\"a\":\"ev\\u0000il\"}"));
   CHECK(!bad.Parse("{"));
   CHECK(!bad.Parse("{\"a\":}"));
   CHECK(!bad.Parse("{\"a\":1}trailing"));
@@ -89,6 +100,36 @@ void TestJsonWriter() {
   CHECK(doc.MemberU32(doc.root(), "port") == 29700u);
   CHECK(!doc.MemberBool(doc.root(), "passworded", true));
   CHECK(doc.Count(doc.Member(doc.root(), "tags")) == 2u);
+}
+
+void TestQuoteRejectsBadUtf8() {
+  // A server name comes off the command line and can hold any byte. One
+  // Latin-1 byte used to make the whole announce a 400 the host then retried
+  // forever, so ill-formed input is replaced rather than passed through.
+  base::String latin1;
+  latin1 += "Br";
+  latin1.push_back(static_cast<char>(0xfc));  // 'ü' in Latin-1, not UTF-8
+  latin1 += "nja";
+
+  JsonWriter writer;
+  writer.Str("name", latin1);
+  const base::String body = writer.Finish();
+
+  JsonDoc doc;
+  CHECK(doc.Parse(body));  // and it is valid JSON, which is the point
+  const base::String name = doc.MemberStr(doc.root(), "name");
+  CHECK(name.find("Br") != base::String::npos);
+  CHECK(name.find("nja") != base::String::npos);
+  for (mem_size i = 0; i < name.size(); ++i)
+    CHECK(static_cast<unsigned char>(name[i]) != 0xfc);
+
+  // Real UTF-8 survives untouched, multi-byte and 4-byte alike.
+  JsonWriter utf8;
+  utf8.Str("name", "Brynja \xc3\xa9 \xf0\x9f\x9a\x80");
+  JsonDoc round;
+  CHECK(round.Parse(utf8.Finish()));
+  CHECK(round.MemberStr(round.root(), "name") ==
+        base::String("Brynja \xc3\xa9 \xf0\x9f\x9a\x80"));
 }
 
 void TestEncodeAnnounce() {
@@ -155,8 +196,26 @@ void TestDecodeAnnounce() {
   AnnounceResult silly;
   CHECK(DecodeAnnounce("{\"token\":\"t\",\"heartbeat_secs\":0}", &silly));
   CHECK(silly.heartbeat_secs == 5u);
-  CHECK(DecodeAnnounce("{\"token\":\"t\",\"heartbeat_secs\":99999}", &silly));
+  // A list that states no TTL (0) only gets the absolute cap applied.
+  CHECK(DecodeAnnounce(
+      "{\"token\":\"t\",\"heartbeat_secs\":99999,\"entry_ttl_secs\":0}", &silly));
   CHECK(silly.heartbeat_secs == 600u);
+  // With the default TTL in play, the TTL is the tighter of the two bounds.
+  CHECK(DecodeAnnounce("{\"token\":\"t\",\"heartbeat_secs\":99999}", &silly));
+  CHECK(silly.heartbeat_secs == 40u);
+
+  // Cadence and TTL are independent knobs on the list, so a deployment can ask
+  // for a beat slower than the TTL it sweeps on. Obeying that puts the entry
+  // out of the browser between beats while the host believes it is listed.
+  AnnounceResult slow;
+  CHECK(DecodeAnnounce(
+      "{\"token\":\"t\",\"heartbeat_secs\":300,\"entry_ttl_secs\":120}", &slow));
+  CHECK(slow.heartbeat_secs == 40u);  // a third of the ttl, room for two misses
+  // A cadence that already fits the TTL is left alone.
+  AnnounceResult sane;
+  CHECK(DecodeAnnounce(
+      "{\"token\":\"t\",\"heartbeat_secs\":30,\"entry_ttl_secs\":120}", &sane));
+  CHECK(sane.heartbeat_secs == 30u);
 }
 
 void TestDecodeList() {
@@ -360,6 +419,7 @@ int main() {
   std::puts("masterlist:");
   TestJsonReader();
   TestJsonWriter();
+  TestQuoteRejectsBadUtf8();
   TestEncodeAnnounce();
   TestEncodeQuery();
   TestDecodeAnnounce();
