@@ -189,6 +189,9 @@ endif()
 # renderer module since the engine owns one; it never initializes vulkan.
 add_executable(recreation-server app/server_main.cc ${RECREATION_RUNTIME_SOURCES})
 target_link_libraries(recreation-server PRIVATE ${RECREATION_RUNTIME_MODULES})
+# The same define the client gets: without it server_list.cc falls back to its
+# hard-coded version and every dedicated server announces the wrong build.
+target_compile_definitions(recreation-server PRIVATE RECREATION_VERSION="${PROJECT_VERSION}")
 recreation_set_warnings(recreation-server)
 recreation_enable_mimalloc(recreation-server)
 

@@ -972,6 +972,10 @@ bool GameUi::Impl::RouteMainMenuClick(ugui::wid target) {
         mm_mp_mode = 0;
         mm_request.kind = K::kHostServer;
         mm_request.universe = mm_entry < count ? mm_entries[mm_entry].universe : 0;
+        // Without this the request carries the default kSolo and the engine
+        // reads "do not announce", so hosting from here was never listed even
+        // with PUBLIC selected.
+        mm_request.session = mm_session;
         return true;
       }
       if (name == "mm_mp_join") {

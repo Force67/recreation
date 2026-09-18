@@ -132,6 +132,11 @@ void StartServerAnnounce(Engine& engine) {
   info.mode_id = self->menu_mode_id_;
   info.gametype = self->menu_mode_id_.empty() ? base::String("campaign-coop")
                                               : self->menu_mode_id_;
+  // The list caps a gametype at 32 characters and a mode id at 64. Cutting it
+  // here keeps what we announce and what it stores the same string, so a
+  // gametype filter built from a mode id still matches.
+  if (info.gametype.size() > 32)
+    info.gametype = info.gametype.substr(0, 32);
   info.version = RECREATION_VERSION;
   info.max_players = self->config_.max_clients;
   info.players = self->server_session_->client_count();
@@ -235,12 +240,14 @@ void PollServerList(Engine& engine) {
       const base::String& local = digests[universe];
       const bool known = !local.empty() && !entry.plugins.empty();
       const bool matches = known && local == entry.plugins;
-      base::String label = Decimal(entry.plugin_count) + " plugins";
-      if (!known)
-        row.requirements.push_back(GameUi::MenuRequirement{label, "Unknown", true});
-      else
-        row.requirements.push_back(
-            GameUi::MenuRequirement{label, matches ? "Match" : "Different", matches});
+      const base::String label = Decimal(entry.plugin_count) + " plugins";
+      // "Same list" and not "Match": the digest covers the plugin names and
+      // their order, which is what a load order is, and says nothing about
+      // their contents. Two hosts on different versions of the same mod still
+      // digest alike, so promising a match would be a promise this cannot keep.
+      const char* state = !known ? "Not checked" : (matches ? "Same list" : "Different");
+      row.requirements.push_back(
+          GameUi::MenuRequirement{label, state, !known || matches});
     }
     if (entry.resources > 0) {
       row.requirements.push_back(GameUi::MenuRequirement{

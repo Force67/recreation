@@ -756,12 +756,14 @@ class Engine : public app::Application {
   // Built lazily on the first frame that has bubbles to draw.
   base::UniquePointer<net::BubbleVisualizer> bubble_viz_;
   // Server list: the worker that keeps a hosted session listed, and the one the
-  // Join screen polls. The announcer reads the player count off the atomic
-  // below, which the net tick refreshes on the main thread, because the
-  // session's own count is not safe to read from another thread.
+  // Join screen polls. The announcer reads the player count off this atomic,
+  // which the net tick refreshes on the main thread, because the session's own
+  // count is not safe to read from another thread. It is declared ABOVE the
+  // announcer on purpose: ~Engine destroys in reverse order, and the
+  // announcer's destructor joins a thread that reads the atomic.
+  std::atomic<u32> announced_players_{0};
   masterlist::Announcer announcer_;
   masterlist::AsyncList server_query_;
-  std::atomic<u32> announced_players_{0};
 #endif
 
   // REC_NAV_DEBUG overlay storage: rebuilt each frame, spanned into the view.
