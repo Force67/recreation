@@ -144,6 +144,13 @@ struct HostCallbacks {
                        std::int32_t from_server,
                        const ApiValue* args,
                        std::int32_t argc);
+  // Asks the managed world to load managed assemblies from disk as client mods
+  // (the server-streamed client scripts, after the player's script-trust
+  // decision). paths points at count absolute UTF-8 paths of files already on
+  // disk. The managed side loads what it can, filters by realm, and reports
+  // problems through its own log. Null when the managed side declines streamed
+  // scripts. Append-only: keep after the originals.
+  void (*load_streamed_scripts)(const char* const* paths, std::int32_t count);
 };
 
 // Where an outbound scripting RPC goes. Mirrors the managed RpcTarget; append

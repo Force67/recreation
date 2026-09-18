@@ -44,6 +44,20 @@ cp bin/Release/net9.0/MyMod.dll "$RECREATION_MODS_DIR/"
 
 Pin a version and your mod keeps working until the next major SDK bump.
 
+## Server-streamed client scripts
+
+A mod does not have to be installed locally to run on a client. A server resource
+(see the main README's "Multiplayer asset streaming") can list assemblies in its
+`client_scripts.txt`; joining clients stream them, the player consents on the
+loading screen (remembered per server; `net.stream_scripts` overrides), and the
+engine loads them through `ModLoader.LoadStreamedScripts` after the streamed
+content mounts. `[Realm]` filters apply unchanged: tag a streamed mod
+`[Realm(ModRealm.Client)]` or `[Realm(ModRealm.Shared)]` and it runs on clients
+exactly as a locally installed one would. Dependencies resolve from the same
+streamed batch in any order, but ship every assembly the mod needs as its own
+`.dll` — native libraries have no stream story. The runtime never unloads
+assemblies, so new code the server pushes applies on the next join.
+
 ## Default gamemodes
 
 The Skyrim/Fallout/Starfield rulesets each build as their own assembly and load at

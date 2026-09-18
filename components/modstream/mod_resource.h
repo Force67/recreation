@@ -32,6 +32,13 @@ struct ModResource {
   base::String name;
   base::Vector<ResourceFile> files;
 
+  // Resource-relative paths of managed assemblies this resource asks joining
+  // clients to load and run (declared in `client_scripts.txt`). Sorted and
+  // deduplicated like `files`. This list is a server decision about what code
+  // may execute, not content: it travels in its own message, not the manifest,
+  // and clients still gate it behind their script-trust choice.
+  base::Vector<base::String> client_scripts;
+
   bool operator==(const ModResource&) const = default;
 };
 

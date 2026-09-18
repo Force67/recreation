@@ -48,6 +48,10 @@ internal unsafe struct HostCallbacks
     // Delivers an inbound multiplayer RPC to the managed layer. (name UTF-8,
     // sender peer, 1 if it came from the server, packed args, argc). Append-only.
     public delegate* unmanaged<byte*, int, int, ApiValue*, int, void> DispatchRpc;
+    // Asks the managed layer to load managed assemblies from disk as client mods
+    // (the server-streamed client scripts, after the player's script-trust
+    // decision). paths points at count absolute UTF-8 paths. Append-only.
+    public delegate* unmanaged<byte**, int, void> LoadStreamedScripts;
 }
 
 // Where an outbound RPC goes. Mirrors host/bridge.h RpcTarget exactly.

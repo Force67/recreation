@@ -29,7 +29,27 @@ add_test(NAME managed_stage_gamemodes
 set_tests_properties(managed_stage_gamemodes PROPERTIES
   FIXTURES_SETUP managed_fx DEPENDS managed_build)
 
+# The streamed-script fixtures build through the same graph and the flat -o
+# output would drop them beside the runner, where the directory-loading tests
+# load them (and the streamed-loader test then finds them already loaded). The
+# runner has no business holding them; the real streamed-script coverage wants
+# them in their own directories, like content-store shards.
+add_test(NAME managed_unstage_fixtures
+  COMMAND ${CMAKE_COMMAND} -E remove
+          ${MANAGED_OUT}/StreamedDepLib.dll ${MANAGED_OUT}/StreamedDepLib.pdb
+          ${MANAGED_OUT}/StreamedDepLib.deps.json
+          ${MANAGED_OUT}/StreamedUsesDep.dll ${MANAGED_OUT}/StreamedUsesDep.pdb
+          ${MANAGED_OUT}/StreamedUsesDep.deps.json)
+set_tests_properties(managed_unstage_fixtures PROPERTIES
+  FIXTURES_SETUP managed_fx DEPENDS managed_build)
+
+# The streamed-script fixtures live in the source tree (their own bin dirs); the
+# test locates them through this hint, falling back to the source-relative walk
+# a plain `dotnet run` gets for free.
 add_test(NAME managed_scripting_tests COMMAND ${DOTNET_EXE} ${MANAGED_TESTS})
+set_tests_properties(managed_scripting_tests PROPERTIES
+  DEPENDS managed_unstage_fixtures
+  ENVIRONMENT "RECREATION_SDK_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}")
 
 add_test(NAME papyrus_hosttest COMMAND pexrun hosttest ${MANAGED_CFG} ${MANAGED_DLL})
 add_test(NAME papyrus_managed_hosttest

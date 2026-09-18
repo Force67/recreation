@@ -43,3 +43,5 @@ if(TARGET asset_streamtest AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   set_source_files_properties(asset_streamtest.cc
     PROPERTIES COMPILE_OPTIONS -Wno-array-bounds)
 endif()
+recreation_add_test(client_scripts_nettest
+  recreation::gamenet recreation::modstream rx::asset)

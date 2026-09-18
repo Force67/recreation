@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Fixture for ModLoaderTests' streamed-script coverage: depends on
+       StreamedDepLib, so loading it in isolation only works when the loader's
+       Resolving probe supplies the dependency from the same streamed batch.
+       Private=false on the test's reference keeps both out of the test output
+       directory, where the directory-loading tests would pick them up. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AssemblyName>StreamedUsesDep</AssemblyName>
+    <RootNamespace>StreamedUsesDep</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\StreamedDepLib\StreamedDepLib.csproj" />
+  </ItemGroup>
+
+</Project>

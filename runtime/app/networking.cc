@@ -10,8 +10,10 @@
 #include "asset/primitives.h"
 #include "components/quest/quest_def.h"
 #include "components/script/papyrus/value.h"
+#include "core/input.h"
 #include "core/log.h"
 #include "runtime/app/engine.h"
+#include "runtime/app/script_trust.h"
 #include "runtime/app/server_list.h"
 
 #if RECREATION_HAS_NET
@@ -37,6 +39,35 @@ static base::Option<bool> NetQuestLog{"net.quest.log", false, "RX_NET_QUEST_LOG"
 // broadcast) -- the bandwidth lever that scales the player count. 0 restores
 // full-visibility broadcasting.
 static base::Option<int> NetBubbleRadius{"net.bubble.radius", 128, "REC_NET_BUBBLE_RADIUS"};
+// Whether a client runs a server's streamed client scripts. 1 (default) asks
+// once per server on the loading screen and remembers "always"/"never" choices;
+// 0 never runs streamed code; 2 runs whatever the server offers without asking.
+static base::Option<int> NetStreamScripts{"net.stream_scripts", 1, "REC_NET_STREAM_SCRIPTS"};
+
+// What the script-trust policy says to do with a server's client-script offer.
+enum class ScriptOfferAction {
+  kRun,      // the convar or a stored decision says run, without asking
+  kDecline,  // the convar or a stored decision says never run them
+  kAsk,      // no stored decision: hold the loading screen on the question
+};
+
+// Resolves the policy for a server's offer, given its trust-store key.
+static ScriptOfferAction ScriptOfferActionFor(const base::String& server_key) {
+  const int policy = NetStreamScripts.get();
+  if (policy == 0)
+    return ScriptOfferAction::kDecline;
+  if (policy == 2)
+    return ScriptOfferAction::kRun;
+  switch (ScriptTrust::DecisionFor(server_key)) {
+    case ScriptTrust::Decision::kAlways:
+      return ScriptOfferAction::kRun;
+    case ScriptTrust::Decision::kNever:
+      return ScriptOfferAction::kDecline;
+    case ScriptTrust::Decision::kAsk:
+      return ScriptOfferAction::kAsk;
+  }
+  return ScriptOfferAction::kAsk;
+}
 
 bool StartNetworking(Engine& engine) {
   Engine* const self = &engine;
@@ -272,7 +303,9 @@ bool StartNetworking(Engine& engine) {
     }
     self->session_ = base::move(client);
     // Mount the streamed mods into the asset Vfs once the whole manifest has
-    // landed in the cache, so the host's custom content resolves like loose files.
+    // landed in the cache, so the host's custom content resolves like loose
+    // files. The client-script offer is handled separately: it can land before
+    // or after the content, and the loader below fires only when both have.
     if (self->content_store_ && self->client_session_->asset_stream()) {
       self->client_session_->asset_stream()->set_on_ready(
           [self](const modstream::ModManifest& manifest) {
@@ -281,6 +314,48 @@ bool StartNetworking(Engine& engine) {
             self->vfs_->UnmountByPrefix("modstream:");
             modstream::MountManifest(*self->vfs_, manifest, *self->content_store_);
             RX_INFO("net: mounted {} streamed mod files into the asset vfs", manifest.TotalFiles());
+          });
+      self->client_session_->asset_stream()->set_on_scripts(
+          [self](const std::vector<modstream::ClientScriptEntry>& scripts) {
+            if (!self->managed_ || scripts.empty())
+              return;
+            // Resolve the offer to on-disk cache paths. A file that is not in
+            // the cache cannot run (it never streamed); drop it here so the
+            // managed world only ever sees loadable paths.
+            base::Vector<base::String> paths;
+            for (const modstream::ClientScriptEntry& entry : scripts) {
+              const auto cached = self->content_store_->PathFor(entry.hash);
+              if (!cached) {
+                RX_WARN("net: client script '{}' never streamed; skipping it",
+                        entry.path.c_str());
+                continue;
+              }
+              paths.push_back(base::String(cached->string().c_str(), cached->string().size()));
+            }
+            if (paths.empty())
+              return;
+            const base::String key = ScriptTrust::KeyFor(self->config_.connect_address);
+            switch (ScriptOfferActionFor(key)) {
+              case ScriptOfferAction::kRun:
+                RX_INFO("net: running {} client script(s) from {} (trusted)", paths.size(),
+                        key.c_str());
+                self->managed_->LoadStreamedScripts(paths);
+                break;
+              case ScriptOfferAction::kDecline:
+                RX_INFO("net: server offered {} client script(s); not running them",
+                        paths.size());
+                break;
+              case ScriptOfferAction::kAsk:
+                // Hold the loading screen on the question; the world keeps
+                // streaming behind it and the timeout defers meanwhile.
+                self->script_consent_.pending = true;
+                self->script_consent_.server_key = key;
+                self->script_consent_.paths = paths;
+                RX_INFO("net: server offered {} client script(s); waiting for the player's "
+                        "script-trust decision",
+                        paths.size());
+                break;
+            }
           });
     }
   } else {
@@ -335,6 +410,38 @@ void ReloadMods(Engine& engine) {
   // on the main thread where nothing is reading the Vfs.
   self->vfs_->UnmountByPrefix("modstream:");
   modstream::MountCatalog(*self->vfs_, *self->mod_catalog_);
+}
+
+void TickScriptConsent(Engine& engine) {
+  Engine* const self = &engine;
+  if (!self->script_consent_.pending)
+    return;
+  if (!self->window_ || !self->managed_) {
+    // Nowhere to ask (headless): decline rather than run unasked-for code.
+    self->script_consent_.pending = false;
+    return;
+  }
+  // The loading screen is up and holding on the question; read the answer off
+  // the raw key state the same frame the player presses it.
+  const InputState& keys = self->window_->input();
+  const bool run_once = keys.key_pressed(Key::k1);
+  const bool always = keys.key_pressed(Key::k2);
+  const bool never = keys.key_pressed(Key::k3);
+  if (!run_once && !always && !never)
+    return;
+
+  const auto& offer = self->script_consent_;
+  if (never) {
+    ScriptTrust::Remember(offer.server_key, false);
+    RX_INFO("net: declined {} client script(s) for this server", offer.paths.size());
+  } else {
+    if (always)
+      ScriptTrust::Remember(offer.server_key, true);
+    RX_INFO("net: running {} client script(s) from {}", offer.paths.size(),
+            offer.server_key.c_str());
+    self->managed_->LoadStreamedScripts(offer.paths);
+  }
+  self->script_consent_.pending = false;
 }
 #endif  // RECREATION_HAS_NET
 

@@ -333,6 +333,7 @@ class Engine : public app::Application {
 #if RECREATION_HAS_NET
   friend bool StartNetworking(Engine&);
   friend void ReloadMods(Engine&);
+  friend void TickScriptConsent(Engine&);
   friend base::String MasterlistUrl(const Engine&);
   friend void StartServerAnnounce(Engine&);
   friend void StopServerAnnounce(Engine&);
@@ -752,6 +753,16 @@ class Engine : public app::Application {
   // Set from a signal handler to ask for a live mod reload; drained on the main
   // thread at the top of the frame, where the Vfs is not being read.
   std::atomic<bool> mod_reload_requested_{false};
+  // A script-trust decision the player owes the server they just joined. Set
+  // when the server offered streamed client scripts and no stored decision
+  // covers it; TickScriptConsent shows the choice on the loading screen and
+  // resolves it, and the loading screen holds until then.
+  struct ScriptConsent {
+    bool pending = false;
+    base::String server_key;           // "host:port", the trust-store identity
+    base::Vector<base::String> paths;  // cached assemblies the server offered
+  };
+  ScriptConsent script_consent_;
   // 3D overlay of the session's streaming bubbles (RX_NET_BUBBLES=0 hides it).
   // Built lazily on the first frame that has bubbles to draw.
   base::UniquePointer<net::BubbleVisualizer> bubble_viz_;
@@ -932,6 +943,11 @@ void RegisterManagedRpcForwarding(Engine& engine);
 // current set if the rebuild fails (a misconfigured edit must not break the live
 // server). Main thread only.
 void ReloadMods(Engine& engine);
+// Drives a pending script-trust decision (see Engine::ScriptConsent): polls the
+// consent keys on the loading screen, applies the stored convar/trust policy,
+// and hands accepted assemblies to the managed world. Called from
+// TickLoadingScreen while a decision is open.
+void TickScriptConsent(Engine& engine);
 #endif
 
 }  // namespace rx

@@ -159,6 +159,30 @@ host's custom meshes, textures and scripts resolve like loose files:
 recreation --connect <host> --asset-cache ./cache
 ```
 
+#### Client scripts
+
+A resource can also ship *code*: list managed assemblies in a `client_scripts.txt`
+at the resource root (one resource-relative path per line, `#` comments) and the
+server offers them to every joining client as client scripts. The assemblies
+stream like any other file, hash-verified into the cache; whether they run is the
+client's choice. On the first join of a server the loading screen asks:
+
+> This server runs custom code (2 assembly(ies)) — [1] run once · [2] always for
+> this server · [3] don't run
+
+"Always" and "don't run" are remembered per server in `script_trust.ini` beside
+`setup.ini`. `net.stream_scripts` overrides the whole gate: `0` never runs
+streamed code, `1` (default) asks as above, `2` runs everything without asking.
+Accepted assemblies load into the engine's own runtime after the streamed content
+mounts, filtered by `[Realm]` like every other mod, so `[Realm(Client)]` and
+`[Realm(Shared)]` code runs on the client exactly as a locally installed mod
+would. Dependencies resolve from the same streamed batch regardless of load
+order. Because the runtime never unloads assemblies, an assembly the server
+re-streams under new bytes applies on the next join.
+
+Streamed scripts run with the full trust of any other mod — the consent prompt
+is permission, not a sandbox.
+
 ### Scripting RPC
 
 Server-side mod scripts drive multiplayer through a typed RPC channel. A C# mod

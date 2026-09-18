@@ -88,6 +88,12 @@ class ManagedHost {
                    const ApiValue* args,
                    std::int32_t argc);
 
+  // Asks the managed world to load managed assemblies as client mods (the
+  // server-streamed client scripts, after the player's script-trust decision).
+  // Safe to call from any engine thread; the load runs on the guest thread.
+  // No-op when unavailable or the managed side declined streamed scripts.
+  void LoadStreamedScripts(const base::Vector<base::String>& paths);
+
   bool available() const { return available_; }
 
   // Advances the managed world one frame. No-op when unavailable.

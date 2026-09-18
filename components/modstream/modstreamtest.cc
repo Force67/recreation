@@ -18,6 +18,7 @@
 
 #include "asset/vfs.h"
 #include "components/modstream/asset_request.h"
+#include "components/modstream/client_scripts.h"
 #include "components/modstream/content_hash.h"
 #include "components/modstream/content_provider.h"
 #include "components/modstream/content_store.h"
@@ -199,6 +200,40 @@ int main() {
     fs::remove_all(filtered.c_str(), ec);
   }
 
+  // A resource declaring client scripts: only assemblies that are catalogued
+  // (present and not streamignored) survive, normalized, deduped and sorted.
+  {
+    const fs::path scripts_res = mods_dir / "gamedata";
+    WriteFile(scripts_res / ".streamignore", "server/\n");
+    WriteFile(scripts_res / "assemblies" / "client.dll", "IL-bytes-client");
+    WriteFile(scripts_res / "server" / "internal.dll", "IL-bytes-server-only");
+    WriteFile(scripts_res / "client_scripts.txt",
+              "# assemblies clients run\n"
+              "assemblies/Client.dll\n"
+              "assemblies/CLIENT.DLL\n"          // same file, different spelling
+              "server/internal.dll\n"            // streamignored: never offered
+              "assemblies/missing.dll\n"         // not in the resource at all
+              "\n");
+    base::Optional<ModCatalog> c3 = ModCatalog::Build(mods_dir);
+    Check("rebuild with a script resource succeeds", c3.has_value());
+    const ModResource* gamedata = c3 ? FindResource(c3->manifest(), "gamedata") : nullptr;
+    Check("script declaration survives normalization and dedup",
+          gamedata && gamedata->client_scripts.size() == 1 &&
+              gamedata->client_scripts[0] == "assemblies/client.dll");
+    Check("declared-but-unavailable scripts are dropped",
+          gamedata && gamedata->client_scripts.end() ==
+                          std::find(gamedata->client_scripts.begin(),
+                                    gamedata->client_scripts.end(), "server/internal.dll"));
+    // The declaration file itself is a server directive, not streamable content.
+    Check("client_scripts.txt itself never streams",
+          gamedata && !FindFile(*gamedata, "client_scripts.txt"));
+    if (c3) {
+      Check("streamignored assembly is not servable",
+            !c3->PathForHash(HashBytes("IL-bytes-server-only", 20)));
+    }
+    fs::remove_all(scripts_res.c_str(), ec);
+  }
+
   // --- manifest codec round-trip and rejection ---
   std::vector<u8> encoded = EncodeManifest(manifest);
   std::optional<ModManifest> decoded = DecodeManifest(encoded);
@@ -238,6 +273,30 @@ int main() {
     }());
     Check("empty hash request round-trips",
           DecodeHashRequest(EncodeHashRequest({}).data(), 4, 8)->empty());
+  }
+
+  // --- client-scripts codec ---
+  {
+    const std::vector<ClientScriptEntry> scripts{{tex_hash, shared_tex.size(),
+                                                  "weapons/assemblies/client.dll"},
+                                                 {0x1122334455667788ull, 4096, "audio/hook.dll"}};
+    const std::vector<u8> enc = EncodeClientScripts(7, scripts);
+    const auto dec = DecodeClientScripts(enc.data(), enc.size(), 8);
+    Check("client scripts round-trip",
+          dec && dec->generation == 7 && dec->entries == scripts);
+    Check("client scripts reject an over-count cap",
+          !DecodeClientScripts(enc.data(), enc.size(), 1));
+    Check("client scripts reject a truncated body",
+          !DecodeClientScripts(enc.data(), enc.size() - 1, 8));
+    Check("client scripts reject trailing bytes", [&] {
+      std::vector<u8> extra = enc;
+      extra.push_back(0);
+      return !DecodeClientScripts(extra.data(), extra.size(), 8);
+    }());
+    Check("empty client script list round-trips", [&] {
+      auto empty = DecodeClientScripts(EncodeClientScripts(3, {}).data(), 8, 8);
+      return empty && empty->generation == 3 && empty->entries.empty();
+    }());
   }
 
   // --- manifest-chunk codec ---

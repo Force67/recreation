@@ -7,6 +7,7 @@ set(RECREATION_RUNTIME_SOURCES
   app/platform_profile.cc
   app/networking.cc
   app/server_list.cc
+  app/script_trust.cc
   app/managed_rpc.cc
   app/content_load.cc
   app/savegame_load.cc

@@ -86,9 +86,12 @@ GameServerSession::GameServerSession(GameSessionConfig config)
       });
     }
     // Offer the mod manifest right after admitting the peer, so it can start
-    // streaming whatever content it is missing.
-    if (asset_stream_)
+    // streaming whatever content it is missing, along with which of those
+    // files are client assemblies the server would like it to run.
+    if (asset_stream_) {
       asset_stream_->SendManifest(peer);
+      asset_stream_->SendClientScripts(peer);
+    }
     if (client_joined_sink_)
       client_joined_sink_(peer);
   });
@@ -247,8 +250,13 @@ void GameServerSession::ReloadCatalog(const modstream::ModCatalog& catalog) {
     return;
   asset_stream_->SetCatalog(catalog);
   // Push the new manifest to everyone already connected; each re-diffs against
-  // its cache and streams only what changed, then re-mounts.
-  inner_.ForEachPeer([this](u32 peer) { asset_stream_->SendManifest(peer); });
+  // its cache and streams only what changed, then re-mounts. The script offer
+  // rides along so a changed assembly list is known, though newly loaded code
+  // applies on the next join.
+  inner_.ForEachPeer([this](u32 peer) {
+    asset_stream_->SendManifest(peer);
+    asset_stream_->SendClientScripts(peer);
+  });
 }
 
 // --- client ---
@@ -357,6 +365,11 @@ void GameClientSession::OnGameMessage(u16 type, const u8* data, size_t size) {
     case GameMessage::kAssetManifest: {
       if (asset_stream_)
         asset_stream_->OnManifestChunk(data, size);
+      break;
+    }
+    case GameMessage::kClientScripts: {
+      if (asset_stream_)
+        asset_stream_->OnClientScripts(data, size);
       break;
     }
     default:
