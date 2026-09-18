@@ -422,6 +422,11 @@ void PapyrusGuest::BindEngineNatives() {
   for (const char* f : {"Connect", "SpawnObject", "MoveObject", "DeleteObject"}) {
     reg_platform("Net", f);
   }
+  // Net.SetPlayerHealth(peer, health, max, dead): the host-side mod surface for
+  // replicated player vitals. Routed by the runtime to the server session, so
+  // the change broadcasts a kPlayerState to every client (a no-op anywhere the
+  // sink is not wired, e.g. a client or no session).
+  reg_platform("Net", "SetPlayerHealth");
   // Net.LocalPos{X,Y,Z}(): the local player's world position (engine space) so a
   // mod can place things relative to the player. These return a value, unlike the
   // fire-and-forget calls above.

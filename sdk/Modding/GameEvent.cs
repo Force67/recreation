@@ -127,6 +127,19 @@ public readonly struct ClientLeft(uint peer) : IGameEvent
     public uint Peer { get; } = peer;
 }
 
+// Raised when a player body's replicated vitals change on this machine (the
+// server announced them through kPlayerState and they landed on the replica
+// entity as a PlayerVitals component). A client mod reads Health/MaxHealth/Dead
+// to drive its HUD and death handling.
+public readonly struct PlayerVitalsChanged(ulong netId, int health, int maxHealth, bool dead)
+    : IGameEvent
+{
+    public ulong NetId { get; } = netId;
+    public int Health { get; } = health;
+    public int MaxHealth { get; } = maxHealth;
+    public bool Dead { get; } = dead;
+}
+
 // Raised by the time service when a new in-game hour begins. Mods drive NPC
 // schedules, shop hours and day/night mechanics off it.
 public readonly struct GameHourStarted(int hour, int day) : IGameEvent

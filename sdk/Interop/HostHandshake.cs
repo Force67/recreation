@@ -19,6 +19,8 @@ public enum ManagedEventId : int
     ClientAssetsReady = 10,  // A = peer id (a client finished streaming the server's mods)
     ClientJoined = 11,       // A = peer id (a client joined the session, host only)
     ClientLeft = 12,         // A = peer id (a client left or timed out, host only)
+    PlayerVitals = 13,       // A = net entity id (a player body's replicated
+                             // vitals changed), B = (max<<32)|(health<<16)|dead
 }
 
 // An engine event payload. Byte-for-byte mirror of host/bridge.h ManagedEvent;

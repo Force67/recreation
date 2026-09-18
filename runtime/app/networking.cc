@@ -7,14 +7,18 @@
 
 #include <cstdlib>
 
-#include "asset/primitives.h"
+#include "character/character.h"
+#include "components/gamenet/player_sync.h"
 #include "components/quest/quest_def.h"
 #include "components/script/papyrus/value.h"
 #include "core/input.h"
 #include "core/log.h"
+#include "net/replication.h"
 #include "runtime/app/engine.h"
 #include "runtime/app/script_trust.h"
 #include "runtime/app/server_list.h"
+#include "runtime/actor/player_tuning.h"
+#include "scene/components.h"
 
 #if RECREATION_HAS_NET
 #include "components/gamenet/address.h"
@@ -69,14 +73,120 @@ static ScriptOfferAction ScriptOfferActionFor(const base::String& server_key) {
   return ScriptOfferAction::kAsk;
 }
 
+// --- server-simulated remote players -----------------------------------------
+//
+// A remote player is a real body: rx drops each joining player's entity with a
+// bare transform, and the sinks below assemble the same character pipeline the
+// local player uses (player_tuning.h) onto it. Each tick the session hands the
+// simulator a peer's newest input; the simulator maps it onto that entity's
+// CharacterIntent, and the world-wide character step (the local controller's on
+// a listen host, net_character_step below when headless) moves the body with
+// gravity and collision. Clients author nothing: the server's transform
+// snapshots are the truth, and gait animation derives from the replicated
+// velocity like every NPC's does.
+
+// PlayerInput button bits (see the client-side fill in the net tick system).
+constexpr u8 kInputJump = 1 << 0;
+constexpr u8 kInputCrouch = 1 << 1;
+constexpr u8 kInputGaitWalk = 1 << 2;
+constexpr u8 kInputGaitSprint = 1 << 3;
+
+// Assembles the character pipeline onto a joining player's entity and moves it
+// from rx's hardcoded join coordinates to the game's start position. Idempotent
+// per entity (the simulator also calls this defensively on first input).
+static void PrepareRemotePlayer(ecs::World& world,
+                                physics::PhysicsWorld& physics,
+                                bethesda::RecordStore& records,
+                                const Vec3& spawn,
+                                ecs::Entity player) {
+  if (world.Has<character::CharacterBody>(player))
+    return;
+
+  const character::CharacterMovementSettings move = player_tuning::BuildMovementSettings(records);
+  const character::CharacterShape shape = player_tuning::BuildCharacterShape();
+  const f32 radius = shape.standing_radius;
+  const f32 half_height = base::Max(shape.standing_height * 0.5f - radius, 0.01f);
+
+  // Feet at the game's spawn; the capsule hangs above as for the local player.
+  world.Add(player, scene::Transform{.position = {spawn.x, spawn.y, spawn.z}});
+  world.Add(player, move);
+  world.Add(player, shape);
+  world.Add(player, character::CharacterIntent{});
+  world.Add(player, character::CharacterState{});
+  // First person hard-locks body facing to the look yaw the client streams, so
+  // the remote body faces exactly where its player looks.
+  world.Add(player, character::CharacterViewMode{
+                        .kind = character::CharacterViewKind::kFirstPerson});
+  const physics::CharacterId cid = physics.CreateCharacter(
+      {spawn.x, spawn.y + half_height + radius, spawn.z}, radius, half_height);
+  if (cid != 0)
+    world.Add(player, character::CharacterBody{cid, radius, half_height, false});
+  world.Add(player, world::PlayerAvatar{});
+}
+
+// The entity's network id, for addressing it in avatar/vitals messages.
+static u64 NetIdOf(ecs::World& world, ecs::Entity player) {
+  if (const auto* id = world.Get<net::NetworkId>(player))
+    return id->value;
+  return 0;
+}
+
+// Tells every client which entity is this player's body and what it looks like.
+static void BroadcastPlayerAvatar(rx::net::ServerSession& engine, u64 net_id, u64 form) {
+  if (net_id == 0)
+    return;
+  engine.Broadcast(static_cast<u16>(net::GameMessage::kPlayerAvatar),
+                   net::EncodePlayerAvatar({net_id, form}),
+                   /*reliable=*/true, tx::network::PacketPriority::Medium);
+}
+
+// A new joiner needs the avatar table of everyone already in the world, or it
+// would render the existing players as invisible transforms until they leave.
+static void SendPlayerAvatarsTo(rx::net::ServerSession& engine, ecs::World& world, u32 peer) {
+  world.Each<net::NetworkId, world::PlayerAvatar>(
+      [&](ecs::Entity, net::NetworkId& id, world::PlayerAvatar& avatar) {
+        engine.SendTo(peer, static_cast<u16>(net::GameMessage::kPlayerAvatar),
+                      net::EncodePlayerAvatar({id.value, avatar.base.packed()}),
+                      /*reliable=*/true, tx::network::PacketPriority::Medium);
+      });
+}
+
+// Maps one peer's input onto its entity's character intent. Runs inside the
+// session's per-player simulation, on the thread that owns the ECS.
+static void SimulateRemotePlayer(ecs::World& world,
+                                 physics::PhysicsWorld& physics,
+                                 bethesda::RecordStore& records,
+                                 const Vec3& spawn,
+                                 ecs::Entity player,
+                                 const net::PlayerInput& input,
+                                 f32 dt) {
+  (void)dt;
+  PrepareRemotePlayer(world, physics, records, spawn, player);
+  auto* intent = world.Get<character::CharacterIntent>(player);
+  if (!intent)
+    return;
+  // The client streams its local character intent: a world-space planar move
+  // request (magnitude is the analog throttle), look yaw, and edge buttons.
+  intent->move = {input.move_x, 0.0f, input.move_z};
+  intent->jump = (input.buttons & kInputJump) != 0;
+  intent->crouch = (input.buttons & kInputCrouch) != 0;
+  intent->gait = (input.buttons & kInputGaitSprint) ? character::CharacterGait::kSprint
+                 : (input.buttons & kInputGaitWalk) ? character::CharacterGait::kWalk
+                                                    : character::CharacterGait::kRun;
+  if (auto* state = world.Get<character::CharacterState>(player))
+    state->yaw = input.yaw;
+}
+
 bool StartNetworking(Engine& engine) {
   Engine* const self = &engine;
   net::GameSessionConfig net_config;
   net_config.port = self->config_.port;
   net_config.player_name = base::NameString(self->config_.player_name.c_str());
   net_config.max_clients = self->config_.max_clients;
-  // Joining players replicate as cubes until there are real actor assets.
-  net_config.player_mesh = asset::MakeAssetId("builtin/cube").hash;
+  // Players have no placeholder mesh: a joining player's entity is an invisible
+  // transform until the spawn sink assembles its real body (below), which the
+  // actor system renders from the game's own assets.
+  net_config.player_mesh = 0;
   net_config.bubble_radius = static_cast<f32>(NetBubbleRadius.get());
 
   // Asset streaming endpoints: the host catalogs its mods directory to offer, a
@@ -113,6 +223,42 @@ bool StartNetworking(Engine& engine) {
     self->ctx_.server_session = self->server_session_;
     self->server_session_->SetWorldCommandSource(
         [self]() { return self->quest_world_->SnapshotDoorStates(); });
+    // Remote players are real bodies: assemble the character pipeline onto each
+    // joining player's entity, announce its avatar to everyone, and catch a new
+    // joiner up on the players already in the world.
+    self->server_session_->engine().SetPlayerSpawnSink(
+        [self](ecs::World& world, ecs::Entity player, u32 peer) {
+          if (!self->ctx_.physics || !self->ctx_.records)
+            return;
+          PrepareRemotePlayer(world, *self->ctx_.physics, *self->ctx_.records, self->net_spawn_,
+                              player);
+          BroadcastPlayerAvatar(self->server_session_->engine(), NetIdOf(world, player), 0);
+          SendPlayerAvatarsTo(self->server_session_->engine(), world, peer);
+          RX_INFO("net: assembled the player body for peer {} at ({:.1f}, {:.1f}, {:.1f})", peer,
+                  self->net_spawn_.x, self->net_spawn_.y, self->net_spawn_.z);
+        });
+    // The per-peer input sink: map the newest PlayerInput onto the entity's
+    // CharacterIntent; the world-wide character step moves the body.
+    self->server_session_->engine().SetPlayerSimulator(
+        [self](ecs::World& world, ecs::Entity player, const net::PlayerInput& input, f32 dt) {
+          if (!self->ctx_.physics || !self->ctx_.records)
+            return;
+          SimulateRemotePlayer(world, *self->ctx_.physics, *self->ctx_.records, self->net_spawn_,
+                               player, input, dt);
+        });
+    // Headless hosts have no local player controller, so nobody else runs the
+    // world-wide character step: run it here, ahead of the net tick, so the
+    // bodies move with the intents written last tick before the session
+    // captures this tick's snapshots. A windowed listen host skips this -- its
+    // player controller's step already moves every character in the world.
+    if (self->config_.headless) {
+      self->scheduler_->AddSystem(ecs::Stage::kSim, "net_character_step",
+                                  [self](ecs::World& world, f32 dt) {
+                                    if (!self->server_session_ || self->ctx_.walk_mode)
+                                      return;
+                                    character::StepCharacters(world, *self->ctx_.physics, dt);
+                                  });
+    }
     // Replicate the authoritative quest journal. The source is only called when
     // clients are connected, so the guest round-trip costs nothing while idle.
     // Quest state lives on the guest thread, so we marshal the read onto it.
@@ -223,6 +369,21 @@ bool StartNetworking(Engine& engine) {
       return false;
     }
     self->session_ = base::move(server);
+    // The listen host's own body: without an entity of its own, clients would
+    // never see the host at all. The local player already exists (the walk-mode
+    // controller assembled it), so this just puts it on the wire and announces
+    // its avatar like any other player's. A dedicated server has no local
+    // player, so there is nothing to publish.
+    if (!self->config_.headless && self->ctx_.world && self->actors_ &&
+        self->actors_->HasPlayer()) {
+      ecs::World& world = *self->ctx_.world;
+      const ecs::Entity host = self->actors_->PlayerEntity();
+      if (!world.Has<net::NetworkId>(host)) {
+        world.Add(host, net::AllocateNetworkId());
+        world.Add(host, world::PlayerAvatar{});
+        BroadcastPlayerAvatar(self->server_session_->engine(), NetIdOf(world, host), 0);
+      }
+    }
     // On the list only once the socket is actually up: an entry pointing at a
     // port nothing listens on is worse than no entry.
     StartServerAnnounce(*self);
@@ -296,6 +457,49 @@ bool StartNetworking(Engine& engine) {
         self->script_bindings_->SetWarProgress(board.imperial_fraction);
       });
     }
+    // Player presence: which replicated entity is a player's body (and what it
+    // looks like), and that body's replicated vitals. The entity and its
+    // message arrive in either order (snapshot vs reliable channel), so an
+    // unmatched offer waits in pending_avatars_/pending_vitals_ until the
+    // entity spawns (drained in the net tick system above).
+    self->client_session_->SetPlayerAvatarSink([self](u64 net_id, u64 form) {
+      if (!self->ctx_.world)
+        return;
+      // Your own body is the local one: the server's copy of you stays an
+      // invisible, non-solid transform so it never double-renders or shoves.
+      if (self->client_session_ && net_id == self->client_session_->player_net_id())
+        return;
+      ecs::World& w = *self->ctx_.world;
+      const ecs::Entity e = self->client_session_->replicated_entity(net_id);
+      if (e == ecs::kInvalidEntity) {
+        self->pending_avatars_[net_id] = form;
+        return;
+      }
+      w.Add(e, world::PlayerAvatar{
+                   bethesda::GlobalFormId{static_cast<u16>(form >> 32), static_cast<u32>(form)}});
+      w.Remove<scene::Renderable>(e);
+    });
+    self->client_session_->SetPlayerVitalsSink([self](u64 net_id, u16 health, u16 max, bool dead) {
+      if (!self->ctx_.world)
+        return;
+      const world::PlayerVitals vitals{health, max, dead};
+      const ecs::Entity e = self->client_session_->replicated_entity(net_id);
+      if (e == ecs::kInvalidEntity) {
+        self->pending_vitals_[net_id] = vitals;
+        return;
+      }
+      self->ctx_.world->Add(e, vitals);
+      if (dead)
+        self->ctx_.world->Add(e, world::Dead{});
+      else
+        self->ctx_.world->Remove<world::Dead>(e);
+      // Tell client-side mods: the HUD and death handling read it from here.
+      if (self->managed_)
+        self->managed_->QueueEvent(
+            {rx::script::host::ManagedEventId::kPlayerVitals, net_id,
+             (static_cast<u64>(max) << 32) | (static_cast<u64>(health) << 16) | (dead ? 1u : 0u),
+             0, 0.0f});
+    });
     if (!client->Start()) {
       self->client_session_ = nullptr;
       self->ctx_.client_session = nullptr;
@@ -363,12 +567,75 @@ bool StartNetworking(Engine& engine) {
   }
 
   self->scheduler_->AddSystem(ecs::Stage::kSim, "net", [self](ecs::World& world, f32 dt) {
+    // Clients stream their local character intent before the session ticks, so
+    // the server's simulator reads this frame's movement (the intent component
+    // is written by the walk controller later in the frame; one frame of age is
+    // the accepted cost of the server-simulated model).
+    if (self->client_session_ && self->ctx_.walk_mode && self->ctx_.world &&
+        self->actors_ && self->actors_->HasPlayer()) {
+      const ecs::Entity local = self->actors_->PlayerEntity();
+      const auto* intent = world.Get<character::CharacterIntent>(local);
+      if (intent) {
+        net::PlayerInput input;
+        input.move_x = intent->move.x;
+        input.move_y = 0.0f;
+        input.move_z = intent->move.z;
+        if (const auto* state = world.Get<character::CharacterState>(local))
+          input.yaw = state->yaw;
+        u8 buttons = 0;
+        if (intent->jump)
+          buttons |= kInputJump;
+        if (intent->crouch)
+          buttons |= kInputCrouch;
+        if (intent->gait == character::CharacterGait::kWalk)
+          buttons |= kInputGaitWalk;
+        if (intent->gait == character::CharacterGait::kSprint)
+          buttons |= kInputGaitSprint;
+        input.buttons = buttons;
+        self->client_session_->SetInput(input);
+      }
+    }
     self->session_->Tick(world, dt);
     // The announcer beats from its own thread and cannot read the session's
     // client map, so the count it publishes is refreshed here, on the thread
     // that owns it.
     if (self->server_session_)
       self->announced_players_.store(self->server_session_->client_count());
+    // Apply avatar/vitals offers that outraced their entity's snapshot. The
+    // pending maps are tiny (one entry per player), so a scan per tick is free.
+    if (self->client_session_ && self->ctx_.world) {
+      ecs::World& w = *self->ctx_.world;
+      base::Vector<u64> resolved;
+      for (auto entry : self->pending_avatars_) {
+        const u64 net_id = entry.key;
+        const u64 form = entry.value;
+        const ecs::Entity e = self->client_session_->replicated_entity(net_id);
+        if (e == ecs::kInvalidEntity)
+          continue;
+        w.Add(e, world::PlayerAvatar{bethesda::GlobalFormId{static_cast<u16>(form >> 32),
+                                                            static_cast<u32>(form)}});
+        w.Remove<scene::Renderable>(e);  // the actor system renders the body
+        resolved.push_back(net_id);
+      }
+      for (const u64 net_id : resolved)
+        self->pending_avatars_.erase(net_id);
+      resolved.clear();
+      for (auto entry : self->pending_vitals_) {
+        const u64 net_id = entry.key;
+        const world::PlayerVitals vitals = entry.value;
+        const ecs::Entity e = self->client_session_->replicated_entity(net_id);
+        if (e == ecs::kInvalidEntity)
+          continue;
+        w.Add(e, vitals);
+        if (vitals.dead)
+          w.Add(e, world::Dead{});
+        else
+          w.Remove<world::Dead>(e);
+        resolved.push_back(net_id);
+      }
+      for (const u64 net_id : resolved)
+        self->pending_vitals_.erase(net_id);
+    }
   });
   if (self->client_session_) {
     // Remote transforms blend between snapshots. With a renderer that runs

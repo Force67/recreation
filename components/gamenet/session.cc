@@ -11,6 +11,7 @@
 
 #include "components/bethesda/form_id.h"
 #include "components/gamenet/asset_stream.h"
+#include "components/gamenet/player_sync.h"
 #include "components/gamenet/world_replication.h"
 #include "components/modstream/content_store.h"
 #include "components/modstream/mod_catalog.h"
@@ -92,11 +93,21 @@ GameServerSession::GameServerSession(GameSessionConfig config)
       asset_stream_->SendManifest(peer);
       asset_stream_->SendClientScripts(peer);
     }
+    // Catch the newcomer up on everyone's replicated vitals.
+    for (const auto& [joined_peer, vitals] : player_vitals_) {
+      if (!vitals.sent)
+        continue;
+      inner_.SendTo(peer, static_cast<u16>(GameMessage::kPlayerState),
+                    EncodePlayerVitals({engine().PlayerNetId(joined_peer), vitals.health,
+                                        vitals.max_health, vitals.dead}),
+                    /*reliable=*/true, tx::network::PacketPriority::Medium);
+    }
     if (client_joined_sink_)
       client_joined_sink_(peer);
   });
   inner_.SetClientLeftSink([this](u32 peer) {
     activation_windows_.erase(peer);
+    player_vitals_.erase(peer);
     if (client_left_sink_)
       client_left_sink_(peer);
   });
@@ -245,6 +256,26 @@ void GameServerSession::SendObjectiveMarker(const ObjectiveMarkerState& m) {
                    /*reliable=*/true, tx::network::PacketPriority::Medium);
 }
 
+void GameServerSession::SetPlayerHealth(u32 peer, u16 health, u16 max_health, bool dead) {
+  if (inner_.PlayerNetId(peer) == 0)
+    return;  // an unknown or departed peer has no body to announce vitals for
+  PlayerVitalsEntry& entry = player_vitals_[peer];
+  if (entry.sent && entry.health == health && entry.max_health == max_health &&
+      entry.dead == dead)
+    return;  // unchanged: keep quiet (the wire is not a per-frame cost)
+  entry.health = health;
+  entry.max_health = max_health;
+  entry.dead = dead;
+  entry.sent = true;
+  inner_.Broadcast(static_cast<u16>(GameMessage::kPlayerState),
+                   EncodePlayerVitals({engine().PlayerNetId(peer), health, max_health, dead}),
+                   /*reliable=*/true, tx::network::PacketPriority::Medium);
+}
+
+u64 GameServerSession::PlayerNetId(u32 peer) const {
+  return inner_.PlayerNetId(peer);
+}
+
 void GameServerSession::ReloadCatalog(const modstream::ModCatalog& catalog) {
   if (!asset_stream_)
     return;
@@ -370,6 +401,18 @@ void GameClientSession::OnGameMessage(u16 type, const u8* data, size_t size) {
     case GameMessage::kClientScripts: {
       if (asset_stream_)
         asset_stream_->OnClientScripts(data, size);
+      break;
+    }
+    case GameMessage::kPlayerAvatar: {
+      if (player_avatar_sink_)
+        if (auto avatar = DecodePlayerAvatar(data, size))
+          player_avatar_sink_(avatar->net_id, avatar->form);
+      break;
+    }
+    case GameMessage::kPlayerState: {
+      if (player_vitals_sink_)
+        if (auto vitals = DecodePlayerVitals(data, size))
+          player_vitals_sink_(vitals->net_id, vitals->health, vitals->max_health, vitals->dead);
       break;
     }
     default:

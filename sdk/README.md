@@ -71,6 +71,26 @@ like built-in mods, but they're optional:
 A ruleset only wakes up when its game is the one being played, so having all three
 present costs nothing.
 
+## Replicated vitals
+
+A server-side mod sets a player's vitals; every client learns about them and the
+engine puts them on the player's replica:
+
+```csharp
+// Server: announce and remember (unchanged values stay off the wire).
+player.SetHealth(health, maxHealth, dead);
+
+// Anywhere: react to the change for a player body on this machine.
+EventBus.Subscribe<PlayerVitalsChanged>(e =>
+{
+    if (e.Dead) Hud.Notify("Someone fell", Value.Int(3));
+});
+```
+
+The dead flag also drives the entity's `Dead` tag, so the render path holds a
+downed pose. The engine combat system is not networked yet — today the producer
+is mod code; when combat syncs, it feeds the same path.
+
 ## Versioning
 
 One SemVer number in `Directory.Build.props`, surfaced as `SdkInfo.Version` and

@@ -24,6 +24,7 @@
 #include "components/weather/weather.h"
 #include "components/world/actor_stats_store.h"
 #include "components/world/combat.h"
+#include "components/world/components.h"
 #include "components/world/map_discovery.h"
 #include "components/world/map_markers.h"
 #include "components/world/created_forms.h"
@@ -763,6 +764,17 @@ class Engine : public app::Application {
     base::Vector<base::String> paths;  // cached assemblies the server offered
   };
   ScriptConsent script_consent_;
+  // Where LoadGameData placed the game's start position (ground height under
+  // the start cell). The host spawns every joining player here, so remote
+  // players arrive where the game begins instead of at rx's hardcoded join
+  // coordinates.
+  Vec3 net_spawn_{};
+  // Client side: appearance offers for replicas that have not spawned yet
+  // (the kPlayerAvatar message and the snapshot that creates the entity race).
+  base::UnorderedMap<u64, u64> pending_avatars_;
+  // Same for vitals: the latest kPlayerState for an entity that has not
+  // spawned yet, applied when its snapshot arrives.
+  base::UnorderedMap<u64, world::PlayerVitals> pending_vitals_;
   // 3D overlay of the session's streaming bubbles (RX_NET_BUBBLES=0 hides it).
   // Built lazily on the first frame that has bubbles to draw.
   base::UniquePointer<net::BubbleVisualizer> bubble_viz_;

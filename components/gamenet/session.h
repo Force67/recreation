@@ -126,6 +126,14 @@ class GameServerSession final : public Session {
   // The server's scripting RPC channel. Always present once Start succeeds.
   RpcServerChannel* rpc() { return inner_.rpc(); }
 
+  // The authoritative vitals for a player (the engine combat system is not
+  // networked yet, so the producer today is host-side mod code through the
+  // Player.SetHealth SDK API). Broadcasts a kPlayerState to every client on
+  // change and remembers the value so a later joiner's table is complete.
+  void SetPlayerHealth(u32 peer, u16 health, u16 max_health, bool dead);
+  // The player entity's network id, once the peer has joined; 0 before.
+  u64 PlayerNetId(u32 peer) const;
+
   // Swaps the mod catalog offered to clients (live reload).
   void ReloadCatalog(const modstream::ModCatalog& catalog);
 
@@ -164,6 +172,14 @@ class GameServerSession final : public Session {
     bool warned = false;
   };
   std::unordered_map<u32, ActivationWindow> activation_windows_;
+  struct PlayerVitalsEntry {
+    u16 health = 0;
+    u16 max_health = 0;
+    bool dead = false;
+    bool sent = false;  // a vitals message has gone out for this player
+  };
+  std::unordered_map<u32, PlayerVitalsEntry> player_vitals_;
+
   QuestReplicator quest_replicator_;
   ActorReplicator actor_replicator_;
   std::unique_ptr<AssetStreamServer> asset_stream_;
@@ -214,6 +230,23 @@ class GameClientSession final : public Session {
     war_map_sink_ = std::move(sink);
   }
 
+  // Sink invoked once per kPlayerAvatar received: which replicated entity is a
+  // player's body and the appearance form it carries (0 = the game's default
+  // player template). The engine applies it to the replica entity.
+  void SetPlayerAvatarSink(std::function<void(u64 net_id, u64 form)> sink) {
+    player_avatar_sink_ = std::move(sink);
+  }
+
+  // Sink invoked once per kPlayerState received: a player entity's replicated
+  // vitals.
+  void SetPlayerVitalsSink(std::function<void(u64 net_id, u16 health, u16 max, bool dead)> sink) {
+    player_vitals_sink_ = std::move(sink);
+  }
+
+  // The replicated entity carrying this network id, or kInvalidEntity when the
+  // snapshot has not (yet) spawned it.
+  ecs::Entity replicated_entity(u64 net_id) const { return inner_.replicated_entity(net_id); }
+
   // The client's scripting RPC channel. Always present once Start succeeds.
   RpcClientChannel* rpc() { return inner_.rpc(); }
 
@@ -237,6 +270,8 @@ class GameClientSession final : public Session {
   ClientSession inner_;
   std::unique_ptr<AssetStreamClient> asset_stream_;
   std::function<void(u8 domain, const quest::QuestStatus&)> quest_sink_;
+  std::function<void(u64 net_id, u64 form)> player_avatar_sink_;
+  std::function<void(u64 net_id, u16 health, u16 max, bool dead)> player_vitals_sink_;
   std::function<void(const ObjectiveMarkerState&)> objective_marker_sink_;
   std::function<void(const WarMapState&)> war_map_sink_;
   std::function<void(const base::Vector<world::WorldCommand>&)> world_command_sink_;

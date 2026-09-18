@@ -33,6 +33,10 @@ enum class GameMessage : u16 {
   kWarMap = 138,           // server -> clients: the Civil War campaign board
   kClientScripts = 139,    // server -> client: streamed files the server asks
                            // the client to run as managed assemblies
+  kPlayerAvatar = 140,     // server -> clients: which entity is a player's
+                           // body, and its appearance form
+  kPlayerState = 141,      // server -> clients: a player entity's replicated
+                           // vitals (health, dead)
 };
 
 static_assert(static_cast<u16>(GameMessage::kQuestUpdate) >= kFirstGameMessage,

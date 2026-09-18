@@ -170,6 +170,11 @@ void ApplyActorStates(ecs::World& world,
     } else {
       world.Add(entity, InterpolatedTransform{*current, target, 0, lerp_duration});
     }
+    // The gait feed rides the same interpolation: without a ReplicatedGait the
+    // actor system has no speed for this body and it walks its locomotion
+    // machine at idle no matter how fast the transforms say it is moving.
+    if (!world.Has<ReplicatedGait>(entity))
+      world.Add(entity, ReplicatedGait{});
   }
 }
 

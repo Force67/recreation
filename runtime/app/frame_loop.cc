@@ -427,6 +427,7 @@ void Engine::OnUpdate(f32 raw_frame_delta) {
       UpdateCamera(frame_delta);
       UpdateSettings();          // pause-menu controls: rebind capture + sensitivity
       actors_->SyncNpcActors();  // add/remove NPC actors as cells stream in/out
+      actors_->SyncPlayerAvatars();  // bodies for replicated players as they join/leave
       actors_->Update(frame_delta);
     }
   }

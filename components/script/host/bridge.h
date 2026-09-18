@@ -111,6 +111,8 @@ enum class ManagedEventId : std::int32_t {
   kClientAssetsReady = 10,  // a = peer id (a client finished streaming the server's mods)
   kClientJoined = 11,       // a = peer id (a client joined the session, host only)
   kClientLeft = 12,         // a = peer id (a client left or timed out, host only)
+  kPlayerVitals = 13,       // a = net entity id (a player body's replicated
+                            // vitals changed), b = (max<<32)|(health<<16)|dead
 };
 
 struct ManagedEvent {

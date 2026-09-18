@@ -3,6 +3,7 @@ recreation_add_module(gamenet
   address.cc
   asset_stream.cc
   objective_marker_net.cc
+  player_sync.cc
   quest_replication.cc
   session.cc
   stage_request.cc
@@ -45,3 +46,4 @@ if(TARGET asset_streamtest AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 endif()
 recreation_add_test(client_scripts_nettest
   recreation::gamenet recreation::modstream rx::asset)
+recreation_add_test(player_sync_nettest recreation::gamenet)

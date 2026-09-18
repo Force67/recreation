@@ -49,6 +49,11 @@ public static class EngineEvents
                 EventBus.Publish(new ClientLeft((uint)e.A));
                 Rpc.DropPeerRequests((uint)e.A);  // a departed peer never replies
                 break;
+            case ManagedEventId.PlayerVitals:
+                EventBus.Publish(new PlayerVitalsChanged(e.A, (int)((e.B >> 16) & 0xffff),
+                                                         (int)((e.B >> 32) & 0xffff),
+                                                         (e.B & 1) != 0));
+                break;
         }
     }
 }

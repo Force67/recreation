@@ -183,6 +183,29 @@ re-streams under new bytes applies on the next join.
 Streamed scripts run with the full trust of any other mod — the consent prompt
 is permission, not a sandbox.
 
+### Player sync
+
+Players are real bodies, not placeholder cubes. Movement is server-simulated: a
+client streams its character intent (world-space move request, look yaw, jump /
+crouch / gait) to the host every tick, the host runs the same character pipeline
+the local player uses (same MOVT-decoded speeds, gravity and capsule), and every
+client receives the authoritative transforms. Remote bodies render with the
+game's own assets — the player template, FaceGen head, armour and the full
+idle/walk/run locomotion machine — and their gait animates from the replicated
+velocity, so a remote player walks when they walk and stops when they stop. The
+listen host has a body on the wire too, so clients can see the host.
+
+Without client-side prediction the local body is locally simulated (input feels
+instant) while everyone else sees the server's position; reconciliation of the
+two is the known next step, and until then your own third-person body can
+briefly disagree with what other players saw.
+
+Vitals replicate too: host-side code sets them with `Player.SetHealth(health,
+max, dead)`, every client receives them (a `PlayerVitals` component on the
+player's replica and a `PlayerVitalsChanged` event for mods), and the dead flag
+drives the client-side `Dead` tag. The engine combat system is not networked
+yet, so today the producer is mod code.
+
 ### Scripting RPC
 
 Server-side mod scripts drive multiplayer through a typed RPC channel. A C# mod
