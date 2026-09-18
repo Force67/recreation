@@ -8,10 +8,18 @@
 #include <base/containers/vector.h>
 #include <base/strings/xstring.h>
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <thread>
+#include <vector>
 
+#include "components/masterlist/announcer.h"
 #include "components/masterlist/async_list.h"
 #include "components/masterlist/json.h"
 #include "components/masterlist/load_order_digest.h"
@@ -343,6 +351,102 @@ void TestLoadOrderDigest() {
   CHECK(LoadOrderDigest(a) != LoadOrderDigest(split));
 }
 
+// A listener that accepts and then says nothing, which is how a list that has
+// gone away behaves: the socket connects, the request goes out, and no answer
+// ever comes.
+class BlackHole {
+ public:
+  BlackHole() {
+    listener_ = ::socket(AF_INET, SOCK_STREAM, 0);
+    const int on = 1;
+    ::setsockopt(listener_, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    ::bind(listener_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+    ::listen(listener_, 8);
+    socklen_t len = sizeof(addr);
+    ::getsockname(listener_, reinterpret_cast<sockaddr*>(&addr), &len);
+    port_ = ntohs(addr.sin_port);
+    thread_ = std::thread([this] {
+      while (!done_.load()) {
+        const int client = ::accept(listener_, nullptr, nullptr);
+        if (client < 0)
+          break;
+        held_.push_back(client);  // hold it open, answer nothing
+      }
+    });
+  }
+
+  ~BlackHole() {
+    done_ = true;
+    ::shutdown(listener_, SHUT_RDWR);
+    ::close(listener_);
+    if (thread_.joinable())
+      thread_.join();
+    for (int held : held_)
+      ::close(held);
+  }
+
+  base::String url() const {
+    char buffer[64] = {};
+    std::snprintf(buffer, sizeof(buffer), "http://127.0.0.1:%u", unsigned(port_));
+    return base::String(buffer);
+  }
+
+ private:
+  int listener_ = -1;
+  u16 port_ = 0;
+  std::atomic<bool> done_{false};
+  std::vector<int> held_;
+  std::thread thread_;
+};
+
+void TestStopIsPromptAgainstADeadList() {
+  // The whole point of the cancel flag: quitting the game must not wait out an
+  // announce that will never be answered. Stop() used to join a thread parked
+  // in a socket read, which measured 7.7 seconds against exactly this server.
+  BlackHole list;
+  Announcer announcer;
+  ServerInfo info;
+  info.port = 29788;
+  info.name = "stop test";
+  info.domain = "skyrim";
+  info.max_players = 4;
+  announcer.Start(list.url(), info, [] { return 0u; });
+
+  // Let it get as far as blocking on the answer.
+  std::this_thread::sleep_for(std::chrono::milliseconds(400));
+
+  const auto began = std::chrono::steady_clock::now();
+  announcer.Stop();
+  const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - began)
+                        .count();
+  CHECK(!announcer.running());
+  CHECK(took < 1500);
+  if (took >= 1500)
+    std::printf("  Stop() took %lld ms\n", static_cast<long long>(took));
+}
+
+void TestAsyncListDropsAQueryOnTeardown() {
+  BlackHole list;
+  const auto began = std::chrono::steady_clock::now();
+  {
+    AsyncList async;
+    async.set_timeout_ms(30000);  // long enough that only the cancel ends it
+    CHECK(async.Start(list.url(), ListQuery{}));
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  }  // the destructor raises the flag and joins
+  const auto took = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - began)
+                        .count();
+  CHECK(took < 2000);
+  if (took >= 2000)
+    std::printf("  ~AsyncList took %lld ms\n", static_cast<long long>(took));
+}
+
 // Off by default: this one needs a masterlist to talk to. Point it at a running
 // instance to prove the whole contract end to end, which is the only way to
 // catch the service and the game drifting apart:
@@ -428,6 +532,8 @@ int main() {
   TestClientRefusals();
   TestAsyncListFailsCleanly();
   TestLoadOrderDigest();
+  TestStopIsPromptAgainstADeadList();
+  TestAsyncListDropsAQueryOnTeardown();
   TestLive();
   if (g_failures == 0) {
     std::puts("masterlisttest: all passed");

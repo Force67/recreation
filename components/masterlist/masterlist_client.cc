@@ -203,6 +203,12 @@ base::String Client::Endpoint(const char* path) const {
   return out;
 }
 
+void Client::ApplyLimits(http::Request* request, u32 idle_ms) const {
+  request->timeout_ms = idle_ms;
+  request->total_timeout_ms = total_timeout_ms_;
+  request->cancel = cancel_;
+}
+
 AnnounceResult Client::Announce(const ServerInfo& info) {
   AnnounceResult result;
   if (!valid_) {
@@ -215,7 +221,7 @@ AnnounceResult Client::Announce(const ServerInfo& info) {
   request.url = Endpoint("/v1/servers");
   request.body = EncodeAnnounce(info);
   request.content_type = "application/json";
-  request.timeout_ms = timeout_ms_;
+  ApplyLimits(&request, timeout_ms_);
   // 301/302/303 are followed as GET, so a masterlist url that redirects (http
   // to https, say) would turn this POST into a list query that answers 200 with
   // no token. Refusing the redirect reports the url instead of the symptom.
@@ -224,6 +230,7 @@ AnnounceResult Client::Announce(const ServerInfo& info) {
   const http::Response response = http::Fetch(request);
   if (response.status == 0) {
     result.error = response.error;
+    result.cancelled = response.cancelled;
     return result;
   }
   if (!response.ok()) {
@@ -257,7 +264,7 @@ bool Client::Heartbeat(const base::String& token,
   request.url = Endpoint("/v1/servers/heartbeat");
   request.body = writer.Finish();
   request.content_type = "application/json";
-  request.timeout_ms = timeout_ms_;
+  ApplyLimits(&request, timeout_ms_);
   request.max_redirects = 0;  // a redirected POST becomes a GET; see Announce
 
   const http::Response response = http::Fetch(request);
@@ -293,8 +300,12 @@ bool Client::Retire(const base::String& token, base::String* error) {
   request.content_type = "application/json";
   request.max_redirects = 0;  // a redirected POST becomes a GET; see Announce
   // Retire runs on the way out, so it waits a shorter time than the rest: a
-  // list that is down must not hold up the shutdown.
-  request.timeout_ms = timeout_ms_ < 3000 ? timeout_ms_ : 3000;
+  // list that is down must not hold up the shutdown. It deliberately does NOT
+  // take the cancel flag, which by then is already raised; the deadline is what
+  // bounds it.
+  ApplyLimits(&request, timeout_ms_ < 3000 ? timeout_ms_ : 3000);
+  request.cancel = nullptr;
+  request.total_timeout_ms = 3000;
 
   const http::Response response = http::Fetch(request);
   if (response.status == 0) {
@@ -321,7 +332,7 @@ ListResult Client::List(const ListQuery& query) {
 
   http::Request request;
   request.url = url;
-  request.timeout_ms = timeout_ms_;
+  ApplyLimits(&request, timeout_ms_);
   // A full page of 500 entries is a few hundred KB; anything past a megabyte
   // is not this endpoint answering.
   request.max_body_bytes = 4 * 1024 * 1024;
@@ -329,6 +340,7 @@ ListResult Client::List(const ListQuery& query) {
   const http::Response response = http::Fetch(request);
   if (response.status == 0) {
     result.error = response.error;
+    result.cancelled = response.cancelled;
     return result;
   }
   if (!response.ok()) {

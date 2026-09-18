@@ -42,6 +42,9 @@ class AsyncList {
  private:
   std::thread thread_;
   std::atomic<bool> pending_{false};
+  // Raised by the destructor so a query in flight is dropped rather than waited
+  // out: quitting while the Join screen is loading should not cost a timeout.
+  std::atomic<bool> abandon_{false};
   u32 timeout_ms_ = 6000;
 
   std::mutex mutex_;
