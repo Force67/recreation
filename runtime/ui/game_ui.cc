@@ -904,7 +904,7 @@ void GameUi::Build(Window& window,
     for (int k = 0; !dismiss && k < static_cast<int>(Key::kCount); ++k)
       dismiss = in.pressed[k];
     for (int b = 0; !dismiss && b < static_cast<int>(MouseButton::kCount); ++b)
-      dismiss = in.mouse[b] && !impl->prev_mouse[b];
+      dismiss = in.mouse_pressed[b];
     if (!dismiss && window.gamepad().connected) {
       for (int b = 0; !dismiss && b < static_cast<int>(GamepadButton::kCount); ++b)
         dismiss = window.gamepad().pressed[b];
@@ -941,10 +941,13 @@ void GameUi::Build(Window& window,
     const MouseButton rec_buttons[3] = {MouseButton::kLeft, MouseButton::kRight,
                                         MouseButton::kMiddle};
     for (int i = 0; i < 3; ++i) {
-      bool down = in.button(rec_buttons[i]);
-      if (down != impl->prev_mouse[i])
-        q.PushButton(buttons[i], down);
-      impl->prev_mouse[i] = down;
+      // Both edges can land in one pump, which is a click quicker than a frame.
+      // Comparing the button's level against last frame's would see nothing
+      // happen and swallow it; pushing the two edges lands the click.
+      if (in.button_pressed(rec_buttons[i]))
+        q.PushButton(buttons[i], true);
+      if (in.button_released(rec_buttons[i]))
+        q.PushButton(buttons[i], false);
     }
     if (in.wheel != 0.0f)
       q.PushScroll({0.0f, in.wheel});

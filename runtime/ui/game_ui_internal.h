@@ -305,7 +305,6 @@ struct GameUi::Impl {
   static constexpr size_t kStatsRows = 18;
   StatsView stats_view;
   size_t stats_page = 0;
-  bool prev_mouse[3] = {};
   TouchPointerState touch_pointer;
   // RX_UI_CLICK playback: the parsed name list and where it has got to.
   base::Vector<base::String> click_script;
