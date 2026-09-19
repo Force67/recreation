@@ -448,6 +448,10 @@ bool LoadGameData(Engine& engine) {
               args.size() >= 4 && args[3].ToInt() != 0);
           return;
         }
+        if (type == "Net" && func == "Kick" && self->server_session_ && !args.empty()) {
+          self->server_session_->Kick(static_cast<u32>(args[0].ToInt()));
+          return;
+        }
         // The shared world is not HUD either: queue it for the main thread,
         // which owns the clock and the weather director.
         if (type == "World" && !args.empty()) {

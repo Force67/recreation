@@ -266,6 +266,11 @@ mod registered) and prints its reply on the same terminal. A console line runs a
 the host operator, so it passes every permission check: whoever can type into the
 server's terminal already owns the server.
 
+`kick` disconnects for real: the transport says goodbye and that client drops on
+the spot, whether or not it cooperates, and the server's roster clears when the
+peer times out a few seconds later. Kicking somebody who is not connected says so
+rather than reporting a kick that never happened.
+
 ### World sync
 
 Everyone in a session stands in the same hour under the same sky. Both used to

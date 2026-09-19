@@ -328,6 +328,22 @@ u64 GameServerSession::PlayerNetId(u32 peer) const {
   return inner_.PlayerNetId(peer);
 }
 
+bool GameServerSession::Kick(u32 peer) {
+  bool known = false;
+  inner_.ForEachPeer([&](u32 joined) { known = known || joined == peer; });
+  if (!known)
+    return false;
+  // The transport's goodbye is what a client acts on: it disconnects as soon as
+  // it arrives, connected or not. There is no "kicked" reason in the protocol's
+  // list, and None is the one a client reports as "the server rejected you",
+  // which is what a kick is.
+  inner_.raw().SendServerGoodbye(static_cast<tx::network::ZPeerId>(peer),
+                                 tx::network::system_commands::HandshakeRejectReason::None);
+  player_vitals_.erase(peer);
+  RX_INFO("net: kicked peer {}", peer);
+  return true;
+}
+
 void GameServerSession::ReloadCatalog(const modstream::ModCatalog& catalog) {
   if (!asset_stream_)
     return;

@@ -69,6 +69,8 @@ public static class ServerConsole
                 ctx.Reply($"  [{p.Id}] {p.Name}");
         });
 
+        // The console spelling of announce: the verb an operator reaches for at a
+        // terminal, with a permission of its own so it can be granted separately.
         Commands.Register("say", "command.say", ctx =>
         {
             // The whole tail is the message, so multi-word lines work.

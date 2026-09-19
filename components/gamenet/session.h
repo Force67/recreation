@@ -135,6 +135,13 @@ class GameServerSession final : public Session {
   // The player entity's network id, once the peer has joined; 0 before.
   u64 PlayerNetId(u32 peer) const;
 
+  // Drops a peer: the transport says goodbye and the client disconnects on the
+  // spot. The server's own roster clears when the peer times out a few seconds
+  // later (nothing acknowledges a goodbye, so there is nothing sooner to go on),
+  // which is also what makes a kick survive a client that ignores it. False when
+  // the peer is not one of ours.
+  bool Kick(u32 peer);
+
   // The shared clock and sky (see world_state.h), sampled every tick. Only what
   // a client cannot derive for itself goes out: a changed seed, weather or
   // timescale, a clock the host moved out from under the client's own

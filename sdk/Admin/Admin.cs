@@ -1,4 +1,5 @@
 using System;
+using Recreation.Interop;
 
 namespace Recreation.Net;
 
@@ -7,17 +8,26 @@ namespace Recreation.Net;
 // action hooks (kick, announce) the runtime fills in.
 public static class Admin
 {
-    // The effects built-in commands invoke. Default to no-ops so the system runs in
-    // tests and headless tools without an engine; the runtime swaps in real ones.
-    private static Action<uint> _kick = static _ => { };
-    private static Action<string> _announce = static _ => { };
+    // The effects built-in commands invoke. They default to the real thing rather
+    // than to no-ops: a kick that reports success and drops nobody is worse than
+    // no kick at all. Kicking goes through the engine, which owns the transport
+    // that can disconnect somebody; announcing is a chat broadcast, which is
+    // already ours. A host can still replace either.
+    private static Action<uint> _kick = DefaultKick;
+    private static Action<string> _announce = DefaultAnnounce;
 
-    // The runtime supplies the real kick (drop the peer). Null restores the no-op.
-    public static void SetKickHandler(Action<uint> handler) => _kick = handler ?? (static _ => { });
+    // Drops the peer. No-op off a host, or with no session (single player).
+    private static void DefaultKick(uint peer) =>
+        Native.CallGlobal("Net", "Kick", new[] { Value.Int((int)peer) });
 
-    // The runtime supplies the real announce: broadcast the text to every player.
+    private static void DefaultAnnounce(string text) => Chat.System(text);
+
+    // Replaces the kick. Null restores the engine's own.
+    public static void SetKickHandler(Action<uint> handler) => _kick = handler ?? DefaultKick;
+
+    // Replaces the announce. Null restores the chat broadcast.
     public static void SetAnnounceHandler(Action<string> handler) =>
-        _announce = handler ?? (static _ => { });
+        _announce = handler ?? DefaultAnnounce;
 
     // Bring the admin layer up for a role. Idempotent. On the authoritative side it
     // registers the built-in commands and seeds the host as admin.
@@ -35,8 +45,8 @@ public static class Admin
     // Tear everything down: hooks back to no-op, commands and permissions cleared.
     public static void Reset()
     {
-        _kick = static _ => { };
-        _announce = static _ => { };
+        _kick = DefaultKick;
+        _announce = DefaultAnnounce;
         Commands.Reset();
         Permissions.Reset();
     }
@@ -47,21 +57,35 @@ public static class Admin
     {
         Commands.Register("kick", "command.kick", ctx =>
         {
-            if (ctx.Args.Length >= 1 && uint.TryParse(ctx.Args[0], out uint id))
-            {
-                _kick(id);
-                ctx.Reply($"Kicked {id}");
-            }
-            else
+            if (ctx.Args.Length < 1 || !uint.TryParse(ctx.Args[0], out uint id))
             {
                 ctx.Reply("usage: kick <id>");
+                return;
             }
+            // Checked against the roster first: the engine's kick is
+            // fire-and-forget, so this is the only place that can tell an admin
+            // they just kicked nobody instead of reporting a kick that did not
+            // happen.
+            if (!Players.IsConnected(id))
+            {
+                ctx.Reply($"nobody with id {id} is connected");
+                return;
+            }
+            _kick(id);
+            ctx.Reply($"Kicked {id}");
         });
 
         Commands.Register("announce", "command.announce", ctx =>
         {
             // The whole tail is the message, so multi-word announcements work.
-            _announce(string.Join(' ', ctx.Args));
+            string text = string.Join(' ', ctx.Args);
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                ctx.Reply("usage: announce <message>");
+                return;
+            }
+            _announce(text);
+            ctx.Reply($"announced: {text}");
         });
 
         Commands.Register("setgroup", "command.setgroup", ctx =>

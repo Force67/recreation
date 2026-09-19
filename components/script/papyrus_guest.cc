@@ -427,6 +427,10 @@ void PapyrusGuest::BindEngineNatives() {
   // the change broadcasts a kPlayerState to every client (a no-op anywhere the
   // sink is not wired, e.g. a client or no session).
   reg_platform("Net", "SetPlayerHealth");
+  // Net.Kick(peer): drops a player. The privileged admin commands are managed
+  // code, so this is how they reach the transport that can actually disconnect
+  // somebody (a no-op on a client or with no session).
+  reg_platform("Net", "Kick");
   // World.SetTime(hour) / World.SetWeather(form): the shared world a host owns.
   // The runtime queues both onto its main thread (the clock and the weather
   // director live there) and the session replicates the result, so a host-side

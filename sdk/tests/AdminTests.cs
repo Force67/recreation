@@ -22,6 +22,10 @@ public static class AdminTests
         Rpc.Clear();
         var rec = new Recording();
         Rpc.Bind(rec);
+        // The built-in kick reaches the engine's transport through a native, so a
+        // backend has to be there for the default hook to run at all.
+        var fake = new FakeBackend();
+        Native.Backend = fake;
         Platform.Boot(NetRole.Server);
         Admin.Bind(NetRole.Server);
 
@@ -89,6 +93,15 @@ public static class AdminTests
         Admin.SetAnnounceHandler(text => announced = text);
         Permissions.AddAce("player.7", "command.announce", true);
 
+        // Kicking somebody who is not there reports that rather than a kick.
+        Rpc.Dispatch("admin:cmd", 7u, false, new[] { Value.String("kick"), Value.String("7") });
+        check.Equal("kicking nobody does not call the hook", 0u, kicked);
+        check.That("and says so",
+            rec.Emits.Exists(e => e.Name == "admin:reply" &&
+                                  e.Args[0].AsString().Contains("is connected")));
+
+        // With that player in the roster, the kick goes through.
+        StateBags.Player(7).Set(Player.PresentKey, true);
         Rpc.Dispatch("admin:cmd", 7u, false, new[] { Value.String("kick"), Value.String("7") });
         check.Equal("the kick hook sees the parsed id", 7u, kicked);
 
@@ -112,13 +125,28 @@ public static class AdminTests
         Rpc.Dispatch("admin:cmd", 7u, false, new[] { Value.String("ping") });
         check.That("reset clears commands", !handlerRan);
 
-        // hooks are back to no-op: re-bind (registers a fresh kick command), authorize
-        // and run kick; the captured hook from before must not fire.
+        // hooks are back to the engine's own: re-bind (registers a fresh kick
+        // command), authorize and run kick; the captured hook from before must not
+        // fire, and the default must actually reach the transport instead of
+        // reporting a kick it never performed.
         kicked = 0;
         Admin.Bind(NetRole.Server);
         Permissions.AddAce("player.7", "command.kick", true);
+        StateBags.Player(9).Set(Player.PresentKey, true);
         Rpc.Dispatch("admin:cmd", 7u, false, new[] { Value.String("kick"), Value.String("9") });
         check.Equal("reset cleared the kick hook", 0u, kicked);
+        check.Equal("the default kick drops the peer through the engine", 9u,
+                    fake.LastKickedPeer ?? 0u);
+
+        // And the default announce is a chat broadcast, not a no-op.
+        ChatMessage said = default;
+        using (Chat.OnMessage(m => said = m))
+        {
+            Permissions.AddAce("player.7", "command.announce", true);
+            Rpc.Dispatch("admin:cmd", 7u, false,
+                new[] { Value.String("announce"), Value.String("back"), Value.String("in five") });
+        }
+        check.Equal("the default announce reaches chat", "back in five", said.Text);
 
         // --- standalone host is an implicit superadmin ---
         Admin.Reset();

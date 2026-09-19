@@ -49,3 +49,4 @@ recreation_add_test(client_scripts_nettest
   recreation::gamenet recreation::modstream rx::asset)
 recreation_add_test(player_sync_nettest recreation::gamenet)
 recreation_add_test(world_state_nettest recreation::gamenet)
+recreation_add_test(kick_nettest recreation::gamenet)
