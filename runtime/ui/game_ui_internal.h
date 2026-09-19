@@ -543,6 +543,9 @@ struct GameUi::Impl {
   base::Vector<const char*> pool_prefix;
   base::Vector<base::Vector<base::String>> pool_names;
 
+  // Every Apply* pass writes every value it owns on every frame, so the great
+  // majority of these calls set what is already there. Comparing first skips
+  // the write-back and MarkDirty, which walks the ancestor chain to the root.
   void SetStyleField(const char* name, void (*mutate)(ugui::Style&, float), float arg) {
     ugui::wid w = Need(name);
     if (!w.valid())
@@ -552,6 +555,8 @@ struct GameUi::Impl {
       return;
     ugui::Style s = sc->style;
     mutate(s, arg);
+    if (s == sc->style)
+      return;
     ugui::SetStyle(ui.world(), w, s);
   }
 
@@ -571,6 +576,8 @@ struct GameUi::Impl {
     ugui::StyleC* sc = ui.world().Get<ugui::StyleC>(w);
     if (!sc)
       return;
+    if (sc->style.background == color)
+      return;
     ugui::Style style = sc->style;
     style.background = color;
     ugui::SetStyle(ui.world(), w, style);
@@ -583,6 +590,8 @@ struct GameUi::Impl {
     ugui::StyleC* sc = ui.world().Get<ugui::StyleC>(w);
     if (!sc)
       return;
+    if (sc->style.text_color == color)
+      return;
     ugui::Style style = sc->style;
     style.text_color = color;
     ugui::SetStyle(ui.world(), w, style);
@@ -594,6 +603,8 @@ struct GameUi::Impl {
       return;
     ugui::StyleC* sc = ui.world().Get<ugui::StyleC>(w);
     if (!sc)
+      return;
+    if (sc->style.border_color == color)
       return;
     ugui::Style style = sc->style;
     style.border_color = color;
