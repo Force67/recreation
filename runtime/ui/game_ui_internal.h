@@ -569,6 +569,22 @@ struct GameUi::Impl {
         visible ? 1.0f : 0.0f);
   }
 
+  // Whether a widget is currently on screen. Writing values into one that is
+  // not still marks it dirty, which is enough to make the ui redraw a frame
+  // that would otherwise have come out identical.
+  bool IsVisible(const char* name) {
+    ugui::wid w = Need(name);
+    // Walks the ancestors, not just the widget: the front screens collapse the
+    // panel the hud hangs from rather than the hud's own widgets, so asking
+    // only the widget itself answers yes for a whole hidden screen.
+    for (; w.valid(); w = ui.world().Get<ugui::Hierarchy>(w)->parent) {
+      const ugui::StyleC* sc = ui.world().Get<ugui::StyleC>(w);
+      if (sc == nullptr || sc->style.visibility != ugui::Visibility::kVisible)
+        return false;
+    }
+    return true;
+  }
+
   void SetBackground(const char* name, ugui::Color color) {
     ugui::wid w = Need(name);
     if (!w.valid())

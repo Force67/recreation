@@ -1285,17 +1285,23 @@ void GameUi::Build(Window& window,
       "bar_stamina_fill", [](ugui::Style& s, float v) { s.width = ugui::Length::Pct(v); },
       impl->stamina * 100.0f);
 
-  // Readout text.
+  // Readout text. Every line of it changes every frame, so writing it while the
+  // panel is collapsed is the one thing that would keep an otherwise idle
+  // screen (the front menu, a pause screen) rebuilding its ui every frame.
   char buf[160];
   impl->last_fps = static_cast<int>(frame_delta > 0 ? 1.0f / frame_delta + 0.5f : 0.0f);
-  std::snprintf(buf, sizeof(buf), "%.0f fps", frame_delta > 0 ? 1.0f / frame_delta : 0.0f);
-  impl->SetText("hud_fps", buf);
-  Vec3 pos = camera.position();
-  std::snprintf(buf, sizeof(buf), "x %.0f   y %.0f   z %.0f", pos.x, pos.y, pos.z);
-  impl->SetText("hud_coords", buf);
-  const char* card = kCardinals[static_cast<int>(std::fmod(heading + 22.5f, 360.0f) / 45.0f) % 8];
-  std::snprintf(buf, sizeof(buf), "%s  %.0f deg", card, heading);
-  impl->SetText("hud_heading", buf);
+  const bool front_screen_up = impl->main_menu_open || impl->loading_open ||
+                               impl->first_run_open || impl->legal_open;
+  if (!front_screen_up && impl->IsVisible("readout")) {
+    std::snprintf(buf, sizeof(buf), "%.0f fps", frame_delta > 0 ? 1.0f / frame_delta : 0.0f);
+    impl->SetText("hud_fps", buf);
+    Vec3 pos = camera.position();
+    std::snprintf(buf, sizeof(buf), "x %.0f   y %.0f   z %.0f", pos.x, pos.y, pos.z);
+    impl->SetText("hud_coords", buf);
+    const char* card = kCardinals[static_cast<int>(std::fmod(heading + 22.5f, 360.0f) / 45.0f) % 8];
+    std::snprintf(buf, sizeof(buf), "%s  %.0f deg", card, heading);
+    impl->SetText("hud_heading", buf);
+  }
   std::snprintf(buf, sizeof(buf), "%d", impl->mm_stats.gold);
   impl->SetText("hud_gold", buf);
 
