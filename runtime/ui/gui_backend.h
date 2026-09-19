@@ -74,6 +74,10 @@ class HudRenderBackend final : public ugui::TextureBackend {
     VkBuffer buffer = VK_NULL_HANDLE;
     VkDeviceMemory memory = VK_NULL_HANDLE;
     VkDeviceSize capacity = 0;
+    // Mapped once at creation and left mapped. The memory is host-coherent, so
+    // a write is visible without a flush, and the draw list is rewritten every
+    // frame: mapping per upload was four map/unmap pairs per frame for nothing.
+    void* mapped = nullptr;
   };
   struct FrameBuffers {
     GpuBuffer quad_vtx, quad_idx, text_vtx, text_idx;
