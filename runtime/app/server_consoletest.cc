@@ -56,6 +56,13 @@ rx::ConsoleHost HostFor(Run& run, bool forwards = true) {
   host.reload_mods = [&run]() { run.reloaded = true; };
   host.set_time = [&run](f32 hour) { run.hour = hour; };
   host.set_weather = [&run](rx::u64 form) { run.weather = form; };
+  host.weathers = []() {
+    base::Vector<base::Pair<rx::u64, base::String>> pool;
+    pool.push_back({0x10E1Full, base::String("SkyrimClear")});
+    pool.push_back({0x10E1Aull, base::String("SkyrimOvercast")});
+    pool.push_back({0x10E20ull, base::String("SkyrimStormRain")});
+    return pool;
+  };
   host.forward = [&run, forwards](const base::String& line) {
     run.forwarded = line;
     return forwards;
@@ -116,11 +123,24 @@ int main() {
   Check("bad minutes are refused", RunLine("time 13:99").hour < 0.0f);
   Check("time with no argument is refused", RunLine("time").hour < 0.0f);
 
-  // Weather, by form id.
+  // Weather, which an operator types by name rather than by form id.
   Check("weather takes a hex form", RunLine("weather 10E1F").weather == 0x10E1Full);
-  const Run bad_weather = RunLine("weather sunny");
-  Check("a nonsense form is refused", bad_weather.weather == 0 && bad_weather.Said("not a form"));
-  Check("weather with no argument is refused", RunLine("weather").weather == 0);
+  Check("weather takes an editor id", RunLine("weather SkyrimOvercast").weather == 0x10E1Aull);
+  Check("the name is matched case-insensitively",
+        RunLine("weather skyrimovercast").weather == 0x10E1Aull);
+  Check("a unique part of a name is enough",
+        RunLine("weather StormRain").weather == 0x10E20ull);
+  const Run ambiguous = RunLine("weather Skyrim");
+  Check("an ambiguous name lists the matches instead of guessing",
+        ambiguous.weather == 0 && ambiguous.Said("matches 3 weathers") &&
+            ambiguous.Said("SkyrimClear"));
+  const Run unknown_weather = RunLine("weather sunny");
+  Check("an unknown name says so",
+        unknown_weather.weather == 0 && unknown_weather.Said("no weather called"));
+  const Run listed_weather = RunLine("weather");
+  Check("weather alone lists what there is",
+        listed_weather.weather == 0 && listed_weather.Said("weathers (3)") &&
+            listed_weather.Said("SkyrimStormRain"));
 
   // Convars: a real one, turned through the console.
   TestKnob.set(7);

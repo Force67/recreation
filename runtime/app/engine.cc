@@ -312,6 +312,11 @@ bool Engine::OnInitialize(app::Services& services) {
   if (config_.headless && config_.host_server) {
     console_host_ = BuildConsoleHost();
     console_.Start();
+    // Whatever the config file left for the console. Run here rather than on the
+    // first frame because everything a command could touch is already up: the
+    // world loaded, the session listens and the managed world is online.
+    for (const base::String& line : config_.startup_console_lines)
+      RunConsoleLine(console_host_, line, [](const base::String& r) { RX_INFO("{}", r.c_str()); });
   }
 
   return true;
@@ -330,11 +335,24 @@ ConsoleHost Engine::BuildConsoleHost() {
   };
   host.game_hour = [this]() { return clock_ ? clock_->hour() : 0.0f; };
   host.quit = [this]() { RequestQuit(); };
-  // Both queue onto the main thread through the same path a script's
-  // World.SetTime / World.SetWeather takes, and replicate from there.
-  host.set_time = [this](f32 hour) { requested_hour_.store(hour, std::memory_order_relaxed); };
+  // Applied straight away rather than queued the way a script's World.SetTime /
+  // World.SetWeather is: the console is drained on the main thread, which is the
+  // thread that owns the clock and the director, so a `status` typed right after
+  // a `time` reports the time that was just set. Both replicate from there.
+  host.set_time = [this](f32 hour) {
+    if (clock_)
+      clock_->set_hour(hour);
+  };
   host.set_weather = [this](u64 form) {
-    requested_weather_.store(form, std::memory_order_relaxed);
+    if (clock_ && !director_.AlignWeather(form, clock_->game_days()))
+      RX_WARN("no weather {:x} to bring in (not a WTHR this game authored?)", form);
+  };
+  host.weathers = [this]() {
+    base::Vector<base::Pair<u64, base::String>> out;
+    out.reserve(director_.pool().size());
+    for (auto [form, def] : director_.pool())
+      out.push_back({form, def.editor_id});
+    return out;
   };
   // Everything the engine has no command for belongs to the server's mods: the
   // platform's own command registry (kick, say, players) and whatever a mod

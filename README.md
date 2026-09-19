@@ -206,6 +206,34 @@ player's replica and a `PlayerVitalsChanged` event for mods), and the dead flag
 drives the client-side `Dead` tag. The engine combat system is not networked
 yet, so today the producer is mod code.
 
+### Configuring a server
+
+A server outlives the shell that started it, so its settings live in a file
+rather than in a wall of flags. `recreation-server` reads `server.cfg` beside the
+working directory (or `--config <path>`):
+
+```
+# my server
+name        Skyrim Together
+port        29700
+max_clients 48
+data_dir    /games/Skyrim Special Edition/Data
+mods_dir    ./server_mods
+private
+
+set net.bubble.radius 96
+
+time 08:00
+say the server is up
+```
+
+A value runs to the end of the line, so paths and names need no quoting.
+`set` takes any of the engine's convars (the console's `convars` lists them) and
+is applied before bring-up, so a convar a subsystem reads while starting still
+takes effect. Every other line is a console command, run once the world is up.
+Flags on the command line override the file, and `exec <path>` replays a file
+into a running server.
+
 ### The server console
 
 A dedicated server reads its terminal, so an operator can drive a live server

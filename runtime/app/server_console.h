@@ -1,6 +1,7 @@
 #ifndef RECREATION_RUNTIME_APP_SERVER_CONSOLE_H_
 #define RECREATION_RUNTIME_APP_SERVER_CONSOLE_H_
 
+#include <base/containers/pair.h>
 #include <base/containers/vector.h>
 #include <base/strings/xstring.h>
 
@@ -32,12 +33,22 @@ struct ConsoleHost {
   std::function<void()> reload_mods;
   std::function<void(f32 hour)> set_time;
   std::function<void(u64 weather_form)> set_weather;
+  // (packed form, editor id) for every weather this game authored, so `weather`
+  // can be typed as a name and can list what there is: nobody knows a WTHR form
+  // id by heart.
+  std::function<base::Vector<base::Pair<u64, base::String>>()> weathers;
   // Hands a line the engine has no command for to the managed world, where the
   // platform's own command registry (kick, say, players, a mod's own commands)
   // answers it and prints the reply. False when there is no managed world to
   // ask, which is the only case the console itself calls unknown.
   std::function<bool(const base::String& line)> forward;
 };
+
+// Sets a convar by name, as the console's `set` does: the value is parsed by the
+// option itself. False when no convar has that name, or the value is not one it
+// can take. Exposed because a server config file applies its convars before the
+// console (and the world) exists.
+bool SetConvar(const base::String& name, const base::String& value);
 
 // Runs one line the operator typed. Every reply goes through `out`, so the
 // runtime prints to the terminal and a test collects. Blank lines and comments

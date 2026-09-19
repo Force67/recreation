@@ -68,6 +68,10 @@ class Director {
   // script asks for -- rather than only by the handful the climate happens to
   // spread over. Costs nothing to keep: the loader builds this map anyway.
   void SetWeatherPool(base::UnorderedMap<u64, WeatherDef> pool) { pool_ = base::move(pool); }
+  // Every weather in the pool, for a caller that has to offer them by name (the
+  // server console's `weather`, which an operator cannot be expected to know
+  // form ids for).
+  const base::UnorderedMap<u64, WeatherDef>& pool() const { return pool_; }
   // Aligns onto the weather `form` names, at the anchor the last Update
   // resolved, so the region climate matches where this viewer stands. False when
   // the form is unknown or the seed search failed; the sky is then left alone.

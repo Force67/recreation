@@ -118,6 +118,10 @@ struct EngineConfig {
   // How a hosted session appears in somebody else's browser. Empty names it
   // after the host's player name.
   base::String server_name;
+  // Lines a server config file left for the console, run once the world is up
+  // (see server_config.h). Settings and convars from that file are applied
+  // before the engine is even constructed; these are the commands.
+  base::Vector<base::String> startup_console_lines;
   // Put the hosted session on the list. Off is what SOLO and FRIENDS mean on
   // the front screen: the session runs, it is simply not advertised.
   bool announce = false;

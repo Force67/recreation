@@ -12,6 +12,7 @@
 #include <thread>
 
 #include "core/log.h"
+#include "runtime/app/server_config.h"
 
 namespace rx {
 namespace {
@@ -75,9 +76,10 @@ void PrintHelp(const std::function<void(const base::String&)>& out) {
   out("  status              players, uptime and what this server is running");
   out("  reload              re-scan the mods directory and re-offer it to clients");
   out("  time <h[:mm]>       set the time of day for everyone");
-  out("  weather <form>      bring in a weather (hex WTHR form id)");
+  out("  weather [name]      bring in a weather; bare, lists what there is");
   out("  set <name> <value>  set a convar (see convars)");
   out("  convars [prefix]    list the convars, optionally filtered");
+  out("  exec <file>         run a config file's convars and commands");
   out("  quit                stop the server");
   out("anything else goes to the server's mods, which answer for their own commands.");
 }
@@ -119,12 +121,11 @@ void RunSet(const base::Vector<base::String>& args,
     out("usage: set <name> <value>");
     return;
   }
-  base::OptionBase* option = FindConvar(args[1]);
-  if (!option) {
+  if (!FindConvar(args[1])) {
     out(base::String("no convar '") + args[1] + "' (try convars)");
     return;
   }
-  if (!option->SetFromString(args[2].c_str())) {
+  if (!SetConvar(args[1], args[2])) {
     out(base::String("'") + args[2] + "' is not a value " + args[1] + " can take");
     return;
   }
@@ -151,7 +152,129 @@ void RunConvars(const base::Vector<base::String>& args,
     out(base::String("no convar matches '") + prefix + "'");
 }
 
+base::String Lower(const base::String& text) {
+  base::String out = text;
+  for (size_t i = 0; i < out.size(); ++i)
+    if (out[i] >= 'A' && out[i] <= 'Z')
+      out[i] = static_cast<char>(out[i] - 'A' + 'a');
+  return out;
+}
+
+base::String HexOf(u64 value) {
+  char buf[20];
+  std::snprintf(buf, sizeof(buf), "%llx", static_cast<unsigned long long>(value));
+  return base::String(buf);
+}
+
+// `weather`, which an operator types by name: a WTHR form id is not something
+// anybody knows by heart. With no argument it lists what the game authored; with
+// one it takes a form id, an exact editor id, or the one editor id that contains
+// what was typed.
+void RunWeather(const ConsoleHost& host,
+                const base::Vector<base::String>& args,
+                const std::function<void(const base::String&)>& out) {
+  const base::Vector<base::Pair<u64, base::String>> pool =
+      host.weathers ? host.weathers() : base::Vector<base::Pair<u64, base::String>>();
+
+  if (args.size() < 2) {
+    if (pool.empty()) {
+      out("usage: weather <form> -- this server has no weathers loaded to list");
+      return;
+    }
+    out(base::String("weathers (") + base::ToString(static_cast<u64>(pool.size())) + "):");
+    for (const base::Pair<u64, base::String>& entry : pool)
+      out(base::String("  ") + HexOf(entry.first) + "  " + entry.second);
+    return;
+  }
+
+  const base::String& wanted = args[1];
+  const u64 as_form = std::strtoull(wanted.c_str(), nullptr, 16);
+  u64 form = 0;
+  base::String named;
+  base::Vector<base::Pair<u64, base::String>> partial;
+  for (const base::Pair<u64, base::String>& entry : pool) {
+    if (as_form != 0 && entry.first == as_form) {
+      form = entry.first;
+      named = entry.second;
+      break;
+    }
+    const base::String lower = Lower(entry.second);
+    if (lower == Lower(wanted)) {
+      form = entry.first;
+      named = entry.second;
+      break;
+    }
+    if (lower.find(Lower(wanted)) != base::String::npos)
+      partial.push_back(entry);
+  }
+
+  // No pool to match against (a server with no weather content): a form id is
+  // all that can be honoured, and the engine reports an unknown one itself.
+  if (form == 0 && pool.empty() && as_form != 0)
+    form = as_form;
+
+  if (form == 0 && partial.size() == 1) {
+    form = partial[0].first;
+    named = partial[0].second;
+  } else if (form == 0 && partial.size() > 1) {
+    out(base::String("'") + wanted + "' matches " +
+        base::ToString(static_cast<u64>(partial.size())) + " weathers:");
+    for (const base::Pair<u64, base::String>& entry : partial)
+      out(base::String("  ") + HexOf(entry.first) + "  " + entry.second);
+    return;
+  }
+  if (form == 0) {
+    out(base::String("no weather called '") + wanted + "' (weather lists them)");
+    return;
+  }
+  if (!host.set_weather) {
+    out("this server has no sky to set");
+    return;
+  }
+  host.set_weather(form);
+  out(base::String("bringing in ") + (named.empty() ? HexOf(form) : named));
+}
+
+// `exec`: a config file, run against a server that is already up. Its convars and
+// its commands apply; its startup settings cannot, because the socket is open and
+// the world is loaded, so those are named rather than silently skipped.
+void RunConfigFile(const ConsoleHost& host,
+                   const base::String& path,
+                   const std::function<void(const base::String&)>& out) {
+  bool found = false;
+  const ServerConfig config = LoadServerConfig(path, &found);
+  if (!found) {
+    out(base::String("no config file at '") + path + "'");
+    return;
+  }
+  for (const base::String& error : config.errors)
+    out(base::String("config: ") + error);
+  for (const base::Pair<base::String, base::String>& convar : config.convars) {
+    if (SetConvar(convar.first, convar.second))
+      out(base::String(convar.first) + " = " + convar.second);
+    else
+      out(base::String("config: '") + convar.first + "' is not a convar this build has");
+  }
+  // The startup settings arrive as the flags they stand for, in pairs; the
+  // setting's own name is the flag without its dashes.
+  for (size_t i = 0; i < config.args.size(); ++i) {
+    const base::String& flag = config.args[i];
+    const bool has_value = i + 1 < config.args.size() && !config.args[i + 1].empty() &&
+                           config.args[i + 1][0] != '-';
+    out(base::String("config: ") + flag.substr(2) + " only applies at startup");
+    if (has_value)
+      ++i;
+  }
+  for (const base::String& line : config.console_lines)
+    RunConsoleLine(host, line, out);
+}
+
 }  // namespace
+
+bool SetConvar(const base::String& name, const base::String& value) {
+  base::OptionBase* option = FindConvar(name);
+  return option && option->SetFromString(value.c_str());
+}
 
 void RunConsoleLine(const ConsoleHost& host,
                     const base::String& line,
@@ -185,25 +308,17 @@ void RunConsoleLine(const ConsoleHost& host,
     host.set_time(hour);
     out(base::String("time set to ") + args[1]);
   } else if (name == "weather") {
-    if (args.size() < 2) {
-      out("usage: weather <form> -- the hex form id of a WTHR record");
-      return;
-    }
-    const u64 form = std::strtoull(args[1].c_str(), nullptr, 16);
-    if (form == 0) {
-      out(base::String("'") + args[1] + "' is not a form id");
-      return;
-    }
-    if (!host.set_weather) {
-      out("this server has no sky to set");
-      return;
-    }
-    host.set_weather(form);
-    out(base::String("bringing in weather ") + args[1]);
+    RunWeather(host, args, out);
   } else if (name == "set") {
     RunSet(args, out);
   } else if (name == "convars") {
     RunConvars(args, out);
+  } else if (name == "exec") {
+    if (args.size() < 2) {
+      out("usage: exec <file>");
+      return;
+    }
+    RunConfigFile(host, args[1], out);
   } else if (name == "quit" || name == "stop" || name == "exit") {
     if (!host.quit) {
       out("this server cannot stop itself");
