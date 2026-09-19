@@ -243,6 +243,10 @@ bool LoadGameData(Engine& engine) {
     const mem_size climate_size = climate.size();
     self->director_.SetContent(base::move(climate), base::move(regions),
                                0xBEE71Eull ^ static_cast<u64>(self->game_));
+    // Every WTHR the game authored, kept so a weather can be named by form
+    // alone: what a multiplayer host puts on the wire, and what a script asks
+    // for. The climate is only a spread over a handful of them.
+    self->director_.SetWeatherPool(base::move(weathers));
     self->director_.set_ap_base(self->renderer_->settings().aerial_perspective);
     self->director_.set_cloudscape(Cloudscape.get());
     RX_INFO("weather: {} WTHR records, climate {} entries{}", n, climate_size,
@@ -443,6 +447,19 @@ bool LoadGameData(Engine& engine) {
               static_cast<u16>(base::Clamp(args[2].ToInt(), 0, 0xffff)),
               args.size() >= 4 && args[3].ToInt() != 0);
           return;
+        }
+        // The shared world is not HUD either: queue it for the main thread,
+        // which owns the clock and the weather director.
+        if (type == "World" && !args.empty()) {
+          if (func == "SetTime") {
+            self->requested_hour_.store(std::fmod(base::Max(args[0].ToFloat(), 0.0f), 24.0f),
+                                        std::memory_order_relaxed);
+            return;
+          }
+          if (func == "SetWeather") {
+            self->requested_weather_.store(args[0].as_object().handle, std::memory_order_relaxed);
+            return;
+          }
         }
         self->platform_hud_.Submit(type, func, args);
       });

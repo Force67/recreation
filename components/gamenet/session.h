@@ -22,6 +22,7 @@
 #include "components/gamenet/quest_replication.h"
 #include "components/gamenet/stage_request.h"
 #include "components/gamenet/war_map_net.h"
+#include "components/gamenet/world_state.h"
 #include "components/quest/quest_system.h"
 #include "components/world/quest_world.h"
 #include "ecs/world.h"
@@ -134,6 +135,16 @@ class GameServerSession final : public Session {
   // The player entity's network id, once the peer has joined; 0 before.
   u64 PlayerNetId(u32 peer) const;
 
+  // The shared clock and sky (see world_state.h), sampled every tick. Only what
+  // a client cannot derive for itself goes out: a changed seed, weather or
+  // timescale, a clock the host moved out from under the client's own
+  // extrapolation, and a slow heartbeat that mops up drift. The last state sent
+  // is remembered so a joining client is told the time as it is admitted rather
+  // than on the next beat.
+  void SetWorldStateSource(std::function<WorldState()> source) {
+    world_state_source_ = std::move(source);
+  }
+
   // Swaps the mod catalog offered to clients (live reload).
   void ReloadCatalog(const modstream::ModCatalog& catalog);
 
@@ -150,6 +161,7 @@ class GameServerSession final : public Session {
   void BroadcastQuests();
   void BroadcastActors();
   void BroadcastWarMap();
+  void BroadcastWorldState(f32 dt);
 
   GameSessionConfig config_;
   ServerSession inner_;
@@ -179,6 +191,13 @@ class GameServerSession final : public Session {
     bool sent = false;  // a vitals message has gone out for this player
   };
   std::unordered_map<u32, PlayerVitalsEntry> player_vitals_;
+  // The last world state broadcast, whether one ever was, and the real seconds
+  // since: the host samples its clock every tick and only what a client cannot
+  // extrapolate goes out.
+  std::function<WorldState()> world_state_source_;
+  WorldState world_state_;
+  bool world_state_valid_ = false;
+  f32 world_state_age_ = 0.0f;
 
   QuestReplicator quest_replicator_;
   ActorReplicator actor_replicator_;
@@ -243,6 +262,12 @@ class GameClientSession final : public Session {
     player_vitals_sink_ = std::move(sink);
   }
 
+  // Sink invoked once per kWorldState received: the host's clock and the seed
+  // its weather derives from. The engine adopts both.
+  void SetWorldStateSink(std::function<void(const WorldState&)> sink) {
+    world_state_sink_ = std::move(sink);
+  }
+
   // The replicated entity carrying this network id, or kInvalidEntity when the
   // snapshot has not (yet) spawned it.
   ecs::Entity replicated_entity(u64 net_id) const { return inner_.replicated_entity(net_id); }
@@ -274,6 +299,7 @@ class GameClientSession final : public Session {
   std::function<void(u64 net_id, u16 health, u16 max, bool dead)> player_vitals_sink_;
   std::function<void(const ObjectiveMarkerState&)> objective_marker_sink_;
   std::function<void(const WarMapState&)> war_map_sink_;
+  std::function<void(const WorldState&)> world_state_sink_;
   std::function<void(const base::Vector<world::WorldCommand>&)> world_command_sink_;
   std::function<void(const base::Vector<ActorState>&)> actor_sink_;
 };

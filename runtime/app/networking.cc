@@ -223,6 +223,19 @@ bool StartNetworking(Engine& engine) {
     self->ctx_.server_session = self->server_session_;
     self->server_session_->SetWorldCommandSource(
         [self]() { return self->quest_world_->SnapshotDoorStates(); });
+    // The shared world: the host's clock is the session's clock, and its weather
+    // seed is the session's sky. Sampled every tick; the session decides what is
+    // worth a message (see BroadcastWorldState).
+    self->server_session_->SetWorldStateSource([self]() {
+      net::WorldState state;
+      if (self->clock_) {
+        state.game_days = self->clock_->game_days();
+        state.timescale = self->clock_->timescale();
+      }
+      state.weather_seed = self->director_.seed();
+      state.weather = self->director_.ActiveForm(state.game_days);
+      return state;
+    });
     // Remote players are real bodies: assemble the character pipeline onto each
     // joining player's entity, announce its avatar to everyone, and catch a new
     // joiner up on the players already in the world.
@@ -457,6 +470,31 @@ bool StartNetworking(Engine& engine) {
         self->script_bindings_->SetWarProgress(board.imperial_fraction);
       });
     }
+    // The host's world: adopt its clock and its weather seed, so a client stands
+    // in the hour everyone else does under the same sky. The clock is snapped
+    // rather than eased -- both machines run at the same timescale, so after the
+    // first correction the beats carry a sub-second difference nobody can see,
+    // and a correction big enough to notice is one the host meant (a script set
+    // the time, or we just joined).
+    self->client_session_->SetWorldStateSink([self](const net::WorldState& state) {
+      if (self->clock_) {
+        self->clock_->set_timescale(state.timescale);
+        self->clock_->set_game_days(state.game_days);
+      }
+      // Adopted when the host's seed CHANGES, not whenever it differs from
+      // ours: aligning below can leave us on a seed of our own, and re-adopting
+      // the host's on every heartbeat would undo that alignment and re-do it
+      // five seconds later, forever.
+      if (state.weather_seed != self->host_weather_seed_) {
+        self->host_weather_seed_ = state.weather_seed;
+        self->director_.AdoptSeed(state.weather_seed);
+      }
+      // Same seed and climate means the same weather already, and this no-ops.
+      // The named form only matters where the host's climate holds a def ours
+      // does not (it resumed a savegame, or a script forced a weather), which
+      // the same seed would otherwise resolve to a different slot.
+      self->director_.AlignWeather(state.weather, state.game_days);
+    });
     // Player presence: which replicated entity is a player's body (and what it
     // looks like), and that body's replicated vitals. The entity and its
     // message arrive in either order (snapshot vs reliable channel), so an

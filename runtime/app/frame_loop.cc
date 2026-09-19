@@ -162,6 +162,22 @@ void Engine::OnSimulate(f32 raw_frame_delta) {
   if (mod_reload_requested_.exchange(false, std::memory_order_relaxed))
     ReloadMods(*this);
 #endif
+  // World changes a script asked for, applied here on the thread that owns the
+  // clock and the weather director. A host's move replicates to every client
+  // (the session samples both); single-player just sees it.
+  if (clock_) {
+    const f32 hour = requested_hour_.exchange(-1.0f, std::memory_order_relaxed);
+    if (hour >= 0.0f) {
+      clock_->set_hour(hour);
+      RX_INFO("world: a script set the time to {:02d}:{:02d}", static_cast<int>(hour),
+              static_cast<int>((hour - std::floor(hour)) * 60.0f));
+    }
+    if (const u64 weather = requested_weather_.exchange(0, std::memory_order_relaxed)) {
+      const bool ok = director_.AlignWeather(weather, clock_->game_days());
+      if (!ok)
+        RX_WARN("world: no weather {:x} to bring in (not a WTHR this game authored?)", weather);
+    }
+  }
   // Forward key presses to the managed world (KeyPressed) so mods can bind
   // hotkeys, unless the debug console is capturing the keyboard. Queued here and
   // drained into managed below, in the same frame.

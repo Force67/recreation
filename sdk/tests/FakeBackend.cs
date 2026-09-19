@@ -228,6 +228,11 @@ public sealed class FakeBackend : IEngineBackend
     public readonly HashSet<Key> HeldKeys = new();
     public void SetHeld(params Key[] keys) { HeldKeys.Clear(); foreach (Key k in keys) HeldKeys.Add(k); }
 
+    // The last shared-world change a mod asked for (World.SetTime/SetWeather),
+    // null until one is. The engine replicates both to every client.
+    public float? LastWorldHour { get; private set; }
+    public ulong? LastWorldWeather { get; private set; }
+
     // Every Debug.Notification message shown, in order, for asserting UI prompts.
     public List<string> Notifications { get; } = new();
     // The latest Hud.Gauge push per id (id -> fraction), for asserting a survival
@@ -249,6 +254,8 @@ public sealed class FakeBackend : IEngineBackend
         if (type == "Vehicle" && function == "Riding") return Value.Bool(VehicleRiding);
         if (type == "Vehicle" && function == "MoveTo")
             LastVehicleMove = (args[0].AsFloat(), args[1].AsFloat(), args[2].AsFloat());
+        if (type == "World" && function == "SetTime") LastWorldHour = args[0].AsFloat();
+        if (type == "World" && function == "SetWeather") LastWorldWeather = args[0].AsHandle();
         if (type == "Input" && function == "Held")
             return Value.Bool(HeldKeys.Contains((Key)args[0].AsInt()));
         if (type == "Game" && function == "GetPlayer") return Value.Object(Player);

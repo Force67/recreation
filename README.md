@@ -206,6 +206,38 @@ player's replica and a `PlayerVitalsChanged` event for mods), and the dead flag
 drives the client-side `Dead` tag. The engine combat system is not networked
 yet, so today the producer is mod code.
 
+### World sync
+
+Everyone in a session stands in the same hour under the same sky. Both used to
+be private: each machine started its clock when it finished loading and ran it
+forward at the game's timescale, so two players who joined ten minutes apart
+were hours apart in game time, one at noon and one after dark.
+
+The host is now authoritative for both. It samples its clock and its weather
+seed every tick and sends what a client cannot work out for itself: a changed
+seed, a changed timescale, a clock it moved out from under the client's own
+extrapolation (a script set the hour), and a slow heartbeat that mops up drift.
+Ordinary passing time never travels -- the client runs its own clock at the
+timescale it was told. A joining client is told the time as it is admitted, so
+it loads into the session's hour rather than its own.
+
+Weather itself never travels either. Selection is a pure function of (seed, game
+time) over a climate both machines parsed from the same records, so the seed plus
+the clock *is* the weather, cross-fades and lightning strikes included. The
+message also names the weather in force on the host, which matters only where the
+host's climate holds a weather the client's does not -- it resumed a savegame, or
+a mod forced one -- and the client then aligns onto the same weather.
+
+A host-side mod owns the shared world through the SDK:
+
+```csharp
+World.SetTime(7, 30);      // half past seven, for everyone
+World.SetWeather(storm);   // a WTHR form; cross-fades in and evolves from there
+```
+
+Per-region weather stays per-player: the REGN area you stand in still overrides
+the climate where you are, as it does in the games themselves.
+
 ### Scripting RPC
 
 Server-side mod scripts drive multiplayer through a typed RPC channel. A C# mod

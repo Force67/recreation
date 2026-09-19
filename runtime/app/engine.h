@@ -754,6 +754,13 @@ class Engine : public app::Application {
   // Set from a signal handler to ask for a live mod reload; drained on the main
   // thread at the top of the frame, where the Vfs is not being read.
   std::atomic<bool> mod_reload_requested_{false};
+  // World changes a script asked for on the guest thread (World.SetTime /
+  // World.SetWeather), drained on the main thread in OnSimulate, which is what
+  // owns the clock and the weather director. An hour < 0 and a weather form of
+  // 0 mean "nothing asked for". On a host they reach every client through the
+  // session's replicated world state.
+  std::atomic<f32> requested_hour_{-1.0f};
+  std::atomic<u64> requested_weather_{0};
   // A script-trust decision the player owes the server they just joined. Set
   // when the server offered streamed client scripts and no stored decision
   // covers it; TickScriptConsent shows the choice on the loading screen and
@@ -775,6 +782,10 @@ class Engine : public app::Application {
   // Same for vitals: the latest kPlayerState for an entity that has not
   // spawned yet, applied when its snapshot arrives.
   base::UnorderedMap<u64, world::PlayerVitals> pending_vitals_;
+  // Client side: the weather seed the host last announced. Kept so we adopt it
+  // when the HOST changes it rather than whenever it differs from our own,
+  // which after an alignment it legitimately does.
+  u64 host_weather_seed_ = 0;
   // 3D overlay of the session's streaming bubbles (RX_NET_BUBBLES=0 hides it).
   // Built lazily on the first frame that has bubbles to draw.
   base::UniquePointer<net::BubbleVisualizer> bubble_viz_;

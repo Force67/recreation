@@ -427,6 +427,13 @@ void PapyrusGuest::BindEngineNatives() {
   // the change broadcasts a kPlayerState to every client (a no-op anywhere the
   // sink is not wired, e.g. a client or no session).
   reg_platform("Net", "SetPlayerHealth");
+  // World.SetTime(hour) / World.SetWeather(form): the shared world a host owns.
+  // The runtime queues both onto its main thread (the clock and the weather
+  // director live there) and the session replicates the result, so a host-side
+  // mod moves the sky and the hour for everyone in the session at once.
+  for (const char* f : {"SetTime", "SetWeather"}) {
+    reg_platform("World", f);
+  }
   // Net.LocalPos{X,Y,Z}(): the local player's world position (engine space) so a
   // mod can place things relative to the player. These return a value, unlike the
   // fire-and-forget calls above.

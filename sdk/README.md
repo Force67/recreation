@@ -91,6 +91,22 @@ The dead flag also drives the entity's `Dead` tag, so the render path holds a
 downed pose. The engine combat system is not networked yet — today the producer
 is mod code; when combat syncs, it feeds the same path.
 
+## The shared world
+
+`GameClock` reads the in-world time; `World` writes it, along with the sky. On a
+host both are session-wide: the engine replicates the clock and the weather seed,
+and every client adopts them, so one mod call moves the world for everyone.
+
+```csharp
+World.SetTime(7, 30);          // or World.SetTime(13.5f)
+World.SetWeather(stormForm);   // a WTHR form; cross-fades in, then evolves on
+```
+
+Weather is not pinned: the requested weather comes in and the climate carries on
+from there, so a server can stage a storm without freezing the sky. A client can
+call these too, but the host's next world-state message puts the shared answer
+back -- treat them as server-side.
+
 ## Versioning
 
 One SemVer number in `Directory.Build.props`, surfaced as `SdkInfo.Version` and

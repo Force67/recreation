@@ -4,6 +4,7 @@
 #include <nanobuf.h>
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <memory>
 #include <utility>
@@ -102,6 +103,13 @@ GameServerSession::GameServerSession(GameSessionConfig config)
                                         vitals.max_health, vitals.dead}),
                     /*reliable=*/true, tx::network::PacketPriority::Medium);
     }
+    // And on what time it is, so it loads into the host's hour rather than its
+    // own and then jumps on the first beat.
+    if (world_state_valid_) {
+      inner_.SendTo(peer, static_cast<u16>(GameMessage::kWorldState),
+                    EncodeWorldState(world_state_),
+                    /*reliable=*/true, tx::network::PacketPriority::Medium);
+    }
     if (client_joined_sink_)
       client_joined_sink_(peer);
   });
@@ -131,6 +139,9 @@ bool GameServerSession::Start() {
 void GameServerSession::Tick(ecs::World& world, f32 dt) {
   inner_.Tick(world, dt);
   ++tick_;
+  // Every tick, not on the snapshot cadence: it self-throttles, and a clock the
+  // host just moved should reach clients now rather than up to a snapshot later.
+  BroadcastWorldState(dt);
   if (tick_ % config_.snapshot_interval_ticks == 0) {
     BroadcastQuests();
     BroadcastActors();
@@ -253,6 +264,47 @@ void GameServerSession::SendObjectiveMarker(const ObjectiveMarkerState& m) {
   // Reliable: a dropped marker would leave the clients' compass pip stale until
   // the next change.
   inner_.Broadcast(static_cast<u16>(GameMessage::kObjectiveMarker), EncodeObjectiveMarker(m),
+                   /*reliable=*/true, tx::network::PacketPriority::Medium);
+}
+
+void GameServerSession::BroadcastWorldState(f32 dt) {
+  if (!world_state_source_)
+    return;
+  const WorldState state = world_state_source_();
+  world_state_age_ += dt;
+
+  // With nobody connected there is nothing to tell, but the sample is kept
+  // current so the next joiner is admitted into this hour rather than into
+  // whatever hour the last client was told about.
+  if (inner_.client_count() == 0) {
+    world_state_ = state;
+    world_state_valid_ = true;
+    world_state_age_ = 0.0f;
+    return;
+  }
+
+  // A client runs its own clock forward from the last message at the timescale
+  // that message carried, so ordinary passing time is not news. What is: a
+  // different sky, a different rate, a clock the host moved out from under that
+  // extrapolation (a script set the hour), and a slow heartbeat to mop up drift
+  // and cover a client that somehow missed a change.
+  constexpr f32 kHeartbeatSeconds = 5.0f;
+  constexpr f64 kClockToleranceDays = 10.0 / 86400.0;  // ten game seconds
+  const f64 expected =
+      world_state_.game_days +
+      static_cast<f64>(world_state_age_) * static_cast<f64>(state.timescale) / 86400.0;
+  const bool news = !world_state_valid_ || state.weather_seed != world_state_.weather_seed ||
+                    state.weather != world_state_.weather ||
+                    state.timescale != world_state_.timescale ||
+                    std::abs(state.game_days - expected) > kClockToleranceDays ||
+                    world_state_age_ >= kHeartbeatSeconds;
+  if (!news)
+    return;
+
+  world_state_ = state;
+  world_state_valid_ = true;
+  world_state_age_ = 0.0f;
+  inner_.Broadcast(static_cast<u16>(GameMessage::kWorldState), EncodeWorldState(state),
                    /*reliable=*/true, tx::network::PacketPriority::Medium);
 }
 
@@ -413,6 +465,12 @@ void GameClientSession::OnGameMessage(u16 type, const u8* data, size_t size) {
       if (player_vitals_sink_)
         if (auto vitals = DecodePlayerVitals(data, size))
           player_vitals_sink_(vitals->net_id, vitals->health, vitals->max_health, vitals->dead);
+      break;
+    }
+    case GameMessage::kWorldState: {
+      if (world_state_sink_)
+        if (auto state = DecodeWorldState(data, size))
+          world_state_sink_(*state);
       break;
     }
     default:

@@ -9,6 +9,7 @@ recreation_add_module(gamenet
   stage_request.cc
   war_map_net.cc
   world_replication.cc
+  world_state.cc
 )
 
 # rx::net owns the transport, join handshake, per-peer entity replication and
@@ -47,3 +48,4 @@ endif()
 recreation_add_test(client_scripts_nettest
   recreation::gamenet recreation::modstream rx::asset)
 recreation_add_test(player_sync_nettest recreation::gamenet)
+recreation_add_test(world_state_nettest recreation::gamenet)
