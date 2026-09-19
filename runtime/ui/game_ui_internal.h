@@ -109,6 +109,16 @@ inline base::Option<const char*> UiKey{"ui.key", nullptr, "RX_UI_KEY"};
 // Arrow keys move focus between the interactive widgets of whatever ugui screen
 // is up, and Enter activates. RX_UI_KEYBOARD_NAV=0 hands the arrows back.
 inline base::Option<bool> UiKeyboardNav{"ui.keyboard.nav", true, "RX_UI_KEYBOARD_NAV"};
+// RX_UI_PERF=N: every N frames, log where the UI frame's CPU time went and how
+// much work each stage did. The numbers come from ugui itself (FrameStats), so
+// they account for the whole build -> measure -> layout -> paint pipeline.
+inline base::Option<int> UiPerf{"ui.perf", 0, "RX_UI_PERF"};
+// RX_UI_REUSE: skip the ui's measure/layout/paint on frames that would redraw
+// the same picture. 1 on (default), 0 off, 2 rebuilds anyway and reports every
+// frame reuse would have got wrong - run that over a screen after changing how
+// it is driven, since the saving rests on everything that alters what is drawn
+// going through MarkDirty.
+inline base::Option<int> UiReuse{"ui.reuse", 1, "RX_UI_REUSE"};
 // RX_UI_TRACE=1: log typed text and where focus was when it arrived. The one
 // way to tell "the host never saw the keystroke" apart from "ugui had focus on
 // something that cannot take text", which look identical from the outside.
@@ -314,6 +324,7 @@ struct GameUi::Impl {
   base::Vector<base::String> key_script;
   int key_index = 0;
   int key_frame = 0;
+  int perf_frame = 0;  // RX_UI_PERF countdown
   float pointer_scale_x = 1.0f;
   float pointer_scale_y = 1.0f;
   bool prev_pad[static_cast<int>(GamepadButton::kCount)] = {};  // gamepad edge tracking

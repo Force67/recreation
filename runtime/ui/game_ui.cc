@@ -122,6 +122,17 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   // the ring itself (authored tab-index where there is one, everything
   // interactive where there is not), so no screen has to opt in.
   impl_->ui.input().set_keyboard_navigation(bool(UiKeyboardNav));
+  switch (UiReuse.get()) {
+    case 1:
+      impl_->ui.set_frame_reuse(ugui::FrameReuse::kOn);
+      break;
+    case 2:
+      impl_->ui.set_frame_reuse(ugui::FrameReuse::kVerify);
+      RX_INFO("ui: verifying frame reuse (rebuilding every frame)");
+      break;
+    default:
+      break;
+  }
 
   // The screens name the game's own typeface, so those fonts have to be
   // registered before the tree that asks for them is built.
@@ -1628,6 +1639,22 @@ void GameUi::Build(Window& window,
   // Produce the draw list (input routing + layout + paint, no GPU work).
   const ugui::DrawData& dd = impl->ui.RenderDrawData();
   impl->draw_data = &dd;
+
+  if (const int every = UiPerf.get(); every > 0 && ++impl->perf_frame >= every) {
+    impl->perf_frame = 0;
+    const ugui::FrameStats& fs = impl->ui.frame_stats();
+    if (fs.reused) {
+      RX_INFO("ui perf: {:.2f}ms total (reused, {} draw cmds) | repeats {} mismatches {}",
+              fs.total_ms, fs.draw_commands, impl->ui.frame_reuse_candidates(),
+              impl->ui.frame_reuse_mismatches());
+    } else {
+      RX_INFO("ui perf: {:.2f}ms total (input {:.2f} update {:.2f} measure {:.2f} "
+              "layout {:.2f} paint {:.2f}) | {} widgets, {} layout nodes, "
+              "{} shaped ({} cached), {} draw cmds",
+              fs.total_ms, fs.input_ms, fs.update_ms, fs.measure_ms, fs.layout_ms, fs.paint_ms,
+              fs.widgets, fs.layout_nodes, fs.shape_calls, fs.shape_hits, fs.draw_commands);
+    }
+  }
 
   // Tell the renderer whether any widget wants backdrop blur this frame, so it
   // only captures + blurs the backbuffer when a frosted panel is actually shown.
