@@ -1242,6 +1242,17 @@ void GameUi::Build(Window& window,
     }
   }
 
+  // Route everything queued above through the widget tree NOW, rather than
+  // leaving it to RenderDrawData at the end of this function.
+  //
+  // A click's handler is what sets the state the Apply* passes below read, so
+  // routing input last meant every press was drawn one frame after it landed:
+  // the handler ran, and the pass that would have shown its effect had already
+  // run for that frame. Doing it here costs nothing (RenderDrawData's own call
+  // is a no-op once the frame is pumped) and takes a frame off every click,
+  // keystroke and pad press.
+  impl->ui.PumpInput();
+
   // --- Drive HUD values from real engine state ---
   // Compass heading from the camera's facing direction.
   Vec3 fwd = camera.forward();
