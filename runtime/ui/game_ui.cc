@@ -7,6 +7,20 @@
 #if defined(RECREATION_HAS_UGUI)
 
 namespace rx {
+namespace {
+
+// Forward a key the ui should keep acting on while it is held: walking a list,
+// erasing a line. The platform's own auto-repeat sets the rate, and ugui tells
+// a repeat apart from a fresh press, so a screen that wants only the press
+// (activation, tab) still gets one event per physical keystroke.
+void PushHeldKey(ugui::InputQueue& q, const InputState& in, Key key, int glfw_key, int mods) {
+  if (in.key_pressed(key))
+    q.PushKey(glfw_key, 0, true, false, mods);
+  else if (in.key_repeated(key))
+    q.PushKey(glfw_key, 0, true, true, mods);
+}
+
+}  // namespace
 
 GameUi::GameUi() : impl_(base::MakeUnique<Impl>()) {}
 GameUi::~GameUi() {
@@ -1156,8 +1170,7 @@ void GameUi::Build(Window& window,
         {Key::kArrowLeft, 263}, {Key::kArrowRight, 262},
     };
     for (const ArrowKey& arrow : kArrows) {
-      if (in.key_pressed(arrow.key))
-        q.PushKey(arrow.glfw, 0, true, false, 0);
+      PushHeldKey(q, in, arrow.key, arrow.glfw, 0);
     }
     if (in.key_pressed(Key::kTab))
       q.PushKey(258, 0, true, false, shift_mod);
@@ -1175,8 +1188,7 @@ void GameUi::Build(Window& window,
   // an evening: the vanilla runtime is enabled on this build, so every keystroke
   // was decoded correctly and then dropped one line before it reached ugui.
   if (!legal_was_open) {
-    if (in.key_pressed(Key::kBackspace))
-      q.PushKey(259, 0, true, false, 0);  // GLFW_KEY_BACKSPACE
+    PushHeldKey(q, in, Key::kBackspace, 259, 0);  // GLFW_KEY_BACKSPACE
     // Typed characters, for the text fields. ugui edits its own inputs (caret,
     // selection, history) but only ever sees what the host forwards, so without
     // this a text field focuses, draws its caret and rejects every keystroke.
