@@ -306,7 +306,53 @@ bool Engine::OnInitialize(app::Services& services) {
       extra->Update(world, anchor);
   });
 
+  // The operator's console. A dedicated server is somebody sitting at a
+  // terminal, so it reads one; a windowed client has no terminal to read and a
+  // stdin nothing writes to.
+  if (config_.headless && config_.host_server) {
+    console_host_ = BuildConsoleHost();
+    console_.Start();
+  }
+
   return true;
+}
+
+ConsoleHost Engine::BuildConsoleHost() {
+  ConsoleHost host;
+  host.server_name = config_.server_name;
+  host.mods_dir = config_.mods_dir;
+  host.port = config_.port;
+  host.max_clients = config_.max_clients;
+  // The world clock counts real seconds from the moment content finished
+  // loading, which is the uptime an operator means.
+  host.uptime_seconds = [this]() {
+    return clock_ ? static_cast<f64>(clock_->real_hours()) * 3600.0 : 0.0;
+  };
+  host.game_hour = [this]() { return clock_ ? clock_->hour() : 0.0f; };
+  host.quit = [this]() { RequestQuit(); };
+  // Both queue onto the main thread through the same path a script's
+  // World.SetTime / World.SetWeather takes, and replicate from there.
+  host.set_time = [this](f32 hour) { requested_hour_.store(hour, std::memory_order_relaxed); };
+  host.set_weather = [this](u64 form) {
+    requested_weather_.store(form, std::memory_order_relaxed);
+  };
+  // Everything the engine has no command for belongs to the server's mods: the
+  // platform's own command registry (kick, say, players) and whatever a mod
+  // registered live there, and they answer on this terminal themselves.
+  host.forward = [this](const base::String& line) {
+    if (!managed_ || !managed_->available())
+      return false;
+    script::host::ApiValue arg;
+    arg.kind = script::host::ApiKind::kString;
+    arg.s = line.c_str();
+    managed_->DispatchRpc(kConsoleRpcName, /*sender=*/0, /*from_server=*/1, &arg, 1);
+    return true;
+  };
+#if RECREATION_HAS_NET
+  host.player_count = [this]() { return server_session_ ? server_session_->client_count() : 0u; };
+  host.reload_mods = [this]() { RequestModReload(); };
+#endif
+  return host;
 }
 
 Engine::~Engine() = default;
@@ -315,7 +361,8 @@ void Engine::OnShutdown() {
   // Called by the host while the renderer is idle but still alive, and after the
   // host has already stopped the audio device. The host owns the renderer/jobs
   // teardown; here the game drops its own state in the order its threads need.
-  SaveControls();  // persist any in-session rebinds / sensitivity changes
+  console_.Stop();  // the reader thread outlives us; it finds the queue closed
+  SaveControls();   // persist any in-session rebinds / sensitivity changes
   if (items_)
     items_->Save();  // persist inventory + world items + removed refs
   // Run managed teardown while the guest is still alive (its shutdown callbacks

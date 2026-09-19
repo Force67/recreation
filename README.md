@@ -206,6 +206,32 @@ player's replica and a `PlayerVitalsChanged` event for mods), and the dead flag
 drives the client-side `Dead` tag. The engine combat system is not networked
 yet, so today the producer is mod code.
 
+### The server console
+
+A dedicated server reads its terminal, so an operator can drive a live server
+without restarting it or signalling it:
+
+```
+> status
+name: Skyrim Together
+port: 29700   players: 3/64
+up: 4h 12m 8s
+game time: 21:15
+> say the server restarts in five minutes
+> time 07:30
+> set net.bubble.radius 96
+> reload
+```
+
+The engine answers for what only it knows -- `status`, `reload` (re-scan the mods
+directory and re-offer it to clients, the same thing `kill -HUP` asks for),
+`time`, `weather`, `set` and `convars` over the engine's whole convar registry,
+and `quit`. Every other line goes to the server's mods, where the platform's
+command registry answers it (`players`, `say`, `kick`, `announce`, and whatever a
+mod registered) and prints its reply on the same terminal. A console line runs as
+the host operator, so it passes every permission check: whoever can type into the
+server's terminal already owns the server.
+
 ### World sync
 
 Everyone in a session stands in the same hour under the same sky. Both used to

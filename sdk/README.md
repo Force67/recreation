@@ -91,6 +91,22 @@ The dead flag also drives the entity's `Dead` tag, so the render path holds a
 downed pose. The engine combat system is not networked yet — today the producer
 is mod code; when combat syncs, it feeds the same path.
 
+## Console commands
+
+A mod's commands are reachable from the dedicated server's terminal as well as
+from in-game admins. Register one and it answers in both places:
+
+```csharp
+Commands.Register("spawnrate", "command.spawnrate", ctx =>
+{
+    ctx.Reply($"spawn rate is now {ctx.Args[0]}");
+});
+```
+
+The ACE is still enforced for a player who runs it; a console line runs as the
+host operator and passes. `ctx.Reply` reaches whoever ran it -- the terminal for
+a console line, that player privately otherwise.
+
 ## The shared world
 
 `GameClock` reads the in-world time; `World` writes it, along with the sky. On a

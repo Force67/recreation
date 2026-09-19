@@ -162,6 +162,10 @@ void Engine::OnSimulate(f32 raw_frame_delta) {
   if (mod_reload_requested_.exchange(false, std::memory_order_relaxed))
     ReloadMods(*this);
 #endif
+  // Whatever the operator typed into the server console since the last frame.
+  // Runs before the world requests below so a console `time` lands this frame.
+  console_.Drain(console_host_,
+                 [](const base::String& reply) { RX_INFO("{}", reply.c_str()); });
   // World changes a script asked for, applied here on the thread that owns the
   // clock and the weather director. A host's move replicates to every client
   // (the session samples both); single-player just sees it.

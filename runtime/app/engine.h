@@ -40,6 +40,7 @@
 #include "runtime/actor/player_controller.h"
 #include "runtime/app/content_domain.h"
 #include "runtime/app/engine_context.h"
+#include "runtime/app/server_console.h"
 #include "runtime/camera/showcase_camera.h"
 #include "runtime/character/chargen.h"
 #include "runtime/demo/demo_scenes.h"
@@ -293,6 +294,10 @@ class Engine : public app::Application {
 #endif
 
  private:
+  // Wires the console's sinks onto this engine. Built once when the console
+  // starts, not per drain.
+  ConsoleHost BuildConsoleHost();
+
   // The bring-up steps are free functions over the engine (declared just below
   // the class, defined in content_load.cc / networking.cc / managed_scripting.cc
   // / main_menu.cc); they reach the engine's internals as friends.
@@ -761,6 +766,11 @@ class Engine : public app::Application {
   // session's replicated world state.
   std::atomic<f32> requested_hour_{-1.0f};
   std::atomic<u64> requested_weather_{0};
+  // The operator's console. Only a headless host starts one -- a windowed
+  // client has no terminal to read -- and the sinks it runs through are built
+  // once, at that point.
+  ServerConsole console_;
+  ConsoleHost console_host_;
   // A script-trust decision the player owes the server they just joined. Set
   // when the server offered streamed client scripts and no stored decision
   // covers it; TickScriptConsent shows the choice on the loading screen and
