@@ -225,4 +225,5 @@ if(RECREATION_BUILD_TOOLS)
   recreation_add_test(app/server_consoletest rx::core
     SRCS app/server_console.cc app/server_config.cc)
   recreation_add_test(app/server_configtest rx::core SRCS app/server_config.cc)
+  recreation_add_test(actor/player_reconciletest rx::core)
 endif()

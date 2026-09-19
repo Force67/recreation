@@ -17,6 +17,7 @@
 #include "runtime/app/engine.h"
 #include "runtime/app/script_trust.h"
 #include "runtime/app/server_list.h"
+#include "runtime/actor/player_reconcile.h"
 #include "runtime/actor/player_tuning.h"
 #include "scene/components.h"
 
@@ -47,6 +48,11 @@ static base::Option<int> NetBubbleRadius{"net.bubble.radius", 128, "REC_NET_BUBB
 // once per server on the loading screen and remembers "always"/"never" choices;
 // 0 never runs streamed code; 2 runs whatever the server offers without asking.
 static base::Option<int> NetStreamScripts{"net.stream_scripts", 1, "REC_NET_STREAM_SCRIPTS"};
+// Whether a client pulls its own locally simulated body back onto the one the
+// host simulates (see player_reconcile.h). 0 leaves the two to drift, which is
+// what the model did before reconciliation existed.
+static base::Option<bool> NetReconcile{"net.reconcile", true, "RX_NET_RECONCILE",
+                                       "correct the local body against the host's"};
 
 // What the script-trust policy says to do with a server's client-script offer.
 enum class ScriptOfferAction {
@@ -175,6 +181,45 @@ static void SimulateRemotePlayer(ecs::World& world,
                                                     : character::CharacterGait::kRun;
   if (auto* state = world.Get<character::CharacterState>(player))
     state->yaw = input.yaw;
+}
+
+// Client side: the other end of that model. The host's copy of this player is a
+// replicated entity like any other, so the correction is a comparison between
+// its transform and the body this client simulates for itself. The policy (and
+// its test) lives in player_reconcile.h; this finds the two positions and
+// applies the answer. `host_copy` is the replica of our own body, `snapping`
+// the caller's memory of whether it was already being snapped last frame.
+static void ReconcileLocalPlayer(ecs::World& world,
+                                 f32 dt,
+                                 ecs::Entity host_copy,
+                                 ActorSystem& actors,
+                                 bool* snapping) {
+  if (host_copy == ecs::kInvalidEntity)
+    return;  // no snapshot has carried our own body yet
+  const auto* replicated = world.Get<scene::Transform>(host_copy);
+  Vec3 local{};
+  if (!replicated || !actors.PlayerWorldPos(&local))
+    return;
+  const Vec3 server{replicated->position[0], replicated->position[1], replicated->position[2]};
+  // The host has not assembled this body yet: its entity still sits where rx
+  // drops a joining player, which is not a position to be corrected onto.
+  if (server.x == 0.0f && server.y == 0.0f && server.z == 0.0f)
+    return;
+
+  const player_reconcile::Correction correction = player_reconcile::Reconcile(local, server, dt);
+  if (correction.action == player_reconcile::Action::kAccept) {
+    *snapping = false;
+    return;
+  }
+  actors.TeleportPlayer(correction.position.x, correction.position.y, correction.position.z);
+  const bool snap = correction.action == player_reconcile::Action::kSnap;
+  // Logged on the way into snapping only: a body the host holds somewhere this
+  // client can never reach would otherwise print every frame forever.
+  if (snap && !*snapping) {
+    RX_INFO("net: snapped the local body onto the host's ({:.1f}, {:.1f}, {:.1f})", server.x,
+            server.y, server.z);
+  }
+  *snapping = snap;
 }
 
 bool StartNetworking(Engine& engine) {
@@ -634,6 +679,15 @@ bool StartNetworking(Engine& engine) {
       }
     }
     self->session_->Tick(world, dt);
+    // Then pull the local body back onto the host's copy of it. After the tick,
+    // so the newest snapshot is the one being compared against, and never while
+    // the loading screen is up: a client still placing its world has not settled
+    // anywhere worth correcting.
+    if (NetReconcile.get() && self->client_session_ && self->ctx_.walk_mode &&
+        !self->load_screen_up_ && self->actors_ && self->actors_->HasPlayer()) {
+      ReconcileLocalPlayer(world, dt, self->client_session_->player_entity(), *self->actors_,
+                           &self->reconcile_snapping_);
+    }
     // The announcer beats from its own thread and cannot read the session's
     // client map, so the count it publishes is refreshed here, on the thread
     // that owns it.

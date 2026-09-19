@@ -792,6 +792,10 @@ class Engine : public app::Application {
   // Same for vitals: the latest kPlayerState for an entity that has not
   // spawned yet, applied when its snapshot arrives.
   base::UnorderedMap<u64, world::PlayerVitals> pending_vitals_;
+  // Client side: whether the local body is currently being snapped onto the
+  // host's copy, so the correction is logged on the way in and not every frame
+  // for as long as it lasts.
+  bool reconcile_snapping_ = false;
   // Client side: the weather seed the host last announced. Kept so we adopt it
   // when the HOST changes it rather than whenever it differs from our own,
   // which after an alignment it legitimately does.

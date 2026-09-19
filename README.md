@@ -195,10 +195,16 @@ idle/walk/run locomotion machine — and their gait animates from the replicated
 velocity, so a remote player walks when they walk and stops when they stop. The
 listen host has a body on the wire too, so clients can see the host.
 
-Without client-side prediction the local body is locally simulated (input feels
-instant) while everyone else sees the server's position; reconciliation of the
-two is the known next step, and until then your own third-person body can
-briefly disagree with what other players saw.
+A client simulates its own body locally as well, so input feels instant rather
+than a round trip late, which leaves two copies of one body free to drift apart:
+the host applies your intent half a round trip late, a lost packet skips an
+intent, and a collision resolved a frame apart puts you on different sides of a
+rock. The client reconciles them, reluctantly, because chasing every small
+disagreement is what rubber-banding is: a gap under a quarter metre is left
+alone, a walkable one is closed smoothly over a few frames, and only a gap too
+large to walk off is snapped. Height is judged separately and never eased, so a
+jump the host has not applied yet is not mistaken for an error, while falling
+through the world still is. `net.reconcile 0` turns the correction off.
 
 Vitals replicate too: host-side code sets them with `Player.SetHealth(health,
 max, dead)`, every client receives them (a `PlayerVitals` component on the
