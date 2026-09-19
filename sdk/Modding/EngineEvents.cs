@@ -52,7 +52,7 @@ public static class EngineEvents
             case ManagedEventId.PlayerVitals:
                 EventBus.Publish(new PlayerVitalsChanged(e.A, (int)((e.B >> 16) & 0xffff),
                                                          (int)((e.B >> 32) & 0xffff),
-                                                         (e.B & 1) != 0));
+                                                         (e.B & 1) != 0, (uint)e.I));
                 break;
         }
     }

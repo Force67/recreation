@@ -229,14 +229,20 @@ starts with a pool of 100 and a swing removes 42, both of which mod code can
 replace through `Player.SetHealth`. `net.pvp 0` leaves everyone able to fight the
 world but not each other, and `net.melee.damage` sets the blow.
 
-Three pieces are deliberately not here yet. The dead flag is the end of the
-engine's involvement: what dying means, and any respawn, is the ruleset's, and
-no default ruleset implements one. A listen host's own body has no health pool,
-so a client cannot hurt the host (a dedicated server, where every player is a
-peer, is complete). And a networked player has no actor record on the host, so
-its blows on an NPC are attributed to the player form -- which is also why an NPC
-dying on the host is not yet replicated, and a client sees it stop rather than
-fall.
+Dying is where the engine stops and the ruleset starts. All the engine does is
+mark the player dead, which replicates and takes them out of the target list;
+what that means is a game's own answer. The platform ships the answer a session
+gets when nobody has written a better one: `Respawns` waits five seconds and puts
+them back on their feet at the spawn with a full pool. A ruleset sets
+`Respawns.Delay`, or turns it off and handles `PlayerVitalsChanged` itself.
+
+Two limits worth knowing. A listen host's own body has no health pool, so a
+client cannot hurt the host; a dedicated server, where every player is a peer, is
+complete. And a networked player has no actor record on the host, so its blows on
+an NPC are attributed to the player form -- which is also why an NPC dying on the
+host is not replicated yet, and a client sees it stop rather than fall. Everyone
+also shares one spawn point, so a respawn can drop you next to whoever just
+killed you.
 
 ### Configuring a server
 

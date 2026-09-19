@@ -448,6 +448,13 @@ bool LoadGameData(Engine& engine) {
               args.size() >= 4 && args[3].ToInt() != 0);
           return;
         }
+        if (type == "Net" && func == "RespawnPlayer" && self->server_session_ &&
+            !args.empty()) {
+          const u32 peer = static_cast<u32>(args[0].ToInt());
+          std::lock_guard<std::mutex> lock(self->respawn_mutex_);
+          self->respawn_requests_.push_back(peer);
+          return;
+        }
         if (type == "Net" && func == "Kick" && self->server_session_ && !args.empty()) {
           self->server_session_->Kick(static_cast<u32>(args[0].ToInt()));
           return;

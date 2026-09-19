@@ -28,6 +28,7 @@ public static class Platform
         Social.Bind(role);
         Admin.Bind(role);
         ServerConsole.Bind(role);
+        Respawns.Bind(role);
         Persistence.Bind(role);
         // Client-facing UI surfaces.
         HudKit.Bind(role);
@@ -55,6 +56,7 @@ public static class Platform
         Map.Reset();
         HudKit.Reset();
         Persistence.Reset();
+        Respawns.Reset();
         ServerConsole.Reset();
         Admin.Reset();
         Social.Reset();

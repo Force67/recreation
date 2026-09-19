@@ -228,6 +228,10 @@ public sealed class FakeBackend : IEngineBackend
     public readonly HashSet<Key> HeldKeys = new();
     public void SetHeld(params Key[] keys) { HeldKeys.Clear(); foreach (Key k in keys) HeldKeys.Add(k); }
 
+    // The peer the last Net.RespawnPlayer named, null until one is asked for.
+    public uint? LastRespawnedPeer { get; private set; }
+    public void ClearRespawn() => LastRespawnedPeer = null;
+
     // The peer the last Net.Kick named, null until one is asked for. The admin
     // kick reaches the transport through that native.
     public uint? LastKickedPeer { get; private set; }
@@ -259,6 +263,8 @@ public sealed class FakeBackend : IEngineBackend
         if (type == "Vehicle" && function == "MoveTo")
             LastVehicleMove = (args[0].AsFloat(), args[1].AsFloat(), args[2].AsFloat());
         if (type == "Net" && function == "Kick") LastKickedPeer = (uint)args[0].AsInt();
+        if (type == "Net" && function == "RespawnPlayer")
+            LastRespawnedPeer = (uint)args[0].AsInt();
         if (type == "World" && function == "SetTime") LastWorldHour = args[0].AsFloat();
         if (type == "World" && function == "SetWeather") LastWorldWeather = args[0].AsHandle();
         if (type == "Input" && function == "Held")

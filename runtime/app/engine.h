@@ -792,6 +792,11 @@ class Engine : public app::Application {
   // Same for vitals: the latest kPlayerState for an entity that has not
   // spawned yet, applied when its snapshot arrives.
   base::UnorderedMap<u64, world::PlayerVitals> pending_vitals_;
+  // Peers a script asked to respawn (Net.RespawnPlayer, guest thread), drained
+  // on the main thread which owns the physics characters and the session. Under
+  // its own lock because a list cannot ride an atomic.
+  std::mutex respawn_mutex_;
+  base::Vector<u32> respawn_requests_;
   // Client side: whether the local body is currently being snapped onto the
   // host's copy, so the correction is logged on the way in and not every frame
   // for as long as it lasts.

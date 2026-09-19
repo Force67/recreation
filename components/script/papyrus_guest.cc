@@ -431,6 +431,10 @@ void PapyrusGuest::BindEngineNatives() {
   // code, so this is how they reach the transport that can actually disconnect
   // somebody (a no-op on a client or with no session).
   reg_platform("Net", "Kick");
+  // Net.RespawnPlayer(peer): puts a downed player back on their feet at the
+  // session's spawn with a full pool. The host owns the body and its capsule, so
+  // only it can do this; the runtime queues it onto the thread that owns them.
+  reg_platform("Net", "RespawnPlayer");
   // World.SetTime(hour) / World.SetWeather(form): the shared world a host owns.
   // The runtime queues both onto its main thread (the clock and the weather
   // director live there) and the session replicates the result, so a host-side

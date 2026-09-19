@@ -250,6 +250,37 @@ static base::Vector<world::MeleeCandidate> MeleeCandidatesAround(
   return out;
 }
 
+// Puts a downed player back on their feet: the body returns to the session's
+// spawn with a full pool, which replicates like any other vitals change and
+// clears the client-side Dead tag. Host side, main thread: it moves a physics
+// capsule the host owns.
+static void RespawnPlayer(net::GameServerSession& session,
+                          ecs::World& world,
+                          physics::PhysicsWorld& physics,
+                          const Vec3& spawn,
+                          u32 peer) {
+  const ecs::Entity body = session.engine().PlayerOf(peer);
+  if (body == ecs::kInvalidEntity)
+    return;
+  if (auto* transform = world.Get<scene::Transform>(body)) {
+    transform->position[0] = spawn.x;
+    transform->position[1] = spawn.y;
+    transform->position[2] = spawn.z;
+  }
+  // The capsule hangs above the feet, as PrepareRemotePlayer placed it.
+  if (const auto* character = world.Get<character::CharacterBody>(body)) {
+    if (character->id != 0) {
+      physics.SetCharacterPosition(
+          character->id,
+          {spawn.x, spawn.y + character->half_height + character->radius, spawn.z});
+    }
+  }
+  u16 max_health = kJoinHealth;
+  session.PlayerVitalsOf(peer, nullptr, &max_health, nullptr);
+  session.SetPlayerHealth(peer, max_health, max_health, /*dead=*/false);
+  RX_INFO("net: respawned peer {} at ({:.1f}, {:.1f}, {:.1f})", peer, spawn.x, spawn.y, spawn.z);
+}
+
 // Client side: the other end of that model. The host's copy of this player is a
 // replicated entity like any other, so the correction is a comparison between
 // its transform and the body this client simulates for itself. The policy (and
@@ -424,6 +455,16 @@ bool StartNetworking(Engine& engine) {
         const u16 left = health > damage ? static_cast<u16>(health - damage) : 0;
         session.SetPlayerHealth(target, left, max_health, /*dead=*/left == 0);
         RX_INFO("net: peer {} struck peer {} for {} ({} health left)", peer, target, damage, left);
+        // Tell host-side mods, which is where dying means anything: the engine
+        // only marks it. The peer rides in `i` because a host knows it and a
+        // client (which hears the same event off the wire) does not.
+        if (self->managed_) {
+          self->managed_->QueueEvent(
+              {rx::script::host::ManagedEventId::kPlayerVitals, session.PlayerNetId(target),
+               (static_cast<u64>(max_health) << 32) | (static_cast<u64>(left) << 16) |
+                   (left == 0 ? 1u : 0u),
+               static_cast<std::int32_t>(target), 0.0f});
+        }
         return;
       }
       // An NPC takes it through the guest thread, so OnHit, OnDeath and every
@@ -799,6 +840,19 @@ bool StartNetworking(Engine& engine) {
           buttons |= kInputGaitSprint;
         input.buttons = buttons;
         self->client_session_->SetInput(input);
+      }
+    }
+    // Respawns a script asked for, applied here where the physics characters and
+    // the session live.
+    if (self->server_session_ && self->ctx_.physics) {
+      base::Vector<u32> respawns;
+      {
+        std::lock_guard<std::mutex> lock(self->respawn_mutex_);
+        respawns = base::move(self->respawn_requests_);
+        self->respawn_requests_.clear();
+      }
+      for (const u32 peer : respawns) {
+        RespawnPlayer(*self->server_session_, world, *self->ctx_.physics, self->net_spawn_, peer);
       }
     }
     self->session_->Tick(world, dt);

@@ -131,13 +131,17 @@ public readonly struct ClientLeft(uint peer) : IGameEvent
 // server announced them through kPlayerState and they landed on the replica
 // entity as a PlayerVitals component). A client mod reads Health/MaxHealth/Dead
 // to drive its HUD and death handling.
-public readonly struct PlayerVitalsChanged(ulong netId, int health, int maxHealth, bool dead)
-    : IGameEvent
+public readonly struct PlayerVitalsChanged(ulong netId, int health, int maxHealth, bool dead,
+                                          uint peer = 0) : IGameEvent
 {
     public ulong NetId { get; } = netId;
     public int Health { get; } = health;
     public int MaxHealth { get; } = maxHealth;
     public bool Dead { get; } = dead;
+
+    // The player this is about, on a host. 0 on a client, which hears the same
+    // change off the wire and only ever learns the network id from it.
+    public uint Peer { get; } = peer;
 }
 
 // Raised by the time service when a new in-game hour begins. Mods drive NPC

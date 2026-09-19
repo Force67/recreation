@@ -88,8 +88,8 @@ EventBus.Subscribe<PlayerVitalsChanged>(e =>
 ```
 
 The dead flag also drives the entity's `Dead` tag, so the render path holds a
-downed pose. The engine combat system is not networked yet — today the producer
-is mod code; when combat syncs, it feeds the same path.
+downed pose. Combat writes these same vitals, so a mod reading them sees the
+damage players deal each other as well as anything it set itself.
 
 ## Console commands
 
@@ -106,6 +106,27 @@ Commands.Register("spawnrate", "command.spawnrate", ctx =>
 The ACE is still enforced for a player who runs it; a console line runs as the
 host operator and passes. `ctx.Reply` reaches whoever ran it -- the terminal for
 a console line, that player privately otherwise.
+
+## Dying
+
+The engine marks a dead player and replicates it; what dying means is the
+ruleset's. `Respawns` is the default answer -- five seconds, then back on their
+feet at the spawn with a full pool -- and a ruleset replaces it:
+
+```csharp
+Respawns.Delay = 15f;        // longer wait, same behaviour
+Respawns.Enabled = false;    // or take it over completely
+EventBus.Subscribe<PlayerVitalsChanged>(e =>
+{
+    if (!e.Dead) return;
+    Chat.System($"{Players.Get(e.Peer)?.Name} fell");
+    Players.Get(e.Peer)?.Respawn();   // when and where is yours to decide
+});
+```
+
+`e.Peer` is the player on a host and 0 on a client, which hears the same change
+off the wire and only learns the network id from it. `Respawn()` is host-side:
+only the host owns the body.
 
 ## The shared world
 

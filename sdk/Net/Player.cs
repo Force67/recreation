@@ -60,5 +60,11 @@ public sealed class Player
                                   Value.Bool(dead) });
     }
 
+    // Puts this player back on their feet at the session's spawn with a full
+    // pool. Host-side: only the host owns the body. A no-op for a player who is
+    // not connected here.
+    public void Respawn() =>
+        Native.CallGlobal("Net", "RespawnPlayer", new[] { Value.Int((int)Id) });
+
     public override string ToString() => $"{Name}#{Id}";
 }
