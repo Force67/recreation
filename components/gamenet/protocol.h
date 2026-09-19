@@ -39,6 +39,8 @@ enum class GameMessage : u16 {
                            // vitals (health, dead)
   kWorldState = 142,       // server -> clients: the shared clock and the seed
                            // the weather derives from
+  kPlayerAttack = 143,     // client -> server: a swing, and the aim it was
+                           // thrown with; the host resolves what it hit
 };
 
 static_assert(static_cast<u16>(GameMessage::kQuestUpdate) >= kFirstGameMessage,

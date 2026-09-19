@@ -206,11 +206,37 @@ large to walk off is snapped. Height is judged separately and never eased, so a
 jump the host has not applied yet is not mistaken for an error, while falling
 through the world still is. `net.reconcile 0` turns the correction off.
 
-Vitals replicate too: host-side code sets them with `Player.SetHealth(health,
-max, dead)`, every client receives them (a `PlayerVitals` component on the
-player's replica and a `PlayerVitalsChanged` event for mods), and the dead flag
-drives the client-side `Dead` tag. The engine combat system is not networked
-yet, so today the producer is mod code.
+Vitals replicate too: every client receives them (a `PlayerVitals` component on
+the player's replica and a `PlayerVitalsChanged` event for mods), and the dead
+flag drives the client-side `Dead` tag. Host-side mod code sets them with
+`Player.SetHealth(health, max, dead)`; so does combat.
+
+### Fighting
+
+A swing is a request, not a result. A client cannot be trusted to say what it
+hit, and does not even know where anyone really is, since the host simulates
+every body -- so it sends the aim it swung along and the host resolves that
+against the transforms it owns, with the same reach, arc and damage the
+single-player melee driver uses. The host accepts one swing per melee cadence per
+player and drops the rest, which is the rate limit and the game rule at once:
+nobody swings faster than the animation, so spamming the message buys nothing.
+
+What connects takes damage where it lives. Another player's blow lands on the
+health pool that already replicates, so every client sees it and the kill sets
+the dead flag; an NPC takes it through the guest thread, so `OnHit`, `OnDeath`
+and every quest watching them run exactly as in single player. A joining player
+starts with a pool of 100 and a swing removes 42, both of which mod code can
+replace through `Player.SetHealth`. `net.pvp 0` leaves everyone able to fight the
+world but not each other, and `net.melee.damage` sets the blow.
+
+Three pieces are deliberately not here yet. The dead flag is the end of the
+engine's involvement: what dying means, and any respawn, is the ruleset's, and
+no default ruleset implements one. A listen host's own body has no health pool,
+so a client cannot hurt the host (a dedicated server, where every player is a
+peer, is complete). And a networked player has no actor record on the host, so
+its blows on an NPC are attributed to the player form -- which is also why an NPC
+dying on the host is not yet replicated, and a client sees it stop rather than
+fall.
 
 ### Configuring a server
 

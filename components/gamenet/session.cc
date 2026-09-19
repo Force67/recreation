@@ -116,6 +116,7 @@ GameServerSession::GameServerSession(GameSessionConfig config)
   inner_.SetClientLeftSink([this](u32 peer) {
     activation_windows_.erase(peer);
     player_vitals_.erase(peer);
+    last_swing_seconds_.erase(peer);
     if (client_left_sink_)
       client_left_sink_(peer);
   });
@@ -139,6 +140,7 @@ bool GameServerSession::Start() {
 void GameServerSession::Tick(ecs::World& world, f32 dt) {
   inner_.Tick(world, dt);
   ++tick_;
+  clock_seconds_ += static_cast<f64>(dt);
   // Every tick, not on the snapshot cadence: it self-throttles, and a clock the
   // host just moved should reach clients now rather than up to a snapshot later.
   BroadcastWorldState(dt);
@@ -173,6 +175,22 @@ void GameServerSession::OnGameMessage(u32 peer, u16 type, const u8* data, size_t
       }
       ++window.requests;
       activate_sink_(peer, handle);
+      break;
+    }
+    case GameMessage::kPlayerAttack: {
+      if (!player_attack_sink_ || inner_.PlayerOf(peer) == ecs::kInvalidEntity)
+        break;
+      const auto yaw = DecodePlayerAttack(data, size);
+      if (!yaw)
+        break;
+      // One cadence between accepted swings. This is the rate limit and the
+      // game rule at once: nobody swings faster than the animation, so a client
+      // spamming the message gains nothing by it.
+      f64& last = last_swing_seconds_[peer];
+      if (last != 0.0 && clock_seconds_ - last < static_cast<f64>(swing_cadence_seconds_))
+        break;
+      last = clock_seconds_;
+      player_attack_sink_(peer, *yaw);
       break;
     }
     case GameMessage::kDialogueSelect: {
@@ -324,6 +342,22 @@ void GameServerSession::SetPlayerHealth(u32 peer, u16 health, u16 max_health, bo
                    /*reliable=*/true, tx::network::PacketPriority::Medium);
 }
 
+bool GameServerSession::PlayerVitalsOf(u32 peer,
+                                       u16* health,
+                                       u16* max_health,
+                                       bool* dead) const {
+  const auto it = player_vitals_.find(peer);
+  if (it == player_vitals_.end() || !it->second.sent)
+    return false;
+  if (health)
+    *health = it->second.health;
+  if (max_health)
+    *max_health = it->second.max_health;
+  if (dead)
+    *dead = it->second.dead;
+  return true;
+}
+
 u64 GameServerSession::PlayerNetId(u32 peer) const {
   return inner_.PlayerNetId(peer);
 }
@@ -391,6 +425,13 @@ void GameClientSession::SendActivate(u64 handle) {
   std::vector<u8> payload(8);
   nanobuf::StoreLe<u64>(payload.data(), handle);
   inner_.SendToServer(static_cast<u16>(GameMessage::kActivateRef), payload,
+                      /*reliable=*/true, tx::network::PacketPriority::High);
+}
+
+void GameClientSession::SendAttack(f32 yaw) {
+  if (!joined())
+    return;
+  inner_.SendToServer(static_cast<u16>(GameMessage::kPlayerAttack), EncodePlayerAttack(yaw),
                       /*reliable=*/true, tx::network::PacketPriority::High);
 }
 

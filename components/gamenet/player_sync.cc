@@ -2,11 +2,14 @@
 
 #include <nanobuf.h>
 
+#include <cmath>
+
 namespace rx::net {
 namespace {
 
 constexpr size_t kAvatarWireSize = 8 + 8;              // u64 net_id | u64 form
 constexpr size_t kVitalsWireSize = 8 + 2 + 2 + 1;      // u64 net_id | u16 | u16 | u8
+constexpr size_t kAttackWireSize = 4;                  // f32 yaw
 
 void AppendU64(std::vector<u8>& out, u64 v) {
   u8 buf[8];
@@ -53,6 +56,21 @@ std::optional<PlayerVitals> DecodePlayerVitals(const u8* data, size_t size) {
                       nanobuf::LoadLe<u16>(data + 8),
                       nanobuf::LoadLe<u16>(data + 10),
                       nanobuf::LoadLe<u8>(data + 12) != 0};
+}
+
+std::vector<u8> EncodePlayerAttack(f32 yaw) {
+  std::vector<u8> out(kAttackWireSize);
+  nanobuf::StoreLe<u32>(out.data(), nanobuf::BitsOf(yaw));
+  return out;
+}
+
+std::optional<f32> DecodePlayerAttack(const u8* data, size_t size) {
+  if (!data || size != kAttackWireSize)
+    return std::nullopt;
+  const f32 yaw = nanobuf::FloatFromBits(nanobuf::LoadLe<u32>(data));
+  if (!std::isfinite(yaw))
+    return std::nullopt;
+  return yaw;
 }
 
 }  // namespace rx::net

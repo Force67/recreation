@@ -53,6 +53,13 @@ static base::Option<int> NetStreamScripts{"net.stream_scripts", 1, "REC_NET_STRE
 // what the model did before reconciliation existed.
 static base::Option<bool> NetReconcile{"net.reconcile", true, "RX_NET_RECONCILE",
                                        "correct the local body against the host's"};
+// Whether a player's swing can land on another player. Off leaves everyone able
+// to fight the world but not each other, which is what a co-op server wants.
+static base::Option<bool> NetPvp{"net.pvp", true, "RX_NET_PVP",
+                                 "players can hit each other"};
+// Health one connected player swing removes, out of a pool of 100.
+static base::Option<int> NetMeleeDamage{"net.melee.damage", 42, "RX_NET_MELEE_DAMAGE",
+                                        "health a connected player swing removes"};
 
 // What the script-trust policy says to do with a server's client-script offer.
 enum class ScriptOfferAction {
@@ -183,6 +190,66 @@ static void SimulateRemotePlayer(ecs::World& world,
     state->yaw = input.yaw;
 }
 
+// --- melee the host resolves --------------------------------------------------
+//
+// A swing is a request (see player_sync.h). A client cannot be trusted to say
+// what it hit, and does not even know where anyone really is, since the host
+// simulates every body; so it sends the aim it swung along and the host resolves
+// that against the transforms it owns, with the same reach, arc and damage the
+// single-player melee driver uses.
+
+// Health a joining player starts with. A pool rather than the game's own actor
+// value: a remote player has no actor record on the host to read one from. Mod
+// code that wants the game's numbers sets them with Player.SetHealth.
+constexpr u16 kJoinHealth = 100;
+// The form a networked player's blows are attributed to. Every Bethesda game
+// keeps its player at this id, and a remote player has no actor record of its
+// own here, so this is the closest thing to the truth a script can be told.
+constexpr u64 kNetPlayerFormHandle = 0x14;
+
+// Everyone a swing could land on, gathered from the bodies the host owns:
+// other players (when PvP is on) and the streamed NPCs, minus the attacker and
+// anyone already down. `id` carries the peer for a player and the packed form
+// for an NPC; `players` is how many entries at the front are players.
+static base::Vector<world::MeleeCandidate> MeleeCandidatesAround(
+    net::GameServerSession& session,
+    ecs::World& world,
+    ecs::Entity attacker,
+    mem_size* players) {
+  base::Vector<world::MeleeCandidate> out;
+  if (NetPvp.get()) {
+    session.engine().ForEachPeer([&](u32 peer) {
+      const ecs::Entity body = session.engine().PlayerOf(peer);
+      if (body == ecs::kInvalidEntity || body == attacker)
+        return;
+      bool dead = false;
+      if (!session.PlayerVitalsOf(peer, nullptr, nullptr, &dead) || dead)
+        return;  // no pool yet, or already down
+      const auto* transform = world.Get<scene::Transform>(body);
+      if (!transform)
+        return;
+      world::MeleeCandidate candidate{.id = peer};
+      candidate.position[0] = transform->position[0];
+      candidate.position[1] = transform->position[1];
+      candidate.position[2] = transform->position[2];
+      out.push_back(candidate);
+    });
+  }
+  *players = out.size();
+
+  world.Each<world::Npc, world::FormLink, world::Transform>(
+      [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& transform) {
+        if (world.Has<world::Dead>(e))
+          return;
+        world::MeleeCandidate candidate{.id = link.form.packed()};
+        candidate.position[0] = transform.position[0];
+        candidate.position[1] = transform.position[1];
+        candidate.position[2] = transform.position[2];
+        out.push_back(candidate);
+      });
+  return out;
+}
+
 // Client side: the other end of that model. The host's copy of this player is a
 // replicated entity like any other, so the correction is a comparison between
 // its transform and the body this client simulates for itself. The policy (and
@@ -292,6 +359,9 @@ bool StartNetworking(Engine& engine) {
                               player);
           BroadcastPlayerAvatar(self->server_session_->engine(), NetIdOf(world, player), 0);
           SendPlayerAvatarsTo(self->server_session_->engine(), world, peer);
+          // A pool to fight with. Mod code that wants the game's own numbers
+          // overwrites it with Player.SetHealth.
+          self->server_session_->SetPlayerHealth(peer, kJoinHealth, kJoinHealth, /*dead=*/false);
           RX_INFO("net: assembled the player body for peer {} at ({:.1f}, {:.1f}, {:.1f})", peer,
                   self->net_spawn_.x, self->net_spawn_.y, self->net_spawn_.z);
         });
@@ -317,6 +387,59 @@ bool StartNetworking(Engine& engine) {
                                     character::StepCharacters(world, *self->ctx_.physics, dt);
                                   });
     }
+    // A client's swing: the host resolves it against the bodies it owns and
+    // writes the damage into the vitals that already replicate.
+    self->server_session_->SetPlayerAttackSink([self](u32 peer, f32 yaw) {
+      if (!self->ctx_.world || !self->server_session_)
+        return;
+      ecs::World& world = *self->ctx_.world;
+      net::GameServerSession& session = *self->server_session_;
+      const ecs::Entity attacker = session.engine().PlayerOf(peer);
+      if (attacker == ecs::kInvalidEntity)
+        return;
+      bool attacker_dead = false;
+      if (session.PlayerVitalsOf(peer, nullptr, nullptr, &attacker_dead) && attacker_dead)
+        return;  // the dead do not swing
+      const auto* transform = world.Get<scene::Transform>(attacker);
+      if (!transform)
+        return;
+      const f32 origin[3] = {transform->position[0], transform->position[1],
+                             transform->position[2]};
+      const f32 fwd[3] = {std::sin(yaw), 0.0f, -std::cos(yaw)};
+      mem_size players = 0;
+      const base::Vector<world::MeleeCandidate> around =
+          MeleeCandidatesAround(session, world, attacker, &players);
+      constexpr f32 kReach = 3.0f;    // as the single-player swing
+      constexpr f32 kArcCos = 0.35f;  // ~70 degrees to each side
+      const int picked = world::PickMeleeTarget(origin, fwd, around.data(),
+                                                static_cast<int>(around.size()), kReach, kArcCos);
+      if (picked < 0)
+        return;
+
+      const u16 damage = static_cast<u16>(base::Clamp(NetMeleeDamage.get(), 0, 0xffff));
+      if (static_cast<mem_size>(picked) < players) {
+        const u32 target = static_cast<u32>(around[picked].id);
+        u16 health = kJoinHealth, max_health = kJoinHealth;
+        session.PlayerVitalsOf(target, &health, &max_health, nullptr);
+        const u16 left = health > damage ? static_cast<u16>(health - damage) : 0;
+        session.SetPlayerHealth(target, left, max_health, /*dead=*/left == 0);
+        RX_INFO("net: peer {} struck peer {} for {} ({} health left)", peer, target, damage, left);
+        return;
+      }
+      // An NPC takes it through the guest thread, so OnHit, OnDeath and every
+      // quest watching them run exactly as they do in single player. The
+      // aggressor travels as the player form: a networked player has no actor
+      // record of its own on the host to name instead.
+      if (!self->scripts_ || !self->script_bindings_)
+        return;
+      auto* binds = &*self->script_bindings_;
+      const u64 target = around[picked].id;
+      const f32 hit_damage = static_cast<f32>(damage);
+      self->scripts_->guest().Submit([binds, target, hit_damage](script::papyrus::VirtualMachine&) {
+        binds->ApplyMeleeHit(script::papyrus::ObjectRef{kNetPlayerFormHandle},
+                             script::papyrus::ObjectRef{target}, hit_damage);
+      });
+    });
     // Replicate the authoritative quest journal. The source is only called when
     // clients are connected, so the guest round-trip costs nothing while idle.
     // Quest state lives on the guest thread, so we marshal the read onto it.

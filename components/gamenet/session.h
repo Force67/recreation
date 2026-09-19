@@ -110,6 +110,16 @@ class GameServerSession final : public Session {
   // Sink invoked with the INFO handle each time a client picks a dialogue topic.
   void SetDialogueSink(std::function<void(u64)> sink) { dialogue_sink_ = std::move(sink); }
 
+  // Sink invoked with the peer and the aim of every swing a client throws that
+  // the host accepts. Swings arriving faster than one melee cadence are dropped
+  // before the sink sees them: the cadence is both the rate limit and the game
+  // rule, since nobody can swing faster than the animation.
+  void SetPlayerAttackSink(std::function<void(u32 peer, f32 yaw)> sink) {
+    player_attack_sink_ = std::move(sink);
+  }
+  // Seconds a peer must wait between accepted swings.
+  void set_swing_cadence_seconds(f32 seconds) { swing_cadence_seconds_ = seconds; }
+
   // Authoritative NPC transforms to stream; only the ones that moved since the
   // last tick go out (unreliable).
   void SetActorSource(std::function<std::vector<ActorState>()> source) {
@@ -127,11 +137,16 @@ class GameServerSession final : public Session {
   // The server's scripting RPC channel. Always present once Start succeeds.
   RpcServerChannel* rpc() { return inner_.rpc(); }
 
-  // The authoritative vitals for a player (the engine combat system is not
-  // networked yet, so the producer today is host-side mod code through the
-  // Player.SetHealth SDK API). Broadcasts a kPlayerState to every client on
-  // change and remembers the value so a later joiner's table is complete.
+  // The authoritative vitals for a player: the host's combat resolution writes
+  // them, and so can host-side mod code through the Player.SetHealth SDK API.
+  // Broadcasts a kPlayerState to every client on change and remembers the value
+  // so a later joiner's table is complete.
   void SetPlayerHealth(u32 peer, u16 health, u16 max_health, bool dead);
+  // The vitals last announced for a peer, for a caller that has to change them
+  // relative to what they are (combat subtracting from a health pool). False
+  // when this peer has never had any, which is also how "not a player here"
+  // reads.
+  bool PlayerVitalsOf(u32 peer, u16* health, u16* max_health, bool* dead) const;
   // The player entity's network id, once the peer has joined; 0 before.
   u64 PlayerNetId(u32 peer) const;
 
@@ -180,6 +195,12 @@ class GameServerSession final : public Session {
   std::function<void(const StageRequest&)> stage_request_sink_;
   std::function<void(u32, u64)> activate_sink_;
   std::function<void(u64)> dialogue_sink_;
+  std::function<void(u32 peer, f32 yaw)> player_attack_sink_;
+  // Server clock (seconds since start) of each peer's last accepted swing, and
+  // the cadence they are held to.
+  std::unordered_map<u32, f64> last_swing_seconds_;
+  f32 swing_cadence_seconds_ = 1.3f;
+  f64 clock_seconds_ = 0.0;
   std::function<std::vector<ActorState>()> actor_source_;
   std::function<void(u32)> client_ready_sink_;
   std::function<void(u32)> client_joined_sink_;
@@ -226,6 +247,9 @@ class GameClientSession final : public Session {
   // Sends an activation request for `handle` to the server (reliable). The
   // server is authoritative for the response (dialogue/quests).
   void SendActivate(u64 handle);
+  // Asks the server to resolve a swing aimed along `yaw`. The client never
+  // decides what it hit; the host answers with whatever vitals changed.
+  void SendAttack(f32 yaw);
   // Sends the chosen dialogue INFO handle to the server.
   void SendDialogueSelect(u64 info);
   // Asks the server to apply a quest-debugger change.
