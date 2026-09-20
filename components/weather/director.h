@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include <base/containers/pair.h>
+#include <base/containers/unordered_map.h>
 #include <base/containers/vector.h>
 #include <base/optional.h>
 #include <base/strings/xstring.h>
@@ -61,6 +62,34 @@ class Director {
   // cloudscape endpoints, the strike schedule -- stays consistent with it for
   // free. Afterwards the weather goes on evolving normally.
   bool ResumeWeather(const WeatherDef& weather, f64 game_days, f32 game_x, f32 game_y);
+
+  // Every WTHR the game authored, by packed form. Held so a weather can be
+  // named by form alone -- what a multiplayer host puts on the wire and what a
+  // script asks for -- rather than only by the handful the climate happens to
+  // spread over. Costs nothing to keep: the loader builds this map anyway.
+  void SetWeatherPool(base::UnorderedMap<u64, WeatherDef> pool) { pool_ = base::move(pool); }
+  // Every weather in the pool, for a caller that has to offer them by name (the
+  // server console's `weather`, which an operator cannot be expected to know
+  // form ids for).
+  const base::UnorderedMap<u64, WeatherDef>& pool() const { return pool_; }
+  // Aligns onto the weather `form` names, at the anchor the last Update
+  // resolved, so the region climate matches where this viewer stands. False when
+  // the form is unknown or the seed search failed; the sky is then left alone.
+  // Idempotent: asking for the weather already in force does nothing.
+  bool AlignWeather(u64 form, f64 game_days);
+  // The weather in force at `game_days` (the dominant side of a cross-fade), as
+  // a packed form; 0 when no climate is loaded or its defs carry no form.
+  u64 ActiveForm(f64 game_days) const { return DominantDef(game_days).form; }
+
+  // The selection seed. Weather is a pure function of (seed, game time) over a
+  // climate both machines parse from the same records, so a multiplayer client
+  // that adopts the host's seed and clock derives the host's sky with no
+  // per-frame weather traffic at all.
+  u64 seed() const { return seed_; }
+  void AdoptSeed(u64 seed) {
+    seed_ = seed;
+    system_.set_seed(seed);
+  }
 
   // Debug panel / trailer override: copies *state and pins the weather to it;
   // null clears back to the climate. The pointers below let the debug UI edit
@@ -126,8 +155,13 @@ class Director {
   WeatherSystem system_;
   RegionWeather regions_;
   base::Vector<base::Pair<WeatherDef, u32>> default_climate_;
+  base::UnorderedMap<u64, WeatherDef> pool_;
   u64 seed_ = 0;
   u64 active_region_ = 0;
+  // The anchor the last Update resolved its region against, in game units, so
+  // AlignWeather lands on the climate in force where this viewer actually
+  // stands instead of at the worldspace origin.
+  Vec2 last_anchor_game_{0, 0};
   // Cross-fade over a few seconds when the region changes, instead of snapping.
   WeatherState region_blend_from_;
   f32 region_blend_t_ = 1.0f;

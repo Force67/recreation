@@ -54,6 +54,7 @@ public static unsafe class ScriptHost
         handshake->Callbacks.Shutdown = &OnShutdown;
         handshake->Callbacks.DispatchUi = &OnDispatchUi;
         handshake->Callbacks.DispatchRpc = &OnDispatchRpc;
+        handshake->Callbacks.LoadStreamedScripts = &OnLoadStreamedScripts;
         return 0;
     }
 
@@ -246,6 +247,19 @@ public static unsafe class ScriptHost
         var values = new Value[argc < 0 ? 0 : argc];
         for (int i = 0; i < values.Length; i++) values[i] = FromApi(args[i]);
         Rpc.Dispatch(n, (uint)sender, fromServer != 0, values);
+    }
+
+    // The engine asks the managed world to load the server-streamed client
+    // scripts (the player already made a script-trust decision). Each path is an
+    // absolute UTF-8 path of a file on disk; ModLoader owns the details.
+    [UnmanagedCallersOnly]
+    private static void OnLoadStreamedScripts(byte** paths, int count)
+    {
+        if (paths == null || count <= 0) return;
+        var files = new string[count];
+        for (int i = 0; i < count; i++)
+            files[i] = Marshal.PtrToStringUTF8((IntPtr)paths[i]) ?? string.Empty;
+        ModLoader.LoadStreamedScripts(files);
     }
 
     // Wire ApiValue -> Value, matching NativeBackend.FromApi (private there).

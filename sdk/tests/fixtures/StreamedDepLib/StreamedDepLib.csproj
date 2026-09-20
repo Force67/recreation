@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Fixture for ModLoaderTests' streamed-script coverage: a dependency-free
+       assembly standing in for a server-streamed client script. It is never
+       copied next to the test runner (Private=false on the reference), so the
+       loader's Resolving probe is the only way a dependent assembly can find
+       it. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AssemblyName>StreamedDepLib</AssemblyName>
+    <RootNamespace>StreamedDepLib</RootNamespace>
+  </PropertyGroup>
+
+</Project>

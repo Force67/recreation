@@ -9,6 +9,9 @@
 #include <cstdio>
 #include <cstdlib>
 
+#if RECREATION_HAS_NET
+#include "components/gamenet/session.h"
+#endif
 #include "components/world/components.h"
 #include "core/log.h"
 #include "core/math.h"
@@ -177,8 +180,17 @@ void Engine::UpdateCamera(f32 frame_delta) {
     WalkUpdate(frame_delta, !menu && !kb);
     interaction_->UpdateInteraction(actions_->pressed(Action::kActivate) && !menu && !kb);
     // Drop the most recent inventory item into the world (walk mode only).
-    if (ctx_.items && actions_->pressed(Action::kDropItem) && !menu && !kb)
-      ctx_.items->DropLast();
+    if (ctx_.items && actions_->pressed(Action::kDropItem) && !menu && !kb) {
+#if RECREATION_HAS_NET
+      // On a client the pack is the host's record, so ask instead of dropping:
+      // the host picks the stack, throws it from this player's body and tells
+      // everyone what landed.
+      if (ctx_.client_session)
+        ctx_.client_session->SendItemDrop();
+      else
+#endif
+        ctx_.items->DropLast();
+    }
   } else {
     bool allow_mouse = !menu && (!debug_ui_.wants_mouse() || camera_.looking());
     bool allow_keyboard = !menu && !kb;
@@ -682,8 +694,17 @@ void Engine::WalkUpdate(f32 dt, bool allow) {
       swing = true;
     }
   }
-  if (swing)
-    npc_->PlayerMeleeStrike(body, ctx_.cam_yaw);
+  if (swing) {
+#if RECREATION_HAS_NET
+    // On a client a swing is a request, not a result: the host simulates every
+    // body, so it is the only one that can say what the blow connected with.
+    // Single player and a listen host resolve it here as they always have.
+    if (ctx_.client_session)
+      ctx_.client_session->SendAttack(ctx_.cam_yaw);
+    else
+#endif
+      npc_->PlayerMeleeStrike(body, ctx_.cam_yaw);
+  }
 
   // A staged field battle takes over the view with an elevated spectator framing,
   // so the clash is visible even when the player wedged against terrain.

@@ -681,10 +681,8 @@ Vec3 horse_pos{horse_t->position[0], horse_t->position[1], horse_t->position[2]}
 void CarriageSystem::Step(f32 dt) {
   if (!ctx_.world || !ctx_.quest_world || !ctx_.physics || !ctx_.physics->initialized())
     return;
-#if RECREATION_HAS_NET
-  if (ctx_.client_session)
-    return;  // host authoritative, like the rest of NPC motion
-#endif
+  if (!ctx_.simulates())
+    return;  // the host drives every carriage, here as everywhere
   discover_timer_ -= dt;
   if (discover_timer_ <= 0) {
     discover_timer_ = 1.0f;

@@ -1,6 +1,7 @@
 #include "components/gamenet/asset_stream.h"
 #include "core/log.h"
 
+#include <base/algorithm.h>
 #include <base/filesystem/path.h>
 
 #include <algorithm>
@@ -13,6 +14,7 @@
 
 #include "components/gamenet/protocol.h"
 #include "components/modstream/asset_request.h"
+#include "components/modstream/client_scripts.h"
 #include "components/modstream/manifest_chunk.h"
 #include "components/modstream/manifest_codec.h"
 #include "components/modstream/transfer_plan.h"
@@ -26,6 +28,10 @@ namespace fs = std::filesystem;
 // Content hashes per kAssetRequest packet, kept under the datagram ceiling
 // (8 bytes each plus a 4-byte count). Larger plans split across packets.
 constexpr u32 kRequestHashesPerPacket = 6000;
+
+// Client-script entries accepted per kClientScripts packet. A real server stays
+// far under this; anything larger is treated as malformed.
+constexpr size_t kMaxClientScriptEntries = 16384;
 
 base::Path ToBasePath(const fs::path& path) {
   return base::Path(path.string().c_str());
@@ -74,6 +80,27 @@ void AssetStreamServer::SendManifest(u32 peer) {
   }
   RX_INFO("net: sent manifest ({} files, {} bytes) to peer {}", catalog_->manifest().TotalFiles(),
           catalog_->manifest().TotalBytes(), peer);
+}
+
+void AssetStreamServer::SendClientScripts(u32 peer) {
+  std::vector<modstream::ClientScriptEntry> entries;
+  for (const modstream::ModResource& resource : catalog_->manifest().resources) {
+    for (const base::String& script : resource.client_scripts) {
+      const auto* file =
+          base::FindIf(resource.files.begin(), resource.files.end(),
+                       [&script](const modstream::ResourceFile& f) { return f.path == script; });
+      if (file == resource.files.end())
+        continue;  // the catalog only records validated scripts; never trip here
+      entries.push_back({file->hash, file->size,
+                         std::string(resource.name.c_str(), resource.name.size()) + "/" +
+                             std::string(script.c_str(), script.size())});
+    }
+  }
+  server_.Push(MakePacket(peer, static_cast<u16>(GameMessage::kClientScripts),
+                          modstream::EncodeClientScripts(manifest_generation_, entries),
+                          /*reliable=*/true, tx::network::PacketPriority::High));
+  if (!entries.empty())
+    RX_INFO("net: offered {} client script(s) to peer {}", entries.size(), peer);
 }
 
 void AssetStreamServer::HandleRequest(u32 peer, const u8* data, size_t size) {
@@ -158,7 +185,7 @@ void AssetStreamClient::OnManifestChunk(const u8* data, size_t size) {
   if (!newer && !same_assembly)
     return;
   if (newer) {
-    ResetForNewManifest();
+    ResetForNewManifest(chunk->generation);
     manifest_generation_ = chunk->generation;
   }
 
@@ -179,7 +206,7 @@ void AssetStreamClient::OnManifestChunk(const u8* data, size_t size) {
     OnManifestComplete();
 }
 
-void AssetStreamClient::ResetForNewManifest() {
+void AssetStreamClient::ResetForNewManifest(u32 incoming_generation) {
   manifest_buffer_.clear();
   manifest_chunks_.clear();
   manifest_total_size_ = 0;
@@ -191,6 +218,66 @@ void AssetStreamClient::ResetForNewManifest() {
   downloading_ = false;
   ready_ = false;
   failed_ = false;
+  manifest_hashes_.clear();
+  // A reload re-sends the script offer with the fresh manifest. Already-loaded
+  // assemblies stay loaded (the engine ALC is not collectible); a changed
+  // assembly applies on the next join. An offer that already arrived for the
+  // incoming (or a newer) generation is kept: the reliable channel may deliver
+  // it ahead of the manifest it belongs with.
+  if (offered_generation_ < incoming_generation) {
+    offered_scripts_.clear();
+    offered_generation_ = 0;
+  }
+  client_scripts_.clear();
+  scripts_delivered_ = false;
+}
+
+void AssetStreamClient::OnClientScripts(const u8* data, size_t size) {
+  std::optional<modstream::ClientScriptOffer> decoded =
+      modstream::DecodeClientScripts(data, size, kMaxClientScriptEntries);
+  if (!decoded) {
+    RX_WARN("net: dropped a corrupt client-script offer");
+    return;
+  }
+  // Tagged with the manifest generation like the manifest chunks are: an offer
+  // for a generation older than the one being assembled (a delayed duplicate
+  // from before a live reload) is dropped rather than allowed to overwrite the
+  // current one. A newer offer is stored and waits for its manifest; only one
+  // for the current assembly is validated immediately.
+  if (decoded->generation < manifest_generation_)
+    return;
+  offered_scripts_ = std::move(decoded->entries);
+  offered_generation_ = decoded->generation;
+  if (decoded->generation == manifest_generation_ && !manifest_hashes_.empty())
+    ValidateScripts();
+}
+
+void AssetStreamClient::ValidateScripts() {
+  client_scripts_.clear();
+  for (const modstream::ClientScriptEntry& entry : offered_scripts_) {
+    if (manifest_hashes_.find(entry.hash) == manifest_hashes_.end()) {
+      RX_WARN("net: server offered client script '{}' whose bytes are not in the manifest; "
+              "ignoring it",
+              entry.path.c_str());
+      continue;
+    }
+    client_scripts_.push_back(entry);
+  }
+  if (!client_scripts_.empty())
+    RX_INFO("net: server offers {} client script(s)", client_scripts_.size());
+  DeliverScriptsIfReady();
+}
+
+void AssetStreamClient::DeliverScriptsIfReady() {
+  if (scripts_delivered_ || !ready_ || !on_scripts_)
+    return;
+  // The offer for THIS generation must have arrived: the server always sends
+  // one per generation (possibly empty), so a mismatch means it is still in
+  // flight and delivery waits for it.
+  if (offered_generation_ != manifest_generation_)
+    return;
+  scripts_delivered_ = true;
+  on_scripts_(client_scripts_);
 }
 
 void AssetStreamClient::OnManifestComplete() {
@@ -202,6 +289,16 @@ void AssetStreamClient::OnManifestComplete() {
   }
   manifest_ = std::move(*decoded);
 
+  // Index the manifest's hashes so the script offer can be validated against
+  // exactly the files this server streams.
+  manifest_hashes_.clear();
+  for (const modstream::ModResource& resource : manifest_.resources) {
+    for (const modstream::ResourceFile& file : resource.files)
+      manifest_hashes_.insert(file.hash);
+  }
+  if (offered_generation_ == manifest_generation_ && !offered_scripts_.empty())
+    ValidateScripts();
+
   const std::vector<modstream::NeededFile> plan = modstream::ComputeMissing(manifest_, store_);
   if (plan.empty()) {
     RX_INFO("net: asset manifest complete, {} files already cached", manifest_.TotalFiles());
@@ -209,6 +306,7 @@ void AssetStreamClient::OnManifestComplete() {
     SendReady();
     if (on_ready_)
       on_ready_(manifest_);
+    DeliverScriptsIfReady();
     return;
   }
 
@@ -299,6 +397,7 @@ void AssetStreamClient::OnFileFinished(const fs::path& path) {
     SendReady();
     if (on_ready_)
       on_ready_(manifest_);
+    DeliverScriptsIfReady();
   }
 }
 

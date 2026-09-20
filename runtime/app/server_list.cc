@@ -186,6 +186,9 @@ void PollServerList(Engine& engine) {
     return;
 
   if (!result.ok) {
+    // A query dropped because the screen closed is not a failure to report.
+    if (result.cancelled)
+      return;
     // Say which of the two it is. A browser that shows nothing for an
     // unreachable list teaches players that nobody plays this game.
     self->game_ui_.SetMainMenuServers({}, base::String("Could not reach the server list  ·  ") +

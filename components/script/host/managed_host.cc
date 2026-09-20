@@ -125,6 +125,20 @@ void ManagedHost::DispatchRpc(const char* name,
   RunManaged([&] { dispatch(name, sender, from_server, args, argc); });
 }
 
+void ManagedHost::LoadStreamedScripts(const base::Vector<base::String>& paths) {
+  if (!available_ || paths.empty() || !handshake_.callbacks.load_streamed_scripts)
+    return;
+  // Borrow the caller's strings for the duration of the call; the managed side
+  // copies what it needs. The load runs on the guest thread like every other
+  // managed callback, so mod OnLoad bodies can touch the whole SDK freely.
+  base::Vector<const char*> table;
+  table.reserve(paths.size());
+  for (const base::String& path : paths)
+    table.push_back(path.c_str());
+  auto load = handshake_.callbacks.load_streamed_scripts;
+  RunManaged([&] { load(table.data(), static_cast<std::int32_t>(table.size())); });
+}
+
 void ManagedHost::PublishEvent(const ManagedEvent& event) {
   if (!available_ || !handshake_.callbacks.publish_event)
     return;

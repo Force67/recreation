@@ -2,12 +2,15 @@ recreation_add_module(gamenet
   actor_sync.cc
   address.cc
   asset_stream.cc
+  item_sync.cc
   objective_marker_net.cc
+  player_sync.cc
   quest_replication.cc
   session.cc
   stage_request.cc
   war_map_net.cc
   world_replication.cc
+  world_state.cc
 )
 
 # rx::net owns the transport, join handshake, per-peer entity replication and
@@ -43,3 +46,10 @@ if(TARGET asset_streamtest AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   set_source_files_properties(asset_streamtest.cc
     PROPERTIES COMPILE_OPTIONS -Wno-array-bounds)
 endif()
+recreation_add_test(client_scripts_nettest
+  recreation::gamenet recreation::modstream rx::asset)
+recreation_add_test(player_sync_nettest recreation::gamenet)
+recreation_add_test(world_state_nettest recreation::gamenet)
+recreation_add_test(kick_nettest recreation::gamenet)
+recreation_add_test(player_attack_nettest recreation::gamenet)
+recreation_add_test(item_sync_nettest recreation::gamenet)

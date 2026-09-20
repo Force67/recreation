@@ -179,17 +179,10 @@ f32 NpcDirector::AmbientRand(f32 lo, f32 hi) {
 void NpcDirector::UpdateAmbient(f32 dt) {
   // Host / single-player only; a client receives this motion via actor sync (like
   // followers), so it must not double-simulate (the RNG would diverge).
-#if RECREATION_HAS_NET
-  if (!actors_->HasPlayer() || ctx_.client_session) {
+  if (!actors_->HasPlayer() || !ctx_.simulates()) {
     ambient_.clear();
     return;
   }
-#else
-  if (!actors_->HasPlayer()) {
-    ambient_.clear();
-    return;
-  }
-#endif
   Vec3 ppos;
   if (!actors_->PlayerWorldPos(&ppos))
     return;
@@ -410,10 +403,8 @@ bool NpcDirector::ResolveCombatant(u64 handle, ecs::Entity* entity, world::Trans
 void NpcDirector::UpdateCombat(f32 dt) {
   // Host / single-player authoritative; a client receives soldier motion via
   // actor sync and deaths via quest/actor replication, so it must not simulate.
-#if RECREATION_HAS_NET
-  if (ctx_.client_session)
+  if (!ctx_.simulates())
     return;
-#endif
   // Re-acquire targets a few times a second (cheaper than every frame and the
   // clash cadence does not need frame precision).
   combat_acquire_timer_ -= dt;
@@ -1007,13 +998,8 @@ void NpcDirector::CwFieldBattleTick(f32 dt) {
 
 void NpcDirector::UpdateFollowers(f32 dt) {
   // Host authoritative: a client receives follower motion via actor sync.
-#if RECREATION_HAS_NET
-  if (followers_.empty() || !actors_->HasPlayer() || ctx_.client_session)
+  if (followers_.empty() || !actors_->HasPlayer() || !ctx_.simulates())
     return;
-#else
-  if (followers_.empty() || !actors_->HasPlayer())
-    return;
-#endif
   Vec3 ppos;
   if (!actors_->PlayerWorldPos(&ppos))
     return;
@@ -1130,13 +1116,8 @@ void NpcDirector::ClearGuide(u64 npc) {
 
 void NpcDirector::UpdateGuides(f32 dt) {
   // Host authoritative: a client receives guide motion via actor sync.
-#if RECREATION_HAS_NET
-  if (guides_.empty() || ctx_.client_session)
+  if (guides_.empty() || !ctx_.simulates())
     return;
-#else
-  if (guides_.empty())
-    return;
-#endif
   world_.Each<world::Npc, world::FormLink, world::Transform>(
       [&](ecs::Entity e, world::Npc&, world::FormLink& link, world::Transform& t) {
         if (IsActorInactive(world_, e))

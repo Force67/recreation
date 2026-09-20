@@ -24,13 +24,15 @@
 #include "components/weather/weather.h"
 #include "components/world/actor_stats_store.h"
 #include "components/world/combat.h"
+#include "components/world/components.h"
+#include "components/world/created_forms.h"
 #include "components/world/map_discovery.h"
 #include "components/world/map_markers.h"
-#include "components/world/created_forms.h"
 #include "components/world/misc_stats.h"
 #include "components/world/planet_tile.h"
 #include "components/world/saved_spawns.h"
 #include "core/input_bindings.h"
+#include "core/log.h"
 #include "core/window.h"
 #include "core/world_clock.h"
 #include "runtime/actor/actor_system.h"
@@ -39,6 +41,7 @@
 #include "runtime/actor/player_controller.h"
 #include "runtime/app/content_domain.h"
 #include "runtime/app/engine_context.h"
+#include "runtime/app/server_console.h"
 #include "runtime/camera/showcase_camera.h"
 #include "runtime/character/chargen.h"
 #include "runtime/demo/demo_scenes.h"
@@ -70,10 +73,21 @@ class RuntimeWorldSink : public script::WorldEffectSink {
   RuntimeWorldSink(world::WorldCommandQueue* queue, world::CombatEventQueue* combat)
       : queue_(queue), combat_(combat) {}
 
+  // Whether this machine's simulation is the truth (EngineContext::simulates).
+  // A replica drops every mutation that arrives here instead of applying it: the
+  // host owns the world, and a script running on a client that spawns, moves or
+  // kills something is a second world disagreeing with the first. Dropped
+  // mutations are counted rather than silently ignored, because the count is how
+  // we know what a replica's scripts are still trying to do.
+  void set_simulates(bool simulates) { simulates_ = simulates; }
+  u64 dropped() const { return dropped_; }
+
   u64 SpawnReference(u64 quest, u64 base, f32 x, f32 y, f32 z) override {
     // Synthetic runtime handle in the reserved 0xFFFF plugin slot, so it never
     // collides with a real form id; allocated here so PlaceAtMe can return it.
     const u64 handle = (0xFFFFull << 32) | next_handle_.fetch_add(1);
+    if (Dropped())
+      return handle;  // the caller still gets a handle; nothing is placed
     world::WorldCommand c;
     c.op = world::WorldOp::kSpawn;
     c.quest = quest;
@@ -90,6 +104,8 @@ class RuntimeWorldSink : public script::WorldEffectSink {
     Emit(world::WorldOp::kMovePlayer, quest, dest_ref, x, y, z);
   }
   void SetEnabled(u64 quest, u64 handle, bool enabled) override {
+    if (Dropped())
+      return;
     world::WorldCommand c;
     c.op = world::WorldOp::kSetEnabled;
     c.quest = quest;
@@ -107,29 +123,55 @@ class RuntimeWorldSink : public script::WorldEffectSink {
     Emit(world::WorldOp::kDelete, quest, handle, 0, 0, 0);
   }
   void CleanupQuest(u64 quest) override {
+    if (Dropped())
+      return;
     world::WorldCommand c;
     c.op = world::WorldOp::kCleanupQuest;
     c.quest = quest;
     queue_->Push(c);
   }
   void StartCombat(u64 /*quest*/, u64 attacker, u64 target) override {
+    if (Dropped())
+      return;
     combat_->Push({world::CombatOp::kEngage, attacker, target});
   }
   void StopCombat(u64 /*quest*/, u64 attacker) override {
+    if (Dropped())
+      return;
     combat_->Push({world::CombatOp::kDisengage, attacker, 0});
   }
   void ActorDied(u64 /*quest*/, u64 actor) override {
+    if (Dropped())
+      return;
     combat_->Push({world::CombatOp::kDied, actor, 0});
   }
   void ActorResurrected(u64 /*quest*/, u64 actor) override {
+    if (Dropped())
+      return;
     combat_->Push({world::CombatOp::kResurrected, actor, 0});
   }
   void ActorFollow(u64 /*quest*/, u64 actor, bool follow) override {
+    if (Dropped())
+      return;
     combat_->Push({follow ? world::CombatOp::kFollow : world::CombatOp::kUnfollow, actor, 0});
   }
 
  private:
+  // True when this machine may not mutate the world. Counts the drop, and says
+  // so the first time and then every thousandth, which is enough to notice a
+  // script that never stops trying without drowning the log.
+  bool Dropped() {
+    if (simulates_)
+      return false;
+    const u64 n = ++dropped_;
+    if (n == 1 || n % 1000 == 0)
+      RX_WARN("replica dropped {} world mutation(s) from script: the host owns the world", n);
+    return true;
+  }
+
   void Emit(world::WorldOp op, u64 quest, u64 handle, f32 x, f32 y, f32 z) {
+    if (Dropped())
+      return;
     world::WorldCommand c;
     c.op = op;
     c.quest = quest;
@@ -139,6 +181,8 @@ class RuntimeWorldSink : public script::WorldEffectSink {
   }
 
   void EmitState(world::WorldOp op, u64 quest, u64 handle, bool value) {
+    if (Dropped())
+      return;
     world::WorldCommand c;
     c.op = op;
     c.quest = quest;
@@ -158,6 +202,8 @@ class RuntimeWorldSink : public script::WorldEffectSink {
 
   world::WorldCommandQueue* queue_;
   world::CombatEventQueue* combat_;
+  bool simulates_ = true;
+  std::atomic<u64> dropped_{0};
   std::atomic<u32> next_handle_{1};
 };
 
@@ -292,6 +338,10 @@ class Engine : public app::Application {
 #endif
 
  private:
+  // Wires the console's sinks onto this engine. Built once when the console
+  // starts, not per drain.
+  ConsoleHost BuildConsoleHost();
+
   // The bring-up steps are free functions over the engine (declared just below
   // the class, defined in content_load.cc / networking.cc / managed_scripting.cc
   // / main_menu.cc); they reach the engine's internals as friends.
@@ -333,6 +383,7 @@ class Engine : public app::Application {
 #if RECREATION_HAS_NET
   friend bool StartNetworking(Engine&);
   friend void ReloadMods(Engine&);
+  friend void TickScriptConsent(Engine&);
   friend base::String MasterlistUrl(const Engine&);
   friend void StartServerAnnounce(Engine&);
   friend void StopServerAnnounce(Engine&);
@@ -752,6 +803,58 @@ class Engine : public app::Application {
   // Set from a signal handler to ask for a live mod reload; drained on the main
   // thread at the top of the frame, where the Vfs is not being read.
   std::atomic<bool> mod_reload_requested_{false};
+  // World changes a script asked for on the guest thread (World.SetTime /
+  // World.SetWeather), drained on the main thread in OnSimulate, which is what
+  // owns the clock and the weather director. An hour < 0 and a weather form of
+  // 0 mean "nothing asked for". On a host they reach every client through the
+  // session's replicated world state.
+  std::atomic<f32> requested_hour_{-1.0f};
+  std::atomic<u64> requested_weather_{0};
+  // The operator's console. Only a headless host starts one -- a windowed
+  // client has no terminal to read -- and the sinks it runs through are built
+  // once, at that point.
+  ServerConsole console_;
+  ConsoleHost console_host_;
+  // A script-trust decision the player owes the server they just joined. Set
+  // when the server offered streamed client scripts and no stored decision
+  // covers it; TickScriptConsent shows the choice on the loading screen and
+  // resolves it, and the loading screen holds until then.
+  struct ScriptConsent {
+    bool pending = false;
+    base::String server_key;           // "host:port", the trust-store identity
+    base::Vector<base::String> paths;  // cached assemblies the server offered
+  };
+  ScriptConsent script_consent_;
+  // Where LoadGameData placed the game's start position (ground height under
+  // the start cell). The host spawns every joining player here, so remote
+  // players arrive where the game begins instead of at rx's hardcoded join
+  // coordinates.
+  Vec3 net_spawn_{};
+  // Client side: appearance offers for replicas that have not spawned yet
+  // (the kPlayerAvatar message and the snapshot that creates the entity race).
+  base::UnorderedMap<u64, u64> pending_avatars_;
+  // Same for vitals: the latest kPlayerState for an entity that has not
+  // spawned yet, applied when its snapshot arrives.
+  base::UnorderedMap<u64, world::PlayerVitals> pending_vitals_;
+  // Peers a script asked to respawn (Net.RespawnPlayer, guest thread), drained
+  // on the main thread which owns the physics characters and the session. Under
+  // its own lock because a list cannot ride an atomic.
+  std::mutex respawn_mutex_;
+  base::Vector<u32> respawn_requests_;
+  // Client side: whether the local body is currently being snapped onto the
+  // host's copy, so the correction is logged on the way in and not every frame
+  // for as long as it lasts.
+  bool reconcile_snapping_ = false;
+  // Host side: the loot it has told clients about, net id -> entity, so an item
+  // whose entity is gone can be taken back out of what a joiner is told.
+  base::UnorderedMap<u64, ecs::Entity> announced_items_;
+  // Client side: loot offers for replicas that have not spawned yet (the
+  // kWorldItem message and the snapshot that creates the entity race).
+  base::UnorderedMap<u64, u64> pending_world_items_;
+  // Client side: the weather seed the host last announced. Kept so we adopt it
+  // when the HOST changes it rather than whenever it differs from our own,
+  // which after an alignment it legitimately does.
+  u64 host_weather_seed_ = 0;
   // 3D overlay of the session's streaming bubbles (RX_NET_BUBBLES=0 hides it).
   // Built lazily on the first frame that has bubbles to draw.
   base::UniquePointer<net::BubbleVisualizer> bubble_viz_;
@@ -932,6 +1035,11 @@ void RegisterManagedRpcForwarding(Engine& engine);
 // current set if the rebuild fails (a misconfigured edit must not break the live
 // server). Main thread only.
 void ReloadMods(Engine& engine);
+// Drives a pending script-trust decision (see Engine::ScriptConsent): polls the
+// consent keys on the loading screen, applies the stored convar/trust policy,
+// and hands accepted assemblies to the managed world. Called from
+// TickLoadingScreen while a decision is open.
+void TickScriptConsent(Engine& engine);
 #endif
 
 }  // namespace rx

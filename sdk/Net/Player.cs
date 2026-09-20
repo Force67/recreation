@@ -44,5 +44,27 @@ public sealed class Player
     // Bind a gameplay actor/form to this player. Server-authoritative.
     public void SetActor(ulong handle) => State.Set(ActorKey, Value.Object(handle));
 
+    // --- Replicated vitals (server-authoritative; the engine combat system is
+    // not networked yet, so today the producer is host-side mod code). Setting
+    // broadcasts a kPlayerState to every client, where it lands on the player's
+    // replica entity as a PlayerVitals component and a PlayerVitalsChanged
+    // managed event; the dead flag also drives the client-side Dead tag. ---
+
+    // Sets this player's health and ceiling, and whether they are down. Call on
+    // the server; every client sees the result. Unchanged values stay off the
+    // wire.
+    public void SetHealth(int health, int maxHealth, bool dead = false)
+    {
+        Native.CallGlobal("Net", "SetPlayerHealth",
+                          new[] { Value.Int((int)Id), Value.Int(health), Value.Int(maxHealth),
+                                  Value.Bool(dead) });
+    }
+
+    // Puts this player back on their feet at the session's spawn with a full
+    // pool. Host-side: only the host owns the body. A no-op for a player who is
+    // not connected here.
+    public void Respawn() =>
+        Native.CallGlobal("Net", "RespawnPlayer", new[] { Value.Int((int)Id) });
+
     public override string ToString() => $"{Name}#{Id}";
 }

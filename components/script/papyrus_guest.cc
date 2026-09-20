@@ -422,6 +422,26 @@ void PapyrusGuest::BindEngineNatives() {
   for (const char* f : {"Connect", "SpawnObject", "MoveObject", "DeleteObject"}) {
     reg_platform("Net", f);
   }
+  // Net.SetPlayerHealth(peer, health, max, dead): the host-side mod surface for
+  // replicated player vitals. Routed by the runtime to the server session, so
+  // the change broadcasts a kPlayerState to every client (a no-op anywhere the
+  // sink is not wired, e.g. a client or no session).
+  reg_platform("Net", "SetPlayerHealth");
+  // Net.Kick(peer): drops a player. The privileged admin commands are managed
+  // code, so this is how they reach the transport that can actually disconnect
+  // somebody (a no-op on a client or with no session).
+  reg_platform("Net", "Kick");
+  // Net.RespawnPlayer(peer): puts a downed player back on their feet at the
+  // session's spawn with a full pool. The host owns the body and its capsule, so
+  // only it can do this; the runtime queues it onto the thread that owns them.
+  reg_platform("Net", "RespawnPlayer");
+  // World.SetTime(hour) / World.SetWeather(form): the shared world a host owns.
+  // The runtime queues both onto its main thread (the clock and the weather
+  // director live there) and the session replicates the result, so a host-side
+  // mod moves the sky and the hour for everyone in the session at once.
+  for (const char* f : {"SetTime", "SetWeather"}) {
+    reg_platform("World", f);
+  }
   // Net.LocalPos{X,Y,Z}(): the local player's world position (engine space) so a
   // mod can place things relative to the player. These return a value, unlike the
   // fire-and-forget calls above.

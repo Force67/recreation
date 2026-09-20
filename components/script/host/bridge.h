@@ -111,6 +111,8 @@ enum class ManagedEventId : std::int32_t {
   kClientAssetsReady = 10,  // a = peer id (a client finished streaming the server's mods)
   kClientJoined = 11,       // a = peer id (a client joined the session, host only)
   kClientLeft = 12,         // a = peer id (a client left or timed out, host only)
+  kPlayerVitals = 13,       // a = net entity id (a player body's replicated
+                            // vitals changed), b = (max<<32)|(health<<16)|dead
 };
 
 struct ManagedEvent {
@@ -144,6 +146,13 @@ struct HostCallbacks {
                        std::int32_t from_server,
                        const ApiValue* args,
                        std::int32_t argc);
+  // Asks the managed world to load managed assemblies from disk as client mods
+  // (the server-streamed client scripts, after the player's script-trust
+  // decision). paths points at count absolute UTF-8 paths of files already on
+  // disk. The managed side loads what it can, filters by realm, and reports
+  // problems through its own log. Null when the managed side declines streamed
+  // scripts. Append-only: keep after the originals.
+  void (*load_streamed_scripts)(const char* const* paths, std::int32_t count);
 };
 
 // Where an outbound scripting RPC goes. Mirrors the managed RpcTarget; append

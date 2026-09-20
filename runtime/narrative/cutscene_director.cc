@@ -1268,11 +1268,8 @@ void CutsceneDirector::Tick(f32 dt, const QuestStateCache& quests) {
   // seconds long; letting that through would fast-forward a whole conversation in
   // one tick. Cap the step at a slow frame instead.
   dt = base::Min(dt, 0.25f);
-#if RECREATION_HAS_NET
-  const bool replica = ctx_.client_session != nullptr;
-#else
-  const bool replica = false;
-#endif
+  // Scenes play everywhere; only their authoritative half is the host's.
+  const bool replica = !ctx_.simulates();
 
   // Scenes the guest asked for (Scene.Start / Scene.Stop inside a fragment).
   if (ctx_.bindings && !replica) {

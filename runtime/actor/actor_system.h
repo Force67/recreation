@@ -42,6 +42,7 @@ struct LocomotionArchetype;
 // drives it each frame; it in turn commands the FP-rig primitives below.
 class FpEquipment;
 
+
 // Owns the engine's skinned, animated characters: the walkable player, the test
 // bringup biped, and the per-NPC instances that mirror streamed-in ECS actors.
 // Kept engine-side (not ECS components) because the renderer needs the CPU skin
@@ -148,6 +149,7 @@ class ActorSystem {
   void Update(f32 dt);                      // advance gaits + bone matrices
   void EmitDraws(render::FrameView& view);  // append skinned draws + palettes
   void SyncNpcActors();                     // add/remove NPC actor instances
+  void SyncPlayerAvatars();                 // bodies for replicated player entities
   void SyncSolidBodies();                   // kinematic capsules for NPCs/players
 
   // --- First-person weapon rig primitives (driven by FpEquipment) ---
@@ -305,6 +307,10 @@ class ActorSystem {
   // Builds the shared NPC rig template on first use (the body every streamed and
   // scripted NPC is instanced from). False when no body assets could be loaded.
   bool EnsureNpcTemplate();
+  // The template-independent half of a player body: per-game template, FaceGen
+  // head, armour, locomotion machine. Shared with SyncPlayerAvatars so a remote
+  // player's body is the local player's body.
+  bool BuildPlayerBody(Actor& actor);
   // soldier_kind: 0 = bare civilian body, 1 = imperial-side soldier (worn
   // cuirass in the body slot), 2 = stormcloak-side soldier. `skip_slots` is a
   // biped slot mask (bethesda::BipedSlotBit) of the bare parts to leave off

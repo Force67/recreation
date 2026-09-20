@@ -49,6 +49,11 @@ public static class Commands
         Registry[name] = new Entry(requiredAce, handler);
     }
 
+    // True when a command of this name is registered. The console needs it: it
+    // has to tell an operator that a command does not exist, which Execute
+    // deliberately will not do for a player probing over the wire.
+    public static bool Has(string name) => Registry.ContainsKey(name);
+
     // Invoke a command. A client forwards it to the host; the host (and standalone)
     // runs it locally as the local player.
     public static void Run(string name, params string[] args)

@@ -219,9 +219,9 @@ void InteractionSystem::UpdateInteraction(bool activate_pressed) {
       if (ctx_.client_session && ctx_.client_session->joined())
         ctx_.client_session->SendActivate(handle);
       else
-        RaiseActivate(handle);
+        RaiseActivate(handle, actors_->PlayerEntity());
 #else
-      RaiseActivate(handle);
+      RaiseActivate(handle, actors_->PlayerEntity());
 #endif
     } else if (TryOpenContainer(handle)) {
       // Opened a container's loot view.
@@ -231,9 +231,9 @@ void InteractionSystem::UpdateInteraction(bool activate_pressed) {
       if (ctx_.client_session && ctx_.client_session->joined())
         ctx_.client_session->SendActivate(handle);
       else
-        RaiseActivate(handle);
+        RaiseActivate(handle, actors_->PlayerEntity());
 #else
-      RaiseActivate(handle);
+      RaiseActivate(handle, actors_->PlayerEntity());
 #endif
 #if RECREATION_HAS_NET
     } else if (ctx_.client_session && ctx_.client_session->joined()) {
@@ -241,10 +241,10 @@ void InteractionSystem::UpdateInteraction(bool activate_pressed) {
       // server, which runs the pickup (and every other OnActivate response).
       ctx_.client_session->SendActivate(handle);
 #endif
-    } else if (ctx_.items && ctx_.items->TryPickUp(handle)) {
+    } else if (ctx_.items && ctx_.items->TryPickUp(handle, actors_->PlayerEntity())) {
       // Loose item picked up into the inventory (host / single-player).
     } else {
-      RaiseActivate(handle);
+      RaiseActivate(handle, actors_->PlayerEntity());
     }
   }
 }
@@ -452,11 +452,11 @@ void InteractionSystem::UpdateDialogueInput(const InputState& input, const Actio
     SelectDialogueOption(3);
 }
 
-void InteractionSystem::RaiseActivate(u64 handle) {
+void InteractionSystem::RaiseActivate(u64 handle, ecs::Entity actor) {
   // Authoritative pickup: a client's activation request lands here on the server,
   // so try the item pickup first (idempotent, host/single-player already handled
   // it in UpdateInteraction, so this only fires for a routed client request).
-  if (ctx_.items && ctx_.items->TryPickUp(handle))
+  if (ctx_.items && ctx_.items->TryPickUp(handle, actor))
     return;
   if (!ctx_.scripts)
     return;
@@ -498,7 +498,7 @@ bool InteractionSystem::RaiseRemoteActivate(u32 peer, ecs::Entity player, u64 ha
     RX_WARN("net: rejected activation of 0x{:x} from peer {}", handle, peer);
     return false;
   }
-  RaiseActivate(handle);
+  RaiseActivate(handle, player);
   return true;
 }
 

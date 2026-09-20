@@ -143,6 +143,19 @@ bool Director::ResumeWeather(const WeatherDef& weather, f64 game_days, f32 game_
   return false;
 }
 
+bool Director::AlignWeather(u64 form, f64 game_days) {
+  if (form == 0)
+    return false;
+  // Already in force: reseeding would only disturb the strike schedule and the
+  // cross-fade for no visible gain.
+  if (ActiveForm(game_days) == form)
+    return true;
+  const WeatherDef* def = pool_.find(form);
+  if (!def)
+    return false;
+  return ResumeWeather(*def, game_days, last_anchor_game_.x, last_anchor_game_.y);
+}
+
 void Director::SetOverride(const WeatherState* state) {
   override_ = state != nullptr;
   if (state)
@@ -425,6 +438,8 @@ void Director::UpdateAudio(const Tick& tick) {
 }
 
 void Director::Update(const Tick& tick, render::WeatherSettings* out, render::RenderSettings* sky) {
+  // Remembered for AlignWeather, which has no tick of its own.
+  last_anchor_game_ = {tick.anchor.x * kEngineToGame, -tick.anchor.z * kEngineToGame};
   ResolveRegion(tick);
 
   // The frame's blended state: the override verbatim, else the climate's

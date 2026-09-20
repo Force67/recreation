@@ -71,6 +71,25 @@ void TestPureHelpers() {
   Check("misses a target to the side (outside arc)", !InMeleeArc(a, beside, face, 3.0f, 0.35f));
   Check("misses a target out of reach", !InMeleeArc(a, far_ahead, face, 3.0f, 0.35f));
 
+  // Picking which of several bodies a swing lands on. This is what a host runs
+  // when a client asks it to resolve a swing: the caller hands over everyone
+  // eligible, and the nearest one inside the arc takes it.
+  const MeleeCandidate around[] = {
+      {.position = {0, 0, -2.5f}, .id = 11},  // ahead, further
+      {.position = {0, 0, -1.0f}, .id = 22},  // ahead, nearer
+      {.position = {0, 0, 2.0f}, .id = 33},   // behind
+      {.position = {2.5f, 0, 0}, .id = 44},   // beside, outside the arc
+  };
+  const int picked = PickMeleeTarget(a, face, around, 4, 3.0f, 0.35f);
+  Check("the swing lands on the nearest body in front", picked == 1 && around[picked].id == 22);
+  const MeleeCandidate behind_only[] = {{.position = {0, 0, 2.0f}, .id = 33}};
+  Check("a swing with only bodies behind it connects with nothing",
+        PickMeleeTarget(a, face, behind_only, 1, 3.0f, 0.35f) == -1);
+  const MeleeCandidate out_of_reach[] = {{.position = {0, 0, -9.0f}, .id = 55}};
+  Check("a body out of reach is not a target",
+        PickMeleeTarget(a, face, out_of_reach, 1, 3.0f, 0.35f) == -1);
+  Check("nobody to hit is not a hit", PickMeleeTarget(a, face, nullptr, 0, 3.0f, 0.35f) == -1);
+
   CombatParams p;
   Check("swing damage at mid roll == base", Near(SwingDamage(p, 0.5f), p.base_damage, 0.5f));
   Check("swing damage min roll < base", SwingDamage(p, 0.0f) < p.base_damage);

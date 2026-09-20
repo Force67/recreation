@@ -1,7 +1,9 @@
 #ifndef RECREATION_RUNTIME_INTERACTION_ITEM_BRIDGE_H_
 #define RECREATION_RUNTIME_INTERACTION_ITEM_BRIDGE_H_
 
+#include <base/containers/pair.h>
 #include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
 #include <base/containers/unordered_set.h>
 #include <base/strings/xstring.h>
 
@@ -38,23 +40,58 @@ class ItemBridge {
   // "Take" verb and route activation here.
   bool IsItemBase(bethesda::GlobalFormId base) const;
 
-  // Activation handler: if `ref_handle` is a loose item reference, adds it to the
-  // player's inventory, removes the world reference persistently, toasts, and
+  // Activation handler: if `ref_handle` is a loose item reference, adds it to
+  // `picker`'s inventory, removes the world reference persistently, toasts, and
   // returns true. Returns false (does nothing) when the ref is not an item, so
-  // the caller falls through to its other affordances. Host / single-player
-  // authoritative (a client routes activation to the server, which calls this).
-  bool TryPickUp(u64 ref_handle);
+  // the caller falls through to its other affordances.
+  //
+  // Only ever called where the world is owned: single player, or the host on
+  // behalf of whichever player activated the reference. `picker` is that player,
+  // which is why it is a parameter rather than "the local player" -- a dedicated
+  // server has no local player at all, and on a listen host crediting the local
+  // one would hand a client's find to whoever is hosting.
+  bool TryPickUp(u64 ref_handle, ecs::Entity picker);
 
-  // Drops the most recently added inventory stack in front of the player as a
-  // dynamic physics body with a small forward toss. No-op when the inventory is
-  // empty or no player exists. Bound to the drop keybind.
+  // Drops `dropper`'s most recently added stack into the world at `from`, tossed
+  // along `facing` (a planar unit vector), as a dynamic physics body. The world
+  // item it creates is host-owned and replicates to every client.
+  void DropLastFrom(ecs::Entity dropper, const Vec3& from, const Vec3& facing);
+
+  // Every piece of loot in the world right now, with the base record it came out
+  // of. The host walks this to give each item a replicated identity, which is how
+  // loot becomes one world's loot rather than one machine's.
+  //
+  // A list rather than a drop hook on purpose: an item's entity is destroyed when
+  // it hibernates out of range and a fresh one is built when it wakes, so hooks
+  // on the drop would miss most of an item's life. Reconciling against the truth
+  // each tick covers drop, wake, hibernate and pickup with one rule. Cheap: the
+  // loot field is small and mostly asleep.
+  void CollectWorldItems(
+      base::Vector<base::Pair<ecs::Entity, bethesda::GlobalFormId>>* out) const;
+
+  // Gives a replicated item its visuals: a client's snapshot spawns the entity
+  // and its transform, and this attaches the mesh of `base` so it draws. False
+  // when the base has no world model (an ARMO, say), which draws nothing either
+  // way. No physics: the host owns the item's motion, the transform arrives
+  // interpolated.
+  bool ShowReplicatedItem(ecs::Entity item, bethesda::GlobalFormId base);
+
+  // The local player's drop, aimed with the walk camera: what the drop keybind
+  // runs in single player and on a listen host. A connected client sends a
+  // request instead and the host runs DropLastFrom for its body.
   void DropLast();
 
-  // Per-frame maintenance keyed on the player position: mirrors awake body
-  // transforms into ECS transforms, hibernates settled items beyond the far
-  // radius into the spatial store, wakes stored items back near the player, and
-  // periodically autosaves. Cheap once the loot field has settled.
-  void Update(f32 dt);
+  // Per-frame maintenance: mirrors awake body transforms into ECS transforms,
+  // wakes stored items back near a player, hibernates settled items far from
+  // everyone into the spatial store, and periodically autosaves. Cheap once the
+  // loot field has settled.
+  //
+  // `player_anchors` is every player the loot field should stay awake around, in
+  // engine space. A dedicated server has no local player at all, which is why
+  // they are passed in rather than read from the actor system: mirroring bodies
+  // into transforms is what makes dropped loot fall for everyone watching, so it
+  // cannot depend on somebody standing here.
+  void Update(f32 dt, const base::Vector<Vec3>& player_anchors);
 
   // Attaches the player's Inventory (+ stable Guid so save/load reattaches) and
   // loads any persisted state. Call once, after the player entity exists.
@@ -92,6 +129,11 @@ class ItemBridge {
   // Inventory the world actually plays with. Returns the number of stacks.
   u32 SeedFromSavegame();
   // The player's Inventory component entity (creates the component lazily).
+  // Ensures `holder` carries an Inventory, and returns it. The local player also
+  // gets the stable Guid its persisted inventory reattaches to; a networked
+  // player's does not, because that Guid is the save key and only one entity may
+  // own it.
+  ecs::Entity InventoryEntityFor(ecs::Entity holder);
   ecs::Entity PlayerInventoryEntity();
   // Localized display name (FULL) of a record, empty when it has none.
   base::String RecordNameFor(bethesda::GlobalFormId id) const;

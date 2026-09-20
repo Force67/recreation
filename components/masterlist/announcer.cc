@@ -67,9 +67,12 @@ bool Announcer::Wait(u32 seconds) {
 
 void Announcer::Run(base::String base_url, ServerInfo info) {
   Client client(base_url);
-  // Shorter than the client's default: Stop() joins this thread, so whatever a
-  // call is waiting on is what the player waits on when they quit.
+  // Stop() joins this thread, so whatever a call is waiting on is what the
+  // player waits on when they quit. The stop flag goes to the client: a call in
+  // flight is abandoned within a wake tick instead of running to its timeout.
   client.set_timeout_ms(4000);
+  client.set_total_timeout_ms(15000);
+  client.set_cancel(&stop_);
   base::String token;
   u32 heartbeat_secs = 30;
   u32 retry_secs = kFirstRetrySecs;
@@ -99,6 +102,10 @@ void Announcer::Run(base::String base_url, ServerInfo info) {
           status_ = result.error;
           listed_ = false;
         }
+        // A cancel is this thread being told to stop, not the list failing.
+        // Leave without the warning and without the backoff wait.
+        if (result.cancelled)
+          break;
         RX_WARN("masterlist: announce failed ({}), retrying in {}s", result.error.c_str(),
                 retry_secs);
         if (!Wait(retry_secs))

@@ -243,6 +243,10 @@ bool LoadGameData(Engine& engine) {
     const mem_size climate_size = climate.size();
     self->director_.SetContent(base::move(climate), base::move(regions),
                                0xBEE71Eull ^ static_cast<u64>(self->game_));
+    // Every WTHR the game authored, kept so a weather can be named by form
+    // alone: what a multiplayer host puts on the wire, and what a script asks
+    // for. The climate is only a spread over a handful of them.
+    self->director_.SetWeatherPool(base::move(weathers));
     self->director_.set_ap_base(self->renderer_->settings().aerial_perspective);
     self->director_.set_cloudscape(Cloudscape.get());
     RX_INFO("weather: {} WTHR records, climate {} entries{}", n, climate_size,
@@ -432,6 +436,42 @@ bool LoadGameData(Engine& engine) {
       });
       guest->set_on_platform_hud([self](const base::String& type, const base::String& func,
                                         const base::Vector<rx::script::papyrus::Value>& args) {
+        // Replicated vitals ride to the server session, not the HUD. Without a
+        // session (a client, single-player) the call is ignored; the platform
+        // sink below ignores every (type, func) it does not know.
+        if (type == "Net" && func == "SetPlayerHealth" && self->server_session_ &&
+            args.size() >= 3) {
+          self->server_session_->SetPlayerHealth(
+              static_cast<u32>(args[0].ToInt()),
+              static_cast<u16>(base::Clamp(args[1].ToInt(), 0, 0xffff)),
+              static_cast<u16>(base::Clamp(args[2].ToInt(), 0, 0xffff)),
+              args.size() >= 4 && args[3].ToInt() != 0);
+          return;
+        }
+        if (type == "Net" && func == "RespawnPlayer" && self->server_session_ &&
+            !args.empty()) {
+          const u32 peer = static_cast<u32>(args[0].ToInt());
+          std::lock_guard<std::mutex> lock(self->respawn_mutex_);
+          self->respawn_requests_.push_back(peer);
+          return;
+        }
+        if (type == "Net" && func == "Kick" && self->server_session_ && !args.empty()) {
+          self->server_session_->Kick(static_cast<u32>(args[0].ToInt()));
+          return;
+        }
+        // The shared world is not HUD either: queue it for the main thread,
+        // which owns the clock and the weather director.
+        if (type == "World" && !args.empty()) {
+          if (func == "SetTime") {
+            self->requested_hour_.store(std::fmod(base::Max(args[0].ToFloat(), 0.0f), 24.0f),
+                                        std::memory_order_relaxed);
+            return;
+          }
+          if (func == "SetWeather") {
+            self->requested_weather_.store(args[0].as_object().handle, std::memory_order_relaxed);
+            return;
+          }
+        }
         self->platform_hud_.Submit(type, func, args);
       });
       guest->set_local_pos_provider([self]() { return self->platform_hud_.LocalPos(); });
@@ -717,6 +757,9 @@ bool LoadGameData(Engine& engine) {
   // downward, out through the floor (see CellStreamer::kGroundClearance).
   self->actors_->MaybeSpawnWorldPlayer(
       {start.x, ground + world::CellStreamer::kGroundClearance, start.z});
+  // Remember the game's start position as the multiplayer spawn: the host drops
+  // every joining player here (see the player spawn sink in networking.cc).
+  self->net_spawn_ = {start.x, ground + world::CellStreamer::kGroundClearance, start.z};
   PlaceSavegamePlayer(engine);
   self->showcase_regions_.push_back({{start.x, ground, start.z},
                                      base::String(profile.name),

@@ -942,8 +942,7 @@ void ActorSystem::LoadBuiltinActorTemplate(Actor* out) {
   out->parts.push_back(base::move(part));
 }
 
-bool ActorSystem::SpawnPlayerActor(const Vec3& pos) {
-  Actor actor;
+bool ActorSystem::BuildPlayerBody(Actor& actor) {
   const bool starfield = ctx_.game == bethesda::Game::kStarfield;
   const bool fallout =
       ctx_.game == bethesda::Game::kFallout3 || ctx_.game == bethesda::Game::kFalloutNv;
@@ -962,9 +961,9 @@ bool ActorSystem::SpawnPlayerActor(const Vec3& pos) {
                                 bethesda::GlobalFormId{0, kPlayerRef}, &covered);
   }
 
-  bool loaded = starfield ? LoadStarfieldActorTemplate(&actor)
-                : fallout ? LoadFalloutActorTemplate(&actor)
-                          : LoadActorTemplate(&actor, 0, covered);
+  const bool loaded = starfield ? LoadStarfieldActorTemplate(&actor)
+                      : fallout ? LoadFalloutActorTemplate(&actor)
+                                : LoadActorTemplate(&actor, 0, covered);
   if (!loaded)
     return false;
   // Skyrim bodies carry no head. The player's own face is normally the plugin's
@@ -983,40 +982,47 @@ bool ActorSystem::SpawnPlayerActor(const Vec3& pos) {
             worn.size(), covered);
   }
 
-  actor.entity = world_.Create();
-  world_.Add(actor.entity, world::Transform{.position = {pos.x, pos.y, pos.z}});
   actor.animate = true;
-  actor.speed = 0.0f;  // idle until walk input arrives
+  actor.speed = 0.0f;  // idle until the gait feed says otherwise
   actor.foot_ik = true;
   // Foot IK ankle height is measured in the skeleton's own units. Skyrim's
   // skeleton is game units (~70/m), Starfield's is metres, so the same ~0.086m
   // sole-to-ankle offset is 6 there but 0.086 here.
   actor.ankle_height = starfield ? 0.086f : 6.0f;
 
+  // Bind to the shared idle/walk/run locomotion machine (real Skyrim clips +
+  // walk<->run blend space + foot-sync markers) so the gait reads off the
+  // actual planar speed and the feet plant instead of sliding. Capsule-driven:
+  // the machine only POSES the body (loco_apply_root stays false) -- position
+  // is owned by whatever drives the transform (the local character controller,
+  // or the replicated transform of a remote player). The per-actor anti-slide
+  // playback-rate sync (GaitPlaybackRate) keys on loco_apply_root==false, so it
+  // applies to players but not the root-motion showcase actor. Falls back to
+  // the procedural gait when the clips are absent (BuildCharacterLocomotion ->
+  // null -> AttachLocomotion no-ops), so a missing-data session keeps working.
+  if (skyrim) {
+    const base::String skel_hkx = "meshes/actors/character/character assets/skeleton.hkx";
+    if (auto arch = BuildCharacterLocomotion(actor, skel_hkx, "character")) {
+      AttachLocomotion(actor, arch);
+      actor.foot_ik = true;  // AttachLocomotion clears it; keep ground-adaptive feet on stairs
+    }
+  }
+  return true;
+}
+
+bool ActorSystem::SpawnPlayerActor(const Vec3& pos) {
+  Actor actor;
+  if (!BuildPlayerBody(actor))
+    return false;
+
+  actor.entity = world_.Create();
+  world_.Add(actor.entity, world::Transform{.position = {pos.x, pos.y, pos.z}});
+
   // Character capsule the walk mode drives. Capsule half-height+radius = 0.85,
   // so the entity origin (feet) rests at pos.y on the ground.
   actor.capsule_offset = 0.85f;
   actor.character =
       physics_.CreateCharacter({pos.x, pos.y + actor.capsule_offset, pos.z}, 0.3f, 0.55f);
-
-  // Bind the player to the shared idle/walk/run locomotion machine (real Skyrim
-  // clips + walk<->run blend space + foot-sync markers) so the gait reads off the
-  // actual planar speed and the feet plant instead of sliding. Capsule-driven: the
-  // machine only POSES the body (loco_apply_root stays false) -- position is owned
-  // by the rx character controller (PlayerController). The per-actor anti-slide
-  // playback-rate sync (GaitPlaybackRate) keys on loco_apply_root==false, so it
-  // applies to the player but not the root-motion showcase actor. Falls back to the
-  // procedural gait when the clips are absent (BuildCharacterLocomotion -> null ->
-  // AttachLocomotion no-ops), so a missing-data session keeps the old behaviour.
-  if (ctx_.game == bethesda::Game::kSkyrimSe) {
-    const base::String skel_hkx = "meshes/actors/character/character assets/skeleton.hkx";
-    if (auto arch = BuildCharacterLocomotion(actor, skel_hkx, "character")) {
-      AttachLocomotion(actor, arch);
-      actor.foot_ik = true;  // AttachLocomotion clears it; keep ground-adaptive feet on stairs
-      RX_INFO(
-          "player: bound to the idle/walk/run locomotion machine (anti foot-slide rate sync on)");
-    }
-  }
 
   player_actor_ = static_cast<i32>(actors_.size());
   actors_.push_back(base::move(actor));
@@ -2623,6 +2629,33 @@ void ActorSystem::SyncNpcActors() {
   }
 }
 
+// Every PlayerAvatar entity that has no body yet (a remote player whose
+// snapshot just spawned, the listen host's own wire body) gets a skinned actor
+// instanced from the local player's template: same body, FaceGen head and
+// armour, and the same locomotion machine, so a remote player walks exactly
+// like the local one does. The replicated transform drives the position and
+// TickInterpolation's velocity feeds the gait, like every other net-driven
+// body. Cleanup of vanished players rides SyncNpcActors' shared actor map.
+void ActorSystem::SyncPlayerAvatars() {
+  if (config_.headless)
+    return;
+  world_.Each<world::PlayerAvatar, world::Transform>(
+      [&](ecs::Entity e, world::PlayerAvatar&, world::Transform&) {
+        if (world_.Has<world::Hidden>(e) || world_.Has<world::Deleted>(e))
+          return;
+        const u64 key = static_cast<u64>(e.generation) << 32 | e.index;
+        if (npc_actors_.find(key))
+          return;
+        Actor a;
+        if (!BuildPlayerBody(a))
+          return;  // game data not loaded yet; retry next tick
+        a.entity = e;
+        a.character = 0;
+        a.external_position = true;  // the replicated transform drives it
+        npc_actors_.insert(key, base::move(a));
+      });
+}
+
 void ActorSystem::SyncSolidBodies() {
   if (config_.headless || !physics_.initialized())
     return;
@@ -2648,9 +2681,20 @@ void ActorSystem::SyncSolidBodies() {
   });
   // Other (networked) players are solid too; never block the local player itself.
 #if RECREATION_HAS_NET
+  // Nor the client's own server-side ghost: the host keeps a transform for
+  // every player including you, and standing inside it must not shove anyone.
+  const u64 own_net_id = (ctx_.client_session && ctx_.client_session->joined())
+                             ? ctx_.client_session->player_net_id()
+                             : 0;
   world_.Each<net::NetworkId, world::Transform>(
-      [&](ecs::Entity e, net::NetworkId&, world::Transform& t) {
+      [&](ecs::Entity e, net::NetworkId& id, world::Transform& t) {
         if (e.index == local.index && e.generation == local.generation)
+          return;
+        if (own_net_id != 0 && id.value == own_net_id)
+          return;
+        // A server-driven player body carries its own physics character; the
+        // extra kinematic capsule would collide with it and jitter the body.
+        if (world_.Has<character::CharacterBody>(e))
           return;
         ensure(e, t);
       });

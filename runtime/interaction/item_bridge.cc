@@ -185,16 +185,22 @@ bool ItemBridge::IsItemBase(bethesda::GlobalFormId base) const {
   return stored && IsItemType(stored->header.type);
 }
 
-ecs::Entity ItemBridge::PlayerInventoryEntity() {
-  ecs::Entity player = actors_->PlayerEntity();
-  if (!ctx_.world->IsAlive(player))
+ecs::Entity ItemBridge::InventoryEntityFor(ecs::Entity holder) {
+  if (!ctx_.world->IsAlive(holder))
     return ecs::kInvalidEntity;
-  if (!ctx_.world->Has<inventory::Inventory>(player)) {
-    ctx_.world->Add(player, inventory::Inventory{});
-    // A stable Guid so the saved inventory reattaches to next session's player.
-    if (!ctx_.world->Has<scene::Guid>(player))
-      ctx_.world->Add(player, scene::Guid{kPlayerInventoryGuid});
-  }
+  if (!ctx_.world->Has<inventory::Inventory>(holder))
+    ctx_.world->Add(holder, inventory::Inventory{});
+  return holder;
+}
+
+ecs::Entity ItemBridge::PlayerInventoryEntity() {
+  const ecs::Entity player = InventoryEntityFor(actors_->PlayerEntity());
+  if (player == ecs::kInvalidEntity)
+    return ecs::kInvalidEntity;
+  // A stable Guid so the saved inventory reattaches to next session's player.
+  // Only the local player carries it: it is the key the save is written under.
+  if (!ctx_.world->Has<scene::Guid>(player))
+    ctx_.world->Add(player, scene::Guid{kPlayerInventoryGuid});
   return player;
 }
 
@@ -344,7 +350,7 @@ void ItemBridge::EnsureWorldModel(inventory::ItemDefId def) {
   defs_without_model_.erase(def);
 }
 
-bool ItemBridge::TryPickUp(u64 ref_handle) {
+bool ItemBridge::TryPickUp(u64 ref_handle, ecs::Entity picker) {
   if (!ctx_.records || !ctx_.world)
     return false;
   if (removed_refs_.count(ref_handle))
@@ -371,8 +377,8 @@ bool ItemBridge::TryPickUp(u64 ref_handle) {
   if (def == inventory::kInvalidItemDef)
     return false;
 
-  const ecs::Entity player = PlayerInventoryEntity();
-  if (!ctx_.world->IsAlive(player))
+  const ecs::Entity player = InventoryEntityFor(picker);
+  if (player == ecs::kInvalidEntity)
     return false;
   inventory::Inventory* inv = ctx_.world->Get<inventory::Inventory>(player);
   if (!inv)
@@ -438,10 +444,25 @@ base::String ItemBridge::RecordNameFor(bethesda::GlobalFormId id) const {
 }
 
 void ItemBridge::DropLast() {
-  if (!ctx_.world || !ctx_.physics)
+  if (!ctx_.world)
     return;
   const ecs::Entity player = PlayerInventoryEntity();
-  if (!ctx_.world->IsAlive(player))
+  Vec3 ppos;
+  if (player == ecs::kInvalidEntity || !actors_->PlayerWorldPos(&ppos))
+    return;
+  // Horizontal facing from the walk camera: the local player aims with the view.
+  Vec3 fwd = ctx_.walk_target - ctx_.walk_eye;
+  fwd.y = 0.0f;
+  const f32 len = std::sqrt(fwd.x * fwd.x + fwd.z * fwd.z);
+  fwd = len > 1e-4f ? Vec3{fwd.x / len, 0.0f, fwd.z / len} : Vec3{0, 0, 1};
+  DropLastFrom(player, ppos, fwd);
+}
+
+void ItemBridge::DropLastFrom(ecs::Entity dropper, const Vec3& from, const Vec3& facing) {
+  if (!ctx_.world || !ctx_.physics)
+    return;
+  const ecs::Entity player = InventoryEntityFor(dropper);
+  if (player == ecs::kInvalidEntity)
     return;
   inventory::Inventory* inv = ctx_.world->Get<inventory::Inventory>(player);
   if (!inv)
@@ -461,19 +482,12 @@ void ItemBridge::DropLast() {
     return;
   }
 
-  Vec3 ppos;
-  if (!actors_->PlayerWorldPos(&ppos))
-    return;
-  // Horizontal facing from the walk camera; drop in front at chest height.
-  Vec3 fwd = ctx_.walk_target - ctx_.walk_eye;
-  fwd.y = 0.0f;
-  const f32 len = std::sqrt(fwd.x * fwd.x + fwd.z * fwd.z);
-  fwd = len > 1e-4f ? Vec3{fwd.x / len, 0.0f, fwd.z / len} : Vec3{0, 0, 1};
-
+  // In front of the dropper at chest height.
+  const Vec3& fwd = facing;
   scene::Transform spawn;
-  spawn.position[0] = ppos.x + fwd.x * 0.6f;
-  spawn.position[1] = ppos.y + 1.0f;
-  spawn.position[2] = ppos.z + fwd.z * 0.6f;
+  spawn.position[0] = from.x + fwd.x * 0.6f;
+  spawn.position[1] = from.y + 1.0f;
+  spawn.position[2] = from.z + fwd.z * 0.6f;
   spawn.rotation[0] = 0;
   spawn.rotation[1] = 0;
   spawn.rotation[2] = 0;
@@ -494,9 +508,9 @@ void ItemBridge::DropLast() {
   if (dropped == ecs::kInvalidEntity)
     return;
 
-  base::String display = def ? RecordNameFor(def_to_base_.count(item) ? def_to_base_.at(item)
-                                                                      : bethesda::GlobalFormId{})
-                             : base::String();
+  const bethesda::GlobalFormId dropped_base =
+      def_to_base_.count(item) ? def_to_base_.at(item) : bethesda::GlobalFormId{};
+  base::String display = def ? RecordNameFor(dropped_base) : base::String();
   if (display.empty())
     display = "item";
   if (ctx_.game_ui)
@@ -506,26 +520,66 @@ void ItemBridge::DropLast() {
   Save();
 }
 
-void ItemBridge::Update(f32 dt) {
+void ItemBridge::CollectWorldItems(
+    base::Vector<base::Pair<ecs::Entity, bethesda::GlobalFormId>>* out) const {
+  if (!out || !ctx_.world)
+    return;
+  ctx_.world->Each<inventory::WorldItem>([&](ecs::Entity entity, inventory::WorldItem& item) {
+    const bethesda::GlobalFormId* base = def_to_base_.find(item.item);
+    if (!base)
+      return;  // no base behind this def (a savegame's invented form): not placeable
+    out->push_back(base::Pair<ecs::Entity, bethesda::GlobalFormId>{entity, *base});
+  });
+}
+
+bool ItemBridge::ShowReplicatedItem(ecs::Entity item, bethesda::GlobalFormId base) {
+  if (!ctx_.world || !ctx_.world->IsAlive(item) || base.packed() == 0)
+    return false;
+  const inventory::ItemDefId def_id = DefForBase(base);
+  if (def_id == inventory::kInvalidItemDef)
+    return false;
+  EnsureWorldModel(def_id);
+  const inventory::ItemDef* def = catalog_.Find(def_id);
+  if (!def || !def->world_mesh)
+    return false;  // no authored world model: nothing to draw, here or anywhere
+  if (!ctx_.world->Has<scene::Renderable>(item))
+    ctx_.world->Add(item, scene::Renderable{def->world_mesh});
+  // The NIF renders at world size, as it does for a placed ref and for the
+  // host's own copy of this item.
+  if (scene::Transform* t = ctx_.world->Get<scene::Transform>(item))
+    t->scale = kUnitsToMeters;
+  return true;
+}
+
+void ItemBridge::Update(f32 dt, const base::Vector<Vec3>& player_anchors) {
   if (!ctx_.world || !ctx_.physics)
     return;
   if (!loaded_ && actors_->HasPlayer())
     OnPlayerReady();
-  Vec3 ppos;
-  if (!actors_->PlayerWorldPos(&ppos))
-    return;
 
-  // Mirror awake body transforms into ECS transforms, then hibernate settled
-  // loot beyond the far radius into the store and wake stored loot back near the
-  // player. Radii: hibernate comfortably past the streaming bubble (load_radius 3
-  // cells ~ 175 m), wake smaller for hysteresis so a boundary item never thrashes.
+  // Mirror awake body transforms into ECS transforms. Unconditional, and before
+  // anything else: this is what makes a dropped item fall, and on a host it is
+  // what every client sees of it. A dedicated server has nobody standing here and
+  // still owns the loot.
   inventory::SyncWorldItems(*ctx_.world, *ctx_.physics);
+
+  // Radii: hibernate comfortably past the streaming bubble (load_radius 3 cells
+  // ~ 175 m), wake smaller for hysteresis so a boundary item never thrashes.
   constexpr f32 kHibernateRadius = 256.0f;
   constexpr f32 kWakeRadius = 192.0f;
-  inventory::HibernateDistantWorldItems(*ctx_.world, *ctx_.physics, world_store_, ppos,
-                                        kHibernateRadius);
-  inventory::WakeWorldItemsNear(*ctx_.world, *ctx_.physics, catalog_, world_store_, ppos,
-                                kWakeRadius);
+  for (const Vec3& anchor : player_anchors) {
+    inventory::WakeWorldItemsNear(*ctx_.world, *ctx_.physics, catalog_, world_store_, anchor,
+                                  kWakeRadius);
+  }
+  // Hibernation is "far from everyone", which a single-centre sweep cannot say.
+  // With one player it is exactly that sweep; with several the loot field simply
+  // stays awake, because putting an item to sleep for being far from one player
+  // would take it out from under another standing on top of it. A busy server
+  // keeping its loot resident is the cheaper mistake of the two.
+  if (player_anchors.size() == 1) {
+    inventory::HibernateDistantWorldItems(*ctx_.world, *ctx_.physics, world_store_,
+                                          player_anchors[0], kHibernateRadius);
+  }
 
   // Cheap periodic autosave (blobs are tiny); pickups/drops also save on the spot.
   autosave_timer_ += dt;
@@ -585,7 +639,7 @@ void ItemBridge::MaybeRunProbe(f32 dt) {
     return;
   }
   RX_INFO("ITEM_PROBE: nearest item ref 0x{:x} at {:.1f} m; picking up", best, std::sqrt(best_d2));
-  const bool picked = TryPickUp(best);
+  const bool picked = TryPickUp(best, actors_->PlayerEntity());
   RX_INFO("ITEM_PROBE: pickup {} -> inventory has {} stack(s)", picked ? "OK" : "FAILED", [&] {
     const ecs::Entity p = actors_->PlayerEntity();
     const inventory::Inventory* inv = ctx_.world->Get<inventory::Inventory>(p);

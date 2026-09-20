@@ -6,6 +6,12 @@
        and the value/marshalling types. Run with `dotnet run`; it exits with the
        failure count. The native-boundary code (Native, the bridge) is covered
        end to end by the pexrun hosttest instead. -->
+  <!-- The fixtures/ subtree has projects of its own; their sources (and their
+       generated obj sources) must not leak into this project's default globs. -->
+  <ItemGroup>
+    <Compile Remove="fixtures/**" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -25,6 +31,15 @@
     <ProjectReference Include="..\default_gamemodes\Starfield\Recreation.Starfield.csproj" />
     <ProjectReference Include="..\default_gamemodes\SkyrimCartRacing\Recreation.SkyrimCartRacing.csproj" />
     <ProjectReference Include="..\default_gamemodes\TourDeRecreation\Recreation.TourDeRecreation.csproj" />
+  </ItemGroup>
+
+  <!-- The streamed-script fixtures build alongside the tests but stay out of
+       the test output directory (Private=false): the streamed-loader tests
+       reach them in their own bin dirs, and the directory-loading tests must
+       not pick them up. -->
+  <ItemGroup>
+    <ProjectReference Include="fixtures\StreamedDepLib\StreamedDepLib.csproj" Private="false" />
+    <ProjectReference Include="fixtures\StreamedUsesDep\StreamedUsesDep.csproj" Private="false" />
   </ItemGroup>
 
 </Project>

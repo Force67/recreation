@@ -335,11 +335,10 @@ void QuestDirector::AttachQuestScripts() {
     }
   }
 
-  // The scripted MQ101 playthroughs run host-authoritatively: they drive quest
-  // stages and steer NPCs, which a multiplayer client only mirrors via quest /
-  // actor replication. Arming them on a client would push stage changes the
-  // guest discards in replica mode and steer NPCs the host already owns.
-  const bool host = ctx_.config->connect_address.empty();
+  // The scripted MQ101 playthroughs drive quest stages and steer NPCs, which a
+  // replica only mirrors through quest and actor replication. Arming them there
+  // would be a second world pushing at the first.
+  const bool host = ctx_.simulates();
 
   // RX_MQ101_DEMO seeds a playable slice of the first main quest: start MQ101
   // (its opening fragment surfaces the first objective), then the npc director
@@ -1515,12 +1514,10 @@ void QuestDirector::UpdateQuestHud(const base::Vector<quest::QuestStatus>& runni
 void QuestDirector::UpdateObjectiveMarkers(const base::Vector<quest::QuestStatus>& running) {
   // A multiplayer client never owns markers or triggers; it shows the host's
   // replicated marker, driven from its own camera.
-#if RECREATION_HAS_NET
-  if (ctx_.client_session) {
+  if (!ctx_.simulates()) {
     DriveObjectiveMarkerHud(remote_marker_active_, remote_marker_pos_);
     return;
   }
-#endif
 
   // A marker is armed when its own quest is running and its objective is the
   // current displayed-and-incomplete one. Checked per marker against its own

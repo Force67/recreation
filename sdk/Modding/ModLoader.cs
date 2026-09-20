@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -60,6 +61,84 @@ public static class ModLoader
             Console.WriteLine($"[mods] preloaded {loaded} assembl{(loaded == 1 ? "y" : "ies")} from {directory}");
         return loaded;
     }
+
+    // Loads the server-streamed client scripts: absolute paths of managed
+    // assemblies the joining client has already streamed and cached (and the
+    // player has agreed to run). Assemblies load into the engine's own load
+    // context so their SDK references bind to the types already in memory, and
+    // ModHost filters them by realm like any other mod. The paths may be in any
+    // order: a Resolving probe resolves a dependency from the same batch no
+    // matter which file names it first.
+    //
+    // The engine's load context is not collectible, so assemblies live for the
+    // process: a file the server re-streams under a new hash keeps its assembly
+    // name and is skipped with a note that a reconnect applies it.
+    public static int LoadStreamedScripts(IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0) return 0;
+        EnsureStreamedProbe();
+        // Register the whole batch before loading anything, so a dependency
+        // inside the batch resolves while its dependent is still loading,
+        // whatever order the files come in.
+        foreach (string path in paths)
+            if (!streamedPaths.Contains(path)) streamedPaths.Add(path);
+
+        int loaded = 0;
+        var assemblies = new List<Assembly>();
+        foreach (string path in paths)
+        {
+            string name = Path.GetFileNameWithoutExtension(path);
+            if (AlreadyLoaded(path))
+            {
+                Console.WriteLine(
+                    $"[mods] streamed script {name} is already loaded; a reconnect applies server changes to it");
+                continue;
+            }
+            Assembly? assembly = TryLoad(path);
+            if (assembly == null) continue;
+            assemblies.Add(assembly);
+            loaded++;
+        }
+        if (loaded > 0)
+        {
+            ModHost.LoadFrom(assemblies);
+            Console.WriteLine(
+                $"[mods] loaded {loaded} streamed client script(s) from the server");
+        }
+        return loaded;
+    }
+
+    // Registers (once) the Resolving hook that lets streamed assemblies satisfy
+    // each other's dependencies regardless of load order: when the runtime asks
+    // for an assembly nothing has loaded yet, the probe offers the batch's file
+    // whose name matches. Streamed files are content-store blobs on disk, so the
+    // probe matches exact recorded paths, not directory listings.
+    private static void EnsureStreamedProbe()
+    {
+        if (probeInstalled) return;
+        probeInstalled = true;
+        HostContext.Resolving += (context, name) =>
+        {
+            string? simpleName = name.Name;
+            if (string.IsNullOrEmpty(simpleName)) return null;
+            foreach (string path in streamedPaths)
+            {
+                if (path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(Path.GetFileNameWithoutExtension(path), simpleName,
+                                  StringComparison.OrdinalIgnoreCase))
+                {
+                    return context.LoadFromAssemblyPath(path);
+                }
+            }
+            return null;
+        };
+    }
+
+    // Every streamed client-script path offered this process, probed for missing
+    // dependencies. Entries persist so an assembly can still resolve against the
+    // batch it arrived in even after later batches load.
+    private static readonly List<string> streamedPaths = new();
+    private static bool probeInstalled;
 
     private static bool AlreadyLoaded(string path)
     {

@@ -31,6 +31,20 @@ enum class GameMessage : u16 {
   kAssetRequest = 136,     // client -> server: content hashes the client wants
   kAssetReady = 137,       // client -> server: the client finished streaming
   kWarMap = 138,           // server -> clients: the Civil War campaign board
+  kClientScripts = 139,    // server -> client: streamed files the server asks
+                           // the client to run as managed assemblies
+  kPlayerAvatar = 140,     // server -> clients: which entity is a player's
+                           // body, and its appearance form
+  kPlayerState = 141,      // server -> clients: a player entity's replicated
+                           // vitals (health, dead)
+  kWorldState = 142,       // server -> clients: the shared clock and the seed
+                           // the weather derives from
+  kPlayerAttack = 143,     // client -> server: a swing, and the aim it was
+                           // thrown with; the host resolves what it hit
+  kItemDrop = 144,         // client -> server: drop my most recent stack; the
+                           // host owns the pack it comes out of
+  kWorldItem = 145,        // server -> clients: which replica is loot on the
+                           // ground, and the base record to render it from
 };
 
 static_assert(static_cast<u16>(GameMessage::kQuestUpdate) >= kFirstGameMessage,

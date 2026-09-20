@@ -1,8 +1,6 @@
 #ifndef RECREATION_RUNTIME_ACTOR_PLAYER_CONTROLLER_H_
 #define RECREATION_RUNTIME_ACTOR_PLAYER_CONTROLLER_H_
 
-#include <base/containers/unordered_map.h>
-
 #include "character/character.h"
 #include "components/bethesda/movement_type.h"
 #include "core/math.h"
@@ -80,7 +78,6 @@ class PlayerController {
   ecs::Entity camera_output_{};  // CameraOutput sink read back each frame
 
   character::CharacterViewSettings view_settings_;
-  base::UnorderedMap<u64, bethesda::MovementType> movement_types_;
 
   // Third-person camera yaw is independent of the body heading (Skyrim: standing
   // still the camera orbits without turning the body). First person drives the

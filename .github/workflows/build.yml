@@ -15,7 +15,7 @@ on:
 # Pin them. Bumping is a deliberate edit of these four lines, which is also the
 # commit that carries whatever source changes the new revision needs.
 env:
-  RX_REF: 26345666e341d3ccf2cf1c631ccde4ec4bac6094  # main: the rx::ui splash module
+  RX_REF: 31c0476e12c738602753a628dfe94c6bf79319e9  # main: the net session accessors
   KINEMA_REF: 5cee20221bff4eba4027e99068c35261bb45a60b
   LIBULTRAGUI_REF: 03a73206ca6f1ec3bef9d7b229c1343d66b3722b  # main: fonts from memory
   ZETANET_REF: 80ed00c4c71a4a204d79a82636fa7819f046db18  # develop: explicit <string.h>

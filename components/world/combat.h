@@ -69,6 +69,40 @@ inline bool InMeleeArc(const f32 self[3],
   return (dx * fwd[0] + dz * fwd[2]) * inv >= arc_cos;
 }
 
+// One thing a swing could connect with: where it stands, and an id the caller
+// gives meaning to (a peer, a form, an entity).
+struct MeleeCandidate {
+  f32 position[3] = {0, 0, 0};
+  u64 id = 0;
+};
+
+// The candidate a swing from `self` along `fwd` connects with: the nearest one
+// inside the reach and the forward arc. Returns -1 when the swing hits nothing.
+// Pure so the target pick can be tested away from the ECS and the network: the
+// caller gathers who is eligible (the living, minus the attacker), this decides
+// which of them the blow lands on.
+inline int PickMeleeTarget(const f32 self[3],
+                           const f32 fwd[3],
+                           const MeleeCandidate* candidates,
+                           int count,
+                           f32 reach,
+                           f32 arc_cos) {
+  int best = -1;
+  f32 best_d2 = reach * reach;
+  for (int i = 0; i < count; ++i) {
+    const f32* p = candidates[i].position;
+    if (!InMeleeArc(self, p, fwd, reach, arc_cos))
+      continue;
+    const f32 dx = p[0] - self[0], dz = p[2] - self[2];
+    const f32 d2 = dx * dx + dz * dz;
+    if (d2 < best_d2) {
+      best_d2 = d2;
+      best = i;
+    }
+  }
+  return best;
+}
+
 // Damage for one connected swing: base scaled by a deterministic +/- variance
 // drawn from `roll01` in [0,1). Deterministic so a host and client (or a replay)
 // agree given the same seed sequence.

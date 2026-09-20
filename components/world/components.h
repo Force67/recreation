@@ -23,6 +23,28 @@ struct FormLink {
   bethesda::GlobalFormId form;
 };
 
+// Marks a replicated player entity as a body the actor system renders: the
+// server adds this to every joining player's entity (its own included), and
+// clients apply it to the local replica when the kPlayerAvatar message names
+// the entity. `base` selects the appearance: 0 means the game's default player
+// template (whatever the local player wears), a non-zero packed GlobalFormId
+// instances that NPC_ record instead. On the host the component is what makes
+// the character pipeline step the entity; without it a player entity is an
+// invisible transform.
+struct PlayerAvatar {
+  bethesda::GlobalFormId base{};
+};
+
+// Replicated vitals for a player entity (the kPlayerState message). The server
+// is authoritative; the engine combat system is not networked yet, so today a
+// host-side mod sets them through the Player.SetHealth SDK API and the value
+// rides the wire from there. `dead` mirrors the entity's Dead tag on the host.
+struct PlayerVitals {
+  u16 health = 0;
+  u16 max_health = 0;
+  bool dead = false;
+};
+
 // Logical runtime references generated for pack-in children keep the authored
 // template REFR here so interaction and script lookup can parse its record.
 struct SourceForm {

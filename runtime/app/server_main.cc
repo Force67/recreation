@@ -10,6 +10,8 @@
 
 #include "core/log.h"
 #include "runtime/app/engine.h"
+#include "runtime/app/server_config.h"
+#include "runtime/app/server_console.h"
 
 namespace {
 
@@ -31,6 +33,7 @@ void HandleReload(int) {
 
 void PrintUsage() {
   RX_INFO("usage: recreation-server [options]");
+  RX_INFO("  --config <path>       settings file (default: server.cfg, when present)");
   RX_INFO("  --data-dir <path>     game Data directory (omit for demo scene)");
   RX_INFO("  --plugins <path>      plugins.txt (default: <data-dir>/../plugins.txt)");
   RX_INFO("  --game <id>           skyrimse | fo4 | fo76 (default: autodetect)");
@@ -58,6 +61,43 @@ rx::bethesda::Game ParseGame(const base::String& id) {
   return rx::bethesda::Game::kUnknown;
 }
 
+// The settings file's own arguments, followed by the real command line, so a
+// flag an operator typed overrides what the file said. --config names the file;
+// server.cfg beside the working directory is the default when it exists.
+base::Vector<base::String> CollectArgs(int argc, char** argv, rx::ServerConfig* out_config) {
+  base::String path;
+  for (int i = 1; i + 1 < argc; ++i) {
+    if (base::String(argv[i]) == "--config")
+      path = argv[i + 1];
+  }
+  const bool explicit_path = !path.empty();
+  if (!explicit_path)
+    path = "server.cfg";
+
+  bool found = false;
+  *out_config = rx::LoadServerConfig(path, &found);
+  if (found)
+    RX_INFO("config: read {}", path.c_str());
+  else if (explicit_path)
+    RX_WARN("config: no file at '{}'", path.c_str());
+
+  for (const base::String& error : out_config->errors)
+    RX_WARN("config: {}", error.c_str());
+  // Convars now, not with the console lines: a subsystem that reads one while
+  // coming up (the bubble radius, say) is long past by the first frame.
+  for (const auto& [name, value] : out_config->convars) {
+    if (rx::SetConvar(name, value))
+      RX_INFO("config: {} = {}", name.c_str(), value.c_str());
+    else
+      RX_WARN("config: '{}' is not a convar this build has", name.c_str());
+  }
+
+  base::Vector<base::String> args = out_config->args;
+  for (int i = 1; i < argc; ++i)
+    args.push_back(base::String(argv[i]));
+  return args;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -69,11 +109,17 @@ int main(int argc, char** argv) {
   // the front screen's SOLO/FRIENDS/PUBLIC segment decides.
   config.announce = true;
 
-  for (int i = 1; i < argc; ++i) {
-    base::String arg = argv[i];
-    auto next = [&]() -> base::String { return i + 1 < argc ? argv[++i] : ""; };
+  rx::ServerConfig file;
+  const base::Vector<base::String> args = CollectArgs(argc, argv, &file);
+  config.startup_console_lines = file.console_lines;
 
-    if (arg == "--data-dir")
+  for (size_t i = 0; i < args.size(); ++i) {
+    const base::String& arg = args[i];
+    auto next = [&]() -> base::String { return i + 1 < args.size() ? args[++i] : ""; };
+
+    if (arg == "--config")
+      next();  // already read, before anything else could depend on it
+    else if (arg == "--data-dir")
       config.data_dir = next();
     else if (arg == "--plugins")
       config.plugins_txt = next();

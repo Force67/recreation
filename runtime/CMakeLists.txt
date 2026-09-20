@@ -7,6 +7,9 @@ set(RECREATION_RUNTIME_SOURCES
   app/platform_profile.cc
   app/networking.cc
   app/server_list.cc
+  app/script_trust.cc
+  app/server_console.cc
+  app/server_config.cc
   app/managed_rpc.cc
   app/content_load.cc
   app/savegame_load.cc
@@ -219,4 +222,8 @@ if(RECREATION_BUILD_TOOLS)
   recreation_add_test(ui/touch_pointertest rx::core)
   recreation_add_test(app/savegame_scantest recreation::bethesda rx::core
     SRCS app/savegame_scan.cc)
+  recreation_add_test(app/server_consoletest rx::core
+    SRCS app/server_console.cc app/server_config.cc)
+  recreation_add_test(app/server_configtest rx::core SRCS app/server_config.cc)
+  recreation_add_test(actor/player_reconciletest rx::core)
 endif()

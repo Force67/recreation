@@ -10,6 +10,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -17,6 +18,7 @@
 #include <znet/z_file_transporter.h>
 #include <znet/z_server.h>
 
+#include "components/modstream/client_scripts.h"
 #include "components/modstream/content_store.h"
 #include "components/modstream/mod_catalog.h"
 #include "components/modstream/mod_resource.h"
@@ -48,6 +50,11 @@ class AssetStreamServer {
   // reliable data channel so an arbitrarily large catalog still fits inside the
   // single-datagram packet limit.
   void SendManifest(u32 peer);
+
+  // Sends the client-script list to a freshly joined peer: which streamed files
+  // are managed assemblies the server asks the client to load and run. The
+  // client still decides whether to execute any of it.
+  void SendClientScripts(u32 peer);
 
   // Handles a client's kAssetRequest: queues each validly-catalogued content
   // hash for streaming to that peer. A hash absent from the catalog is dropped,
@@ -104,10 +111,26 @@ class AssetStreamClient {
     on_ready_ = std::move(cb);
   }
 
+  // Fired when the client-script offer for the current manifest generation has
+  // been validated AND the content is ready — the two messages travel apart, so
+  // either can land first and the consumer must see both. An offer of zero
+  // entries still fires (an empty vector = "this server runs no client code").
+  // Re-fires per generation (a live reload).
+  void set_on_scripts(
+      std::function<void(const std::vector<modstream::ClientScriptEntry>&)> cb) {
+    on_scripts_ = std::move(cb);
+  }
+
   // Feeds one kAssetManifest chunk. When the manifest is complete it is diffed
   // against the cache and the missing content is requested (or ready fires when
   // nothing is missing).
   void OnManifestChunk(const u8* data, size_t size);
+
+  // Feeds one kClientScripts message. Entries are decoded and bounds-checked,
+  // then validated against the manifest: only hashes the manifest actually
+  // streams survive into client_scripts(), so a server can never point the
+  // client at bytes it did not offer.
+  void OnClientScripts(const u8* data, size_t size);
 
   bool ready() const { return ready_; }
   bool downloading() const { return downloading_; }
@@ -115,6 +138,12 @@ class AssetStreamClient {
   const modstream::ModManifest& manifest() const { return manifest_; }
   size_t files_remaining() const { return remaining_.size(); }
   u64 bytes_remaining() const;
+  // The script offer, validated against the manifest. Non-empty once the server
+  // offered scripts and they are streamed (or were already cached); empty when
+  // the server offers no client code at all.
+  const std::vector<modstream::ClientScriptEntry>& client_scripts() const {
+    return client_scripts_;
+  }
 
  private:
   // One in-progress file transfer. Chunks may arrive before the file-name
@@ -128,8 +157,17 @@ class AssetStreamClient {
   void OnManifestComplete();
   // Clears manifest-reassembly and download state to start receiving a fresh
   // manifest (a live reload). The content cache is kept, so only changed files
-  // re-download. The current mount stays live until the new one is ready.
-  void ResetForNewManifest();
+  // re-download. The current mount stays live until the new one is ready. A
+  // script offer tagged for the incoming generation or newer survives the reset
+  // (zetanet's reliable channel may deliver it ahead of the manifest chunks it
+  // belongs with); older offers are stale duplicates and are dropped.
+  void ResetForNewManifest(u32 incoming_generation);
+  // Filters the offered script list against the manifest's hashes. Runs once
+  // both the manifest and the offer have arrived, in either order.
+  void ValidateScripts();
+  // Raises on_scripts_ when the offer and the content have both settled for the
+  // current generation (and not been delivered yet).
+  void DeliverScriptsIfReady();
   void HandleChunk(const tx::network::ZFileTransporter::TransferChunk& chunk);
   void OnFileFinished(const std::filesystem::path& path);
 
@@ -164,6 +202,19 @@ class AssetStreamClient {
   bool downloading_ = false;
   bool ready_ = false;
   bool failed_ = false;
+
+  // The server's client-script offer and its validated form. offered_scripts_
+  // holds whatever arrived (the manifest may still be reassembling);
+  // client_scripts_ holds only entries whose bytes the manifest streams.
+  // offered_generation_ pins the offer to the manifest generation it belongs
+  // with, so an offer delivered ahead of (or behind) its manifest is consumed
+  // exactly once, by that manifest.
+  std::vector<modstream::ClientScriptEntry> offered_scripts_;
+  u32 offered_generation_ = 0;
+  std::vector<modstream::ClientScriptEntry> client_scripts_;
+  std::unordered_set<modstream::ContentHash> manifest_hashes_;
+  std::function<void(const std::vector<modstream::ClientScriptEntry>&)> on_scripts_;
+  bool scripts_delivered_ = false;
 };
 
 }  // namespace rx::net

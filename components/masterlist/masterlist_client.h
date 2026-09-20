@@ -3,7 +3,10 @@
 
 #include <base/strings/xstring.h>
 
+#include <atomic>
+
 #include "components/masterlist/server_info.h"
+#include "http/http.h"
 
 // The game's side of the server list: announce a hosted session, keep it alive,
 // take it down, and read back what everyone else is hosting.
@@ -24,6 +27,9 @@ struct AnnounceResult {
   u32 heartbeat_secs = 30;
   u32 entry_ttl_secs = 120;
   base::String error;  // why, when ok is false
+  // The owner's own cancel ended this, not the list. A shutdown is not a fault
+  // and must not be logged as one.
+  bool cancelled = false;
 };
 
 struct ListResult {
@@ -31,6 +37,7 @@ struct ListResult {
   u32 total = 0;  // matches before paging, so a browser can say "showing 50 of 900"
   base::Vector<ServerEntry> servers;
   base::String error;
+  bool cancelled = false;  // see AnnounceResult::cancelled
 };
 
 // One endpoint. Every call BLOCKS for the length of the exchange; Announcer and
@@ -56,14 +63,26 @@ class Client {
   bool Retire(const base::String& token, base::String* error);
   ListResult List(const ListQuery& query);
 
+  // How long one call may sit idle before it fails.
   void set_timeout_ms(u32 ms) { timeout_ms_ = ms; }
+  // Wall clock for a whole call, so a list that dribbles bytes cannot hold a
+  // worker open indefinitely. 0 leaves only the idle timeout.
+  void set_total_timeout_ms(u32 ms) { total_timeout_ms_ = ms; }
+  // A flag the owner raises to abandon whatever call is in flight. This is what
+  // makes a worker joinable on demand: the announcer hands it its own stop
+  // flag, so quitting does not wait out a timeout. Must outlive the client.
+  void set_cancel(const std::atomic<bool>* cancel) { cancel_ = cancel; }
 
  private:
   base::String Endpoint(const char* path) const;
+  // Stamps the limits above onto a request, so no call site can forget one.
+  void ApplyLimits(http::Request* request, u32 idle_ms) const;
 
   base::String base_url_;
   bool valid_ = false;
   u32 timeout_ms_ = 8000;
+  u32 total_timeout_ms_ = 20000;
+  const std::atomic<bool>* cancel_ = nullptr;
 };
 
 // The wire shape, exposed because it is the contract with a service that lives

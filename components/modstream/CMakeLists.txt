@@ -5,6 +5,7 @@ recreation_add_module(modstream
   manifest_codec.cc
   manifest_chunk.cc
   asset_request.cc
+  client_scripts.cc
   content_store.cc
   content_provider.cc
   stream_filter.cc

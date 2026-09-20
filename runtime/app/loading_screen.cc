@@ -479,6 +479,22 @@ void TickLoadingScreen(Engine& engine, f32 dt) {
   const bool streamed = self->streamer_ && self->streamer_->caught_up();
   const bool timed_out = elapsed >= LoadMaxHoldSeconds.get();
 
+#if RECREATION_HAS_NET
+  // The server offered client scripts and the player has not said yes or no.
+  // Hold here with the question up: no timeout, because a countdown under a
+  // security prompt reads as "it will answer itself" -- it will not, and the
+  // world keeps streaming behind the question meanwhile.
+  if (self->script_consent_.pending) {
+    TickScriptConsent(engine);
+    PushLoadingView(
+        engine, LoadPhase::kWorld, "This server runs custom code",
+        base::ToString(static_cast<u64>(self->script_consent_.paths.size())) +
+            " assembly(ies) · [1] run once · [2] always for this server · [3] don't run",
+        0.0f);
+    return;
+  }
+#endif
+
   if ((streamed && elapsed >= minimum) || timed_out) {
     RX_INFO("world streamed in after {:.1f}s{}", elapsed, timed_out ? " [timeout]" : "");
     EndLoadingScreen(engine);

@@ -44,6 +44,20 @@ cp bin/Release/net9.0/MyMod.dll "$RECREATION_MODS_DIR/"
 
 Pin a version and your mod keeps working until the next major SDK bump.
 
+## Server-streamed client scripts
+
+A mod does not have to be installed locally to run on a client. A server resource
+(see the main README's "Multiplayer asset streaming") can list assemblies in its
+`client_scripts.txt`; joining clients stream them, the player consents on the
+loading screen (remembered per server; `net.stream_scripts` overrides), and the
+engine loads them through `ModLoader.LoadStreamedScripts` after the streamed
+content mounts. `[Realm]` filters apply unchanged: tag a streamed mod
+`[Realm(ModRealm.Client)]` or `[Realm(ModRealm.Shared)]` and it runs on clients
+exactly as a locally installed one would. Dependencies resolve from the same
+streamed batch in any order, but ship every assembly the mod needs as its own
+`.dll` — native libraries have no stream story. The runtime never unloads
+assemblies, so new code the server pushes applies on the next join.
+
 ## Default gamemodes
 
 The Skyrim/Fallout/Starfield rulesets each build as their own assembly and load at
@@ -56,6 +70,79 @@ like built-in mods, but they're optional:
 
 A ruleset only wakes up when its game is the one being played, so having all three
 present costs nothing.
+
+## Replicated vitals
+
+A server-side mod sets a player's vitals; every client learns about them and the
+engine puts them on the player's replica:
+
+```csharp
+// Server: announce and remember (unchanged values stay off the wire).
+player.SetHealth(health, maxHealth, dead);
+
+// Anywhere: react to the change for a player body on this machine.
+EventBus.Subscribe<PlayerVitalsChanged>(e =>
+{
+    if (e.Dead) Hud.Notify("Someone fell", Value.Int(3));
+});
+```
+
+The dead flag also drives the entity's `Dead` tag, so the render path holds a
+downed pose. Combat writes these same vitals, so a mod reading them sees the
+damage players deal each other as well as anything it set itself.
+
+## Console commands
+
+A mod's commands are reachable from the dedicated server's terminal as well as
+from in-game admins. Register one and it answers in both places:
+
+```csharp
+Commands.Register("spawnrate", "command.spawnrate", ctx =>
+{
+    ctx.Reply($"spawn rate is now {ctx.Args[0]}");
+});
+```
+
+The ACE is still enforced for a player who runs it; a console line runs as the
+host operator and passes. `ctx.Reply` reaches whoever ran it -- the terminal for
+a console line, that player privately otherwise.
+
+## Dying
+
+The engine marks a dead player and replicates it; what dying means is the
+ruleset's. `Respawns` is the default answer -- five seconds, then back on their
+feet at the spawn with a full pool -- and a ruleset replaces it:
+
+```csharp
+Respawns.Delay = 15f;        // longer wait, same behaviour
+Respawns.Enabled = false;    // or take it over completely
+EventBus.Subscribe<PlayerVitalsChanged>(e =>
+{
+    if (!e.Dead) return;
+    Chat.System($"{Players.Get(e.Peer)?.Name} fell");
+    Players.Get(e.Peer)?.Respawn();   // when and where is yours to decide
+});
+```
+
+`e.Peer` is the player on a host and 0 on a client, which hears the same change
+off the wire and only learns the network id from it. `Respawn()` is host-side:
+only the host owns the body.
+
+## The shared world
+
+`GameClock` reads the in-world time; `World` writes it, along with the sky. On a
+host both are session-wide: the engine replicates the clock and the weather seed,
+and every client adopts them, so one mod call moves the world for everyone.
+
+```csharp
+World.SetTime(7, 30);          // or World.SetTime(13.5f)
+World.SetWeather(stormForm);   // a WTHR form; cross-fades in, then evolves on
+```
+
+Weather is not pinned: the requested weather comes in and the climate carries on
+from there, so a server can stage a storm without freezing the sky. A client can
+call these too, but the host's next world-state message puts the shared answer
+back -- treat them as server-side.
 
 ## Versioning
 

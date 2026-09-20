@@ -3,17 +3,17 @@
     "equilibrium-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1789583988,
-        "narHash": "sha256-J/JtwyLitdCrSun603VjDnxu1jIaBaxHiIC0OF1ZERI=",
+        "lastModified": 1789844346,
+        "narHash": "sha256-kHF92q3naHBFwOEwiWsnD+td9ENcoy5tpK8+HTV5azo=",
         "owner": "Force67",
         "repo": "equilibrium",
-        "rev": "f961dcb8c9965c54c961086144158e043f68a80c",
+        "rev": "3cd4055b89cffd23bd847e4002aae6625014ae0a",
         "type": "github"
       },
       "original": {
         "owner": "Force67",
         "repo": "equilibrium",
-        "rev": "f961dcb8c9965c54c961086144158e043f68a80c",
+        "rev": "3cd4055b89cffd23bd847e4002aae6625014ae0a",
         "type": "github"
       }
     },
@@ -107,18 +107,18 @@
     "rx-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1789583286,
-        "narHash": "sha256-b44kRkYfCFHqRD6vS8NroJezxaNe2h/dhZ9/19Xgir4=",
+        "lastModified": 1789848366,
+        "narHash": "sha256-4yputhHQaSs0dEgmoggj3ODoIMF7YUu4ooJk3uVqoPc=",
         "ref": "main",
-        "rev": "26345666e341d3ccf2cf1c631ccde4ec4bac6094",
-        "revCount": 148,
+        "rev": "31c0476e12c738602753a628dfe94c6bf79319e9",
+        "revCount": 153,
         "submodules": true,
         "type": "git",
         "url": "https://github.com/Force67/rx"
       },
       "original": {
         "ref": "main",
-        "rev": "26345666e341d3ccf2cf1c631ccde4ec4bac6094",
+        "rev": "31c0476e12c738602753a628dfe94c6bf79319e9",
         "submodules": true,
         "type": "git",
         "url": "https://github.com/Force67/rx"

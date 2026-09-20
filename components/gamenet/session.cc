@@ -4,6 +4,7 @@
 #include <nanobuf.h>
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <memory>
 #include <utility>
@@ -11,6 +12,8 @@
 
 #include "components/bethesda/form_id.h"
 #include "components/gamenet/asset_stream.h"
+#include "components/gamenet/item_sync.h"
+#include "components/gamenet/player_sync.h"
 #include "components/gamenet/world_replication.h"
 #include "components/modstream/content_store.h"
 #include "components/modstream/mod_catalog.h"
@@ -86,14 +89,42 @@ GameServerSession::GameServerSession(GameSessionConfig config)
       });
     }
     // Offer the mod manifest right after admitting the peer, so it can start
-    // streaming whatever content it is missing.
-    if (asset_stream_)
+    // streaming whatever content it is missing, along with which of those
+    // files are client assemblies the server would like it to run.
+    if (asset_stream_) {
       asset_stream_->SendManifest(peer);
+      asset_stream_->SendClientScripts(peer);
+    }
+    // Catch the newcomer up on everyone's replicated vitals.
+    for (const auto& [joined_peer, vitals] : player_vitals_) {
+      if (!vitals.sent)
+        continue;
+      inner_.SendTo(peer, static_cast<u16>(GameMessage::kPlayerState),
+                    EncodePlayerVitals({engine().PlayerNetId(joined_peer), vitals.health,
+                                        vitals.max_health, vitals.dead}),
+                    /*reliable=*/true, tx::network::PacketPriority::Medium);
+    }
+    // And on the loot already lying about, which its snapshot will spawn as
+    // transforms it would otherwise have no way to render.
+    for (const auto& [net_id, base] : world_items_) {
+      inner_.SendTo(peer, static_cast<u16>(GameMessage::kWorldItem),
+                    EncodeWorldItem({net_id, base}),
+                    /*reliable=*/true, tx::network::PacketPriority::Medium);
+    }
+    // And on what time it is, so it loads into the host's hour rather than its
+    // own and then jumps on the first beat.
+    if (world_state_valid_) {
+      inner_.SendTo(peer, static_cast<u16>(GameMessage::kWorldState),
+                    EncodeWorldState(world_state_),
+                    /*reliable=*/true, tx::network::PacketPriority::Medium);
+    }
     if (client_joined_sink_)
       client_joined_sink_(peer);
   });
   inner_.SetClientLeftSink([this](u32 peer) {
     activation_windows_.erase(peer);
+    player_vitals_.erase(peer);
+    last_swing_seconds_.erase(peer);
     if (client_left_sink_)
       client_left_sink_(peer);
   });
@@ -117,6 +148,10 @@ bool GameServerSession::Start() {
 void GameServerSession::Tick(ecs::World& world, f32 dt) {
   inner_.Tick(world, dt);
   ++tick_;
+  clock_seconds_ += static_cast<f64>(dt);
+  // Every tick, not on the snapshot cadence: it self-throttles, and a clock the
+  // host just moved should reach clients now rather than up to a snapshot later.
+  BroadcastWorldState(dt);
   if (tick_ % config_.snapshot_interval_ticks == 0) {
     BroadcastQuests();
     BroadcastActors();
@@ -148,6 +183,32 @@ void GameServerSession::OnGameMessage(u32 peer, u16 type, const u8* data, size_t
       }
       ++window.requests;
       activate_sink_(peer, handle);
+      break;
+    }
+    case GameMessage::kPlayerAttack: {
+      if (!player_attack_sink_ || inner_.PlayerOf(peer) == ecs::kInvalidEntity)
+        break;
+      const auto yaw = DecodePlayerAttack(data, size);
+      if (!yaw)
+        break;
+      // One cadence between accepted swings. This is the rate limit and the
+      // game rule at once: nobody swings faster than the animation, so a client
+      // spamming the message gains nothing by it.
+      f64& last = last_swing_seconds_[peer];
+      if (last != 0.0 && clock_seconds_ - last < static_cast<f64>(swing_cadence_seconds_))
+        break;
+      last = clock_seconds_;
+      player_attack_sink_(peer, *yaw);
+      break;
+    }
+    case GameMessage::kItemDrop: {
+      // No rate limit, unlike activation: a drop is self-limiting, because you
+      // can only drop what you are carrying and dropping it takes it out of your
+      // pack, so a flood empties the pack and then costs an empty scan.
+      // Activation is limited because it parses records and runs scripts.
+      if (!item_drop_sink_ || inner_.PlayerOf(peer) == ecs::kInvalidEntity)
+        break;
+      item_drop_sink_(peer);
       break;
     }
     case GameMessage::kDialogueSelect: {
@@ -242,13 +303,123 @@ void GameServerSession::SendObjectiveMarker(const ObjectiveMarkerState& m) {
                    /*reliable=*/true, tx::network::PacketPriority::Medium);
 }
 
+void GameServerSession::BroadcastWorldState(f32 dt) {
+  if (!world_state_source_)
+    return;
+  const WorldState state = world_state_source_();
+  world_state_age_ += dt;
+
+  // With nobody connected there is nothing to tell, but the sample is kept
+  // current so the next joiner is admitted into this hour rather than into
+  // whatever hour the last client was told about.
+  if (inner_.client_count() == 0) {
+    world_state_ = state;
+    world_state_valid_ = true;
+    world_state_age_ = 0.0f;
+    return;
+  }
+
+  // A client runs its own clock forward from the last message at the timescale
+  // that message carried, so ordinary passing time is not news. What is: a
+  // different sky, a different rate, a clock the host moved out from under that
+  // extrapolation (a script set the hour), and a slow heartbeat to mop up drift
+  // and cover a client that somehow missed a change.
+  constexpr f32 kHeartbeatSeconds = 5.0f;
+  constexpr f64 kClockToleranceDays = 10.0 / 86400.0;  // ten game seconds
+  const f64 expected =
+      world_state_.game_days +
+      static_cast<f64>(world_state_age_) * static_cast<f64>(state.timescale) / 86400.0;
+  const bool news = !world_state_valid_ || state.weather_seed != world_state_.weather_seed ||
+                    state.weather != world_state_.weather ||
+                    state.timescale != world_state_.timescale ||
+                    std::abs(state.game_days - expected) > kClockToleranceDays ||
+                    world_state_age_ >= kHeartbeatSeconds;
+  if (!news)
+    return;
+
+  world_state_ = state;
+  world_state_valid_ = true;
+  world_state_age_ = 0.0f;
+  inner_.Broadcast(static_cast<u16>(GameMessage::kWorldState), EncodeWorldState(state),
+                   /*reliable=*/true, tx::network::PacketPriority::Medium);
+}
+
+void GameServerSession::SetPlayerHealth(u32 peer, u16 health, u16 max_health, bool dead) {
+  if (inner_.PlayerNetId(peer) == 0)
+    return;  // an unknown or departed peer has no body to announce vitals for
+  PlayerVitalsEntry& entry = player_vitals_[peer];
+  if (entry.sent && entry.health == health && entry.max_health == max_health &&
+      entry.dead == dead)
+    return;  // unchanged: keep quiet (the wire is not a per-frame cost)
+  entry.health = health;
+  entry.max_health = max_health;
+  entry.dead = dead;
+  entry.sent = true;
+  inner_.Broadcast(static_cast<u16>(GameMessage::kPlayerState),
+                   EncodePlayerVitals({engine().PlayerNetId(peer), health, max_health, dead}),
+                   /*reliable=*/true, tx::network::PacketPriority::Medium);
+}
+
+void GameServerSession::SendWorldItem(const WorldItemState& item) {
+  if (item.net_id == 0)
+    return;
+  world_items_[item.net_id] = item.base;
+  inner_.Broadcast(static_cast<u16>(GameMessage::kWorldItem), EncodeWorldItem(item),
+                   /*reliable=*/true, tx::network::PacketPriority::Medium);
+}
+
+void GameServerSession::ForgetWorldItem(u64 net_id) {
+  world_items_.erase(net_id);
+}
+
+bool GameServerSession::PlayerVitalsOf(u32 peer,
+                                       u16* health,
+                                       u16* max_health,
+                                       bool* dead) const {
+  const auto it = player_vitals_.find(peer);
+  if (it == player_vitals_.end() || !it->second.sent)
+    return false;
+  if (health)
+    *health = it->second.health;
+  if (max_health)
+    *max_health = it->second.max_health;
+  if (dead)
+    *dead = it->second.dead;
+  return true;
+}
+
+u64 GameServerSession::PlayerNetId(u32 peer) const {
+  return inner_.PlayerNetId(peer);
+}
+
+bool GameServerSession::Kick(u32 peer) {
+  bool known = false;
+  inner_.ForEachPeer([&](u32 joined) { known = known || joined == peer; });
+  if (!known)
+    return false;
+  // The transport's goodbye is what a client acts on: it disconnects as soon as
+  // it arrives, connected or not. There is no "kicked" reason in the protocol's
+  // list, and None is the one a client reports as "the server rejected you",
+  // which is what a kick is.
+  inner_.raw().SendServerGoodbye(static_cast<tx::network::ZPeerId>(peer),
+                                 tx::network::system_commands::HandshakeRejectReason::None);
+  player_vitals_.erase(peer);
+  RX_INFO("net: kicked peer {}", peer);
+  return true;
+}
+
 void GameServerSession::ReloadCatalog(const modstream::ModCatalog& catalog) {
   if (!asset_stream_)
     return;
   asset_stream_->SetCatalog(catalog);
   // Push the new manifest to everyone already connected; each re-diffs against
-  // its cache and streams only what changed, then re-mounts.
-  inner_.ForEachPeer([this](u32 peer) { asset_stream_->SendManifest(peer); });
+  // its cache and streams only what changed, then re-mounts. The script offer
+  // rides along so a changed assembly list is known, though newly loaded code
+  // applies on the next join.
+  inner_.ForEachPeer([this](u32 peer) {
+    asset_stream_->SendManifest(peer);
+    asset_stream_->SendClientScripts(peer);
+  });
 }
 
 // --- client ---
@@ -285,6 +456,20 @@ void GameClientSession::SendActivate(u64 handle) {
   nanobuf::StoreLe<u64>(payload.data(), handle);
   inner_.SendToServer(static_cast<u16>(GameMessage::kActivateRef), payload,
                       /*reliable=*/true, tx::network::PacketPriority::High);
+}
+
+void GameClientSession::SendAttack(f32 yaw) {
+  if (!joined())
+    return;
+  inner_.SendToServer(static_cast<u16>(GameMessage::kPlayerAttack), EncodePlayerAttack(yaw),
+                      /*reliable=*/true, tx::network::PacketPriority::High);
+}
+
+void GameClientSession::SendItemDrop() {
+  if (!joined())
+    return;
+  inner_.SendToServer(static_cast<u16>(GameMessage::kItemDrop), std::vector<u8>{},
+                      /*reliable=*/true, tx::network::PacketPriority::Medium);
 }
 
 void GameClientSession::SendDialogueSelect(u64 info) {
@@ -357,6 +542,35 @@ void GameClientSession::OnGameMessage(u16 type, const u8* data, size_t size) {
     case GameMessage::kAssetManifest: {
       if (asset_stream_)
         asset_stream_->OnManifestChunk(data, size);
+      break;
+    }
+    case GameMessage::kClientScripts: {
+      if (asset_stream_)
+        asset_stream_->OnClientScripts(data, size);
+      break;
+    }
+    case GameMessage::kPlayerAvatar: {
+      if (player_avatar_sink_)
+        if (auto avatar = DecodePlayerAvatar(data, size))
+          player_avatar_sink_(avatar->net_id, avatar->form);
+      break;
+    }
+    case GameMessage::kPlayerState: {
+      if (player_vitals_sink_)
+        if (auto vitals = DecodePlayerVitals(data, size))
+          player_vitals_sink_(vitals->net_id, vitals->health, vitals->max_health, vitals->dead);
+      break;
+    }
+    case GameMessage::kWorldItem: {
+      if (world_item_sink_)
+        if (auto item = DecodeWorldItem(data, size))
+          world_item_sink_(*item);
+      break;
+    }
+    case GameMessage::kWorldState: {
+      if (world_state_sink_)
+        if (auto state = DecodeWorldState(data, size))
+          world_state_sink_(*state);
       break;
     }
     default:
