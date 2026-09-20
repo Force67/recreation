@@ -869,10 +869,8 @@ base::Vector<base::String> AiPackageDirector::Report() const {
 void AiPackageDirector::Tick(f32 dt, const QuestStateCache& quests) {
   if (slots_.empty() || !ctx_.quest_world || !ctx_.world)
     return;
-#if RECREATION_HAS_NET
-  if (ctx_.client_session)
-    return;  // host authoritative, like the rest of NPC motion
-#endif
+  if (!ctx_.simulates())
+    return;  // the host steers every actor, here as everywhere
   select_timer_ -= dt;
   if (select_timer_ <= 0) {
     select_timer_ = 0.25f;

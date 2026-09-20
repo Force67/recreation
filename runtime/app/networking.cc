@@ -627,6 +627,9 @@ bool StartNetworking(Engine& engine) {
     self->ctx_.client_session = self->client_session_;
     // A view of somebody else's world: simulate nothing, ask for everything.
     self->ctx_.authority = EngineContext::Authority::kReplica;
+    // And the funnel every script-driven world mutation passes through stops
+    // applying them here, counting what it drops.
+    self->runtime_world_sink_.set_simulates(false);
     // Mirror the server's journal onto our quest system. ApplyStatus mutates
     // quest state, so it has to run on the guest thread like every other write.
     if (self->scripts_ && self->script_bindings_) {

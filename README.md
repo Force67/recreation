@@ -183,6 +183,35 @@ re-streams under new bytes applies on the next join.
 Streamed scripts run with the full trust of any other mod — the consent prompt
 is permission, not a sandbox.
 
+### One world, and who owns it
+
+A co-op mod bolted onto one of these games has no choice but to hook a local
+simulation and patch sync over it, which is why those projects spend their lives
+chasing divergence. This is a reimplementation, so the rule is structural
+instead: **the host is the world, and a client is a view of it.**
+
+Every machine knows which it is (`EngineContext::Authority`, one of standalone,
+host or replica) and asks one question, `simulates()`. A replica runs none of the
+authoritative world simulation: not NPC AI, steering or ambient sandbox, not the
+combat driver, not AI packages, not scripted trigger boxes, not quest-driven
+world mutation. It receives the results instead (transforms and deaths through
+actor sync, journal state through quest replication, the clock and sky through
+world state) and anything its player does travels to the host as a request the
+host answers. Two things stay local on purpose: the navmesh, because it derives
+from static collision rather than world state and the player's auto-walk paths
+over it, and the cutscene director, which plays the scenes the host started.
+
+Forgetting is the failure mode, so it is guarded rather than trusted. Every
+script-driven world mutation (spawn, move, enable, delete, combat enrollment,
+teleporting the player) funnels through one sink, and on a replica that sink
+drops what arrives and counts it, saying so in the log. A system that starts
+simulating where it should not is a line in the log rather than a desync somebody
+reports a week later.
+
+One system is not authoritative yet, and the README says so where it lives:
+dropped items are still local to whichever machine dropped them, so two players
+do not see one world's loot. That is the next piece.
+
 ### Player sync
 
 Players are real bodies, not placeholder cubes. Movement is server-simulated: a

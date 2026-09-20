@@ -25,13 +25,14 @@
 #include "components/world/actor_stats_store.h"
 #include "components/world/combat.h"
 #include "components/world/components.h"
+#include "components/world/created_forms.h"
 #include "components/world/map_discovery.h"
 #include "components/world/map_markers.h"
-#include "components/world/created_forms.h"
 #include "components/world/misc_stats.h"
 #include "components/world/planet_tile.h"
 #include "components/world/saved_spawns.h"
 #include "core/input_bindings.h"
+#include "core/log.h"
 #include "core/window.h"
 #include "core/world_clock.h"
 #include "runtime/actor/actor_system.h"
@@ -72,10 +73,21 @@ class RuntimeWorldSink : public script::WorldEffectSink {
   RuntimeWorldSink(world::WorldCommandQueue* queue, world::CombatEventQueue* combat)
       : queue_(queue), combat_(combat) {}
 
+  // Whether this machine's simulation is the truth (EngineContext::simulates).
+  // A replica drops every mutation that arrives here instead of applying it: the
+  // host owns the world, and a script running on a client that spawns, moves or
+  // kills something is a second world disagreeing with the first. Dropped
+  // mutations are counted rather than silently ignored, because the count is how
+  // we know what a replica's scripts are still trying to do.
+  void set_simulates(bool simulates) { simulates_ = simulates; }
+  u64 dropped() const { return dropped_; }
+
   u64 SpawnReference(u64 quest, u64 base, f32 x, f32 y, f32 z) override {
     // Synthetic runtime handle in the reserved 0xFFFF plugin slot, so it never
     // collides with a real form id; allocated here so PlaceAtMe can return it.
     const u64 handle = (0xFFFFull << 32) | next_handle_.fetch_add(1);
+    if (Dropped())
+      return handle;  // the caller still gets a handle; nothing is placed
     world::WorldCommand c;
     c.op = world::WorldOp::kSpawn;
     c.quest = quest;
@@ -92,6 +104,8 @@ class RuntimeWorldSink : public script::WorldEffectSink {
     Emit(world::WorldOp::kMovePlayer, quest, dest_ref, x, y, z);
   }
   void SetEnabled(u64 quest, u64 handle, bool enabled) override {
+    if (Dropped())
+      return;
     world::WorldCommand c;
     c.op = world::WorldOp::kSetEnabled;
     c.quest = quest;
@@ -109,29 +123,55 @@ class RuntimeWorldSink : public script::WorldEffectSink {
     Emit(world::WorldOp::kDelete, quest, handle, 0, 0, 0);
   }
   void CleanupQuest(u64 quest) override {
+    if (Dropped())
+      return;
     world::WorldCommand c;
     c.op = world::WorldOp::kCleanupQuest;
     c.quest = quest;
     queue_->Push(c);
   }
   void StartCombat(u64 /*quest*/, u64 attacker, u64 target) override {
+    if (Dropped())
+      return;
     combat_->Push({world::CombatOp::kEngage, attacker, target});
   }
   void StopCombat(u64 /*quest*/, u64 attacker) override {
+    if (Dropped())
+      return;
     combat_->Push({world::CombatOp::kDisengage, attacker, 0});
   }
   void ActorDied(u64 /*quest*/, u64 actor) override {
+    if (Dropped())
+      return;
     combat_->Push({world::CombatOp::kDied, actor, 0});
   }
   void ActorResurrected(u64 /*quest*/, u64 actor) override {
+    if (Dropped())
+      return;
     combat_->Push({world::CombatOp::kResurrected, actor, 0});
   }
   void ActorFollow(u64 /*quest*/, u64 actor, bool follow) override {
+    if (Dropped())
+      return;
     combat_->Push({follow ? world::CombatOp::kFollow : world::CombatOp::kUnfollow, actor, 0});
   }
 
  private:
+  // True when this machine may not mutate the world. Counts the drop, and says
+  // so the first time and then every thousandth, which is enough to notice a
+  // script that never stops trying without drowning the log.
+  bool Dropped() {
+    if (simulates_)
+      return false;
+    const u64 n = ++dropped_;
+    if (n == 1 || n % 1000 == 0)
+      RX_WARN("replica dropped {} world mutation(s) from script: the host owns the world", n);
+    return true;
+  }
+
   void Emit(world::WorldOp op, u64 quest, u64 handle, f32 x, f32 y, f32 z) {
+    if (Dropped())
+      return;
     world::WorldCommand c;
     c.op = op;
     c.quest = quest;
@@ -141,6 +181,8 @@ class RuntimeWorldSink : public script::WorldEffectSink {
   }
 
   void EmitState(world::WorldOp op, u64 quest, u64 handle, bool value) {
+    if (Dropped())
+      return;
     world::WorldCommand c;
     c.op = op;
     c.quest = quest;
@@ -160,6 +202,8 @@ class RuntimeWorldSink : public script::WorldEffectSink {
 
   world::WorldCommandQueue* queue_;
   world::CombatEventQueue* combat_;
+  bool simulates_ = true;
+  std::atomic<u64> dropped_{0};
   std::atomic<u32> next_handle_{1};
 };
 
