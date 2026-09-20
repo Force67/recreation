@@ -50,7 +50,7 @@
     # rx: the extracted generic engine (core/ecs/asset/render/physics/anim/
     # audio/rpc/ui + the imgui/cgltf/stb vendored libs).
     rx-src = {
-      url = "git+https://github.com/Force67/rx?submodules=1&ref=main&rev=26345666e341d3ccf2cf1c631ccde4ec4bac6094";
+      url = "git+https://github.com/Force67/rx?submodules=1&ref=main&rev=31c0476e12c738602753a628dfe94c6bf79319e9";
       flake = false;
     };
 
@@ -77,7 +77,7 @@
     # git+submodules: equilibrium's own eight submodules are test and platform
     # deps behind EQ_BUILD_TESTS, and this build reads none of them.
     equilibrium-src = {
-      url = "github:Force67/equilibrium/f961dcb8c9965c54c961086144158e043f68a80c";
+      url = "github:Force67/equilibrium/3cd4055b89cffd23bd847e4002aae6625014ae0a";
       flake = false;
     };
 
