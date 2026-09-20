@@ -281,6 +281,18 @@ static void RespawnPlayer(net::GameServerSession& session,
   RX_INFO("net: respawned peer {} at ({:.1f}, {:.1f}, {:.1f})", peer, spawn.x, spawn.y, spawn.z);
 }
 
+// Client side: gives a replicated piece of loot its mesh, and says so. The
+// entity and its transform came off the snapshot stream; `base` is the record the
+// host says it came out of, which is the part a snapshot cannot carry.
+static void ShowLoot(ItemBridge* items, ecs::Entity entity, u64 net_id, u64 base) {
+  if (!items)
+    return;
+  const bool shown = items->ShowReplicatedItem(
+      entity, bethesda::GlobalFormId{static_cast<u16>(base >> 32), static_cast<u32>(base)});
+  RX_INFO("net: loot {} (base 0x{:x}) {}", net_id, base,
+          shown ? "on the floor" : "has no world model to draw");
+}
+
 // Client side: the other end of that model. The host's copy of this player is a
 // replicated entity like any other, so the correction is a comparison between
 // its transform and the body this client simulates for itself. The policy (and
@@ -420,6 +432,24 @@ bool StartNetworking(Engine& engine) {
                                     character::StepCharacters(world, *self->ctx_.physics, dt);
                                   });
     }
+    // A client asking to drop: the pack is the host's record, so the host picks
+    // the stack and throws it from that player's own body, facing where they look.
+    self->server_session_->SetItemDropSink([self](u32 peer) {
+      if (!self->items_ || !self->ctx_.world || !self->server_session_)
+        return;
+      ecs::World& world = *self->ctx_.world;
+      const ecs::Entity body = self->server_session_->engine().PlayerOf(peer);
+      if (body == ecs::kInvalidEntity)
+        return;
+      const auto* transform = world.Get<scene::Transform>(body);
+      if (!transform)
+        return;
+      const Vec3 from{transform->position[0], transform->position[1], transform->position[2]};
+      f32 yaw = 0.0f;
+      if (const auto* state = world.Get<character::CharacterState>(body))
+        yaw = state->yaw;
+      self->items_->DropLastFrom(body, from, Vec3{std::sin(yaw), 0.0f, -std::cos(yaw)});
+    });
     // A client's swing: the host resolves it against the bodies it owns and
     // writes the damage into the vitals that already replicate.
     self->server_session_->SetPlayerAttackSink([self](u32 peer, f32 yaw) {
@@ -711,6 +741,19 @@ bool StartNetworking(Engine& engine) {
       // the same seed would otherwise resolve to a different slot.
       self->director_.AlignWeather(state.weather, state.game_days);
     });
+    // Loot the host says is lying about: the snapshot spawns the entity and its
+    // transform, this gives it the mesh of the record it came out of. The offer
+    // and the snapshot race, so an unmatched one waits (drained in the net tick).
+    self->client_session_->SetWorldItemSink([self](const net::WorldItemState& item) {
+      if (!self->ctx_.world || !self->items_)
+        return;
+      const ecs::Entity entity = self->client_session_->replicated_entity(item.net_id);
+      if (entity == ecs::kInvalidEntity) {
+        self->pending_world_items_[item.net_id] = item.base;
+        return;
+      }
+      ShowLoot(&*self->items_, entity, item.net_id, item.base);
+    });
     // Player presence: which replicated entity is a player's body (and what it
     // looks like), and that body's replicated vitals. The entity and its
     // message arrive in either order (snapshot vs reliable channel), so an
@@ -849,6 +892,36 @@ bool StartNetworking(Engine& engine) {
         self->client_session_->SetInput(input);
       }
     }
+    // Loot is the host's, and one world's: anything lying on the floor without a
+    // replicated identity gains one and is announced, and anything announced
+    // whose entity is gone is forgotten. Reconciled rather than hooked because an
+    // item's entity dies when it hibernates out of range and a new one is built
+    // when it wakes -- drop, wake, hibernate and pickup all come out right under
+    // one rule.
+    if (self->server_session_ && self->items_) {
+      base::Vector<base::Pair<ecs::Entity, bethesda::GlobalFormId>> loot;
+      self->items_->CollectWorldItems(&loot);
+      for (const auto& entry : loot) {
+        const ecs::Entity item = entry.first;
+        if (world.Has<net::NetworkId>(item))
+          continue;
+        world.Add(item, net::AllocateNetworkId());
+        const u64 net_id = NetIdOf(world, item);
+        if (net_id == 0)
+          continue;
+        self->announced_items_[net_id] = item;
+        self->server_session_->SendWorldItem({net_id, entry.second.packed()});
+      }
+      base::Vector<u64> gone;
+      for (auto entry : self->announced_items_) {
+        if (!world.IsAlive(entry.value))
+          gone.push_back(entry.key);
+      }
+      for (const u64 net_id : gone) {
+        self->announced_items_.erase(net_id);
+        self->server_session_->ForgetWorldItem(net_id);
+      }
+    }
     // Respawns a script asked for, applied here where the physics characters and
     // the session live.
     if (self->server_session_ && self->ctx_.physics) {
@@ -911,6 +984,18 @@ bool StartNetworking(Engine& engine) {
       }
       for (const u64 net_id : resolved)
         self->pending_vitals_.erase(net_id);
+      resolved.clear();
+      for (auto entry : self->pending_world_items_) {
+        const u64 net_id = entry.key;
+        const u64 base = entry.value;
+        const ecs::Entity e = self->client_session_->replicated_entity(net_id);
+        if (e == ecs::kInvalidEntity)
+          continue;
+        ShowLoot((self->items_ ? &*self->items_ : nullptr), e, net_id, base);
+        resolved.push_back(net_id);
+      }
+      for (const u64 net_id : resolved)
+        self->pending_world_items_.erase(net_id);
     }
   });
   if (self->client_session_) {

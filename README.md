@@ -208,9 +208,30 @@ drops what arrives and counts it, saying so in the log. A system that starts
 simulating where it should not is a line in the log rather than a desync somebody
 reports a week later.
 
-One system is not authoritative yet, and the README says so where it lives:
-dropped items are still local to whichever machine dropped them, so two players
-do not see one world's loot. That is the next piece.
+### Loot
+
+One world's loot, not one machine's. An item exists where the world does: on the
+host. It replicates like anything else the host owns, so the snapshot stream
+carries its existence and its transform and the interest bubbles decide who hears
+about it; a small message alongside says which replica is loot and the base record
+it came out of, which is the one thing a snapshot cannot carry and exactly what a
+client needs to give it a mesh. A joining client is told what is already lying on
+the floor, so it arrives to a world with the loot already in it.
+
+Both ends of the loop belong to the host. Picking something up credits the player
+who activated it, which sounds obvious and was not: it used to credit whichever
+player was local, so on a dedicated server a client's find went nowhere and on a
+listen server it went to whoever was hosting. Dropping is a request, because the
+pack it comes out of is the host's record too: the host picks the stack, throws it
+from that player's own body along the way they are looking, and tells everyone
+what landed.
+
+The host reconciles rather than hooking the drop. An item's entity is destroyed
+when it hibernates out of range and a fresh one is built when it wakes, so
+anything hanging off the moment of the drop would miss most of an item's life.
+Instead, each tick, loot without a replicated identity gains one and is announced,
+and loot whose entity is gone is forgotten: drop, wake, hibernate and pickup all
+come out right under the one rule.
 
 ### Player sync
 

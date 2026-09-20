@@ -41,6 +41,10 @@ enum class GameMessage : u16 {
                            // the weather derives from
   kPlayerAttack = 143,     // client -> server: a swing, and the aim it was
                            // thrown with; the host resolves what it hit
+  kItemDrop = 144,         // client -> server: drop my most recent stack; the
+                           // host owns the pack it comes out of
+  kWorldItem = 145,        // server -> clients: which replica is loot on the
+                           // ground, and the base record to render it from
 };
 
 static_assert(static_cast<u16>(GameMessage::kQuestUpdate) >= kFirstGameMessage,

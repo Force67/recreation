@@ -12,6 +12,7 @@
 
 #include "components/bethesda/form_id.h"
 #include "components/gamenet/asset_stream.h"
+#include "components/gamenet/item_sync.h"
 #include "components/gamenet/player_sync.h"
 #include "components/gamenet/world_replication.h"
 #include "components/modstream/content_store.h"
@@ -103,6 +104,13 @@ GameServerSession::GameServerSession(GameSessionConfig config)
                                         vitals.max_health, vitals.dead}),
                     /*reliable=*/true, tx::network::PacketPriority::Medium);
     }
+    // And on the loot already lying about, which its snapshot will spawn as
+    // transforms it would otherwise have no way to render.
+    for (const auto& [net_id, base] : world_items_) {
+      inner_.SendTo(peer, static_cast<u16>(GameMessage::kWorldItem),
+                    EncodeWorldItem({net_id, base}),
+                    /*reliable=*/true, tx::network::PacketPriority::Medium);
+    }
     // And on what time it is, so it loads into the host's hour rather than its
     // own and then jumps on the first beat.
     if (world_state_valid_) {
@@ -191,6 +199,16 @@ void GameServerSession::OnGameMessage(u32 peer, u16 type, const u8* data, size_t
         break;
       last = clock_seconds_;
       player_attack_sink_(peer, *yaw);
+      break;
+    }
+    case GameMessage::kItemDrop: {
+      // No rate limit, unlike activation: a drop is self-limiting, because you
+      // can only drop what you are carrying and dropping it takes it out of your
+      // pack, so a flood empties the pack and then costs an empty scan.
+      // Activation is limited because it parses records and runs scripts.
+      if (!item_drop_sink_ || inner_.PlayerOf(peer) == ecs::kInvalidEntity)
+        break;
+      item_drop_sink_(peer);
       break;
     }
     case GameMessage::kDialogueSelect: {
@@ -342,6 +360,18 @@ void GameServerSession::SetPlayerHealth(u32 peer, u16 health, u16 max_health, bo
                    /*reliable=*/true, tx::network::PacketPriority::Medium);
 }
 
+void GameServerSession::SendWorldItem(const WorldItemState& item) {
+  if (item.net_id == 0)
+    return;
+  world_items_[item.net_id] = item.base;
+  inner_.Broadcast(static_cast<u16>(GameMessage::kWorldItem), EncodeWorldItem(item),
+                   /*reliable=*/true, tx::network::PacketPriority::Medium);
+}
+
+void GameServerSession::ForgetWorldItem(u64 net_id) {
+  world_items_.erase(net_id);
+}
+
 bool GameServerSession::PlayerVitalsOf(u32 peer,
                                        u16* health,
                                        u16* max_health,
@@ -435,6 +465,13 @@ void GameClientSession::SendAttack(f32 yaw) {
                       /*reliable=*/true, tx::network::PacketPriority::High);
 }
 
+void GameClientSession::SendItemDrop() {
+  if (!joined())
+    return;
+  inner_.SendToServer(static_cast<u16>(GameMessage::kItemDrop), std::vector<u8>{},
+                      /*reliable=*/true, tx::network::PacketPriority::Medium);
+}
+
 void GameClientSession::SendDialogueSelect(u64 info) {
   if (!joined())
     return;
@@ -522,6 +559,12 @@ void GameClientSession::OnGameMessage(u16 type, const u8* data, size_t size) {
       if (player_vitals_sink_)
         if (auto vitals = DecodePlayerVitals(data, size))
           player_vitals_sink_(vitals->net_id, vitals->health, vitals->max_health, vitals->dead);
+      break;
+    }
+    case GameMessage::kWorldItem: {
+      if (world_item_sink_)
+        if (auto item = DecodeWorldItem(data, size))
+          world_item_sink_(*item);
       break;
     }
     case GameMessage::kWorldState: {

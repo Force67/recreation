@@ -237,7 +237,7 @@ bool FpEquipment::ProbePickupNearestWeapon() {
     return false;
   }
   RX_INFO("FP_PROBE: picking up nearest weapon ref 0x{:x} at {:.1f} m", best, std::sqrt(best_d2));
-  return ctx_.items->TryPickUp(best);
+  return ctx_.items->TryPickUp(best, actors_.PlayerEntity());
 }
 
 void FpEquipment::ProbeForceDraw() {

@@ -180,8 +180,17 @@ void Engine::UpdateCamera(f32 frame_delta) {
     WalkUpdate(frame_delta, !menu && !kb);
     interaction_->UpdateInteraction(actions_->pressed(Action::kActivate) && !menu && !kb);
     // Drop the most recent inventory item into the world (walk mode only).
-    if (ctx_.items && actions_->pressed(Action::kDropItem) && !menu && !kb)
-      ctx_.items->DropLast();
+    if (ctx_.items && actions_->pressed(Action::kDropItem) && !menu && !kb) {
+#if RECREATION_HAS_NET
+      // On a client the pack is the host's record, so ask instead of dropping:
+      // the host picks the stack, throws it from this player's body and tells
+      // everyone what landed.
+      if (ctx_.client_session)
+        ctx_.client_session->SendItemDrop();
+      else
+#endif
+        ctx_.items->DropLast();
+    }
   } else {
     bool allow_mouse = !menu && (!debug_ui_.wants_mouse() || camera_.looking());
     bool allow_keyboard = !menu && !kb;

@@ -845,6 +845,12 @@ class Engine : public app::Application {
   // host's copy, so the correction is logged on the way in and not every frame
   // for as long as it lasts.
   bool reconcile_snapping_ = false;
+  // Host side: the loot it has told clients about, net id -> entity, so an item
+  // whose entity is gone can be taken back out of what a joiner is told.
+  base::UnorderedMap<u64, ecs::Entity> announced_items_;
+  // Client side: loot offers for replicas that have not spawned yet (the
+  // kWorldItem message and the snapshot that creates the entity race).
+  base::UnorderedMap<u64, u64> pending_world_items_;
   // Client side: the weather seed the host last announced. Kept so we adopt it
   // when the HOST changes it rather than whenever it differs from our own,
   // which after an alignment it legitimately does.

@@ -341,10 +341,12 @@ void Engine::OnSimulate(f32 raw_frame_delta) {
     // loot field around the player, and autosave. Loads persisted items lazily on
     // the first frame the player exists.
     //
-    // NOT authoritative yet, and the last system that is not: items live on
-    // whichever machine dropped them, so two players do not see one world's
-    // loot. Replicating them is the next piece of this.
-    if (items_)
+    // The host's alone, like the rest of the world. A replica has no item bodies
+    // to mirror and no loot field to keep: its items are replicas whose
+    // transforms arrive interpolated, and the pack they came out of is the
+    // host's record. It must not load its single-player items into a session or
+    // save a world it does not own either.
+    if (items_ && ctx_.simulates())
       items_->Update(frame_delta);
   }
 }

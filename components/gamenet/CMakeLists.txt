@@ -2,6 +2,7 @@ recreation_add_module(gamenet
   actor_sync.cc
   address.cc
   asset_stream.cc
+  item_sync.cc
   objective_marker_net.cc
   player_sync.cc
   quest_replication.cc
@@ -51,3 +52,4 @@ recreation_add_test(player_sync_nettest recreation::gamenet)
 recreation_add_test(world_state_nettest recreation::gamenet)
 recreation_add_test(kick_nettest recreation::gamenet)
 recreation_add_test(player_attack_nettest recreation::gamenet)
+recreation_add_test(item_sync_nettest recreation::gamenet)

@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "components/gamenet/actor_sync.h"
+#include "components/gamenet/item_sync.h"
 #include "components/gamenet/objective_marker_net.h"
 #include "components/gamenet/protocol.h"
 #include "components/gamenet/quest_replication.h"
@@ -120,6 +121,17 @@ class GameServerSession final : public Session {
   // Seconds a peer must wait between accepted swings.
   void set_swing_cadence_seconds(f32 seconds) { swing_cadence_seconds_ = seconds; }
 
+  // Sink invoked with the peer each time a client asks to drop its most recent
+  // stack. What it is carrying is the host's own record, so the request carries
+  // nothing but the asking.
+  void SetItemDropSink(std::function<void(u32 peer)> sink) { item_drop_sink_ = std::move(sink); }
+
+  // Announces a piece of loot: which replicated entity it is and the base record
+  // it came out of. Remembered so a joining client is told about the loot already
+  // on the floor, and forgotten when the host says the item is gone.
+  void SendWorldItem(const WorldItemState& item);
+  void ForgetWorldItem(u64 net_id);
+
   // Authoritative NPC transforms to stream; only the ones that moved since the
   // last tick go out (unreliable).
   void SetActorSource(std::function<std::vector<ActorState>()> source) {
@@ -196,6 +208,9 @@ class GameServerSession final : public Session {
   std::function<void(u32, u64)> activate_sink_;
   std::function<void(u64)> dialogue_sink_;
   std::function<void(u32 peer, f32 yaw)> player_attack_sink_;
+  std::function<void(u32 peer)> item_drop_sink_;
+  // Loot the host has told clients about, so a joiner can be caught up.
+  std::unordered_map<u64, u64> world_items_;  // net id -> base form
   // Server clock (seconds since start) of each peer's last accepted swing, and
   // the cadence they are held to.
   std::unordered_map<u32, f64> last_swing_seconds_;
@@ -250,6 +265,9 @@ class GameClientSession final : public Session {
   // Asks the server to resolve a swing aimed along `yaw`. The client never
   // decides what it hit; the host answers with whatever vitals changed.
   void SendAttack(f32 yaw);
+  // Asks the server to drop this player's most recent stack. The host owns the
+  // pack and the world item that comes out of it.
+  void SendItemDrop();
   // Sends the chosen dialogue INFO handle to the server.
   void SendDialogueSelect(u64 info);
   // Asks the server to apply a quest-debugger change.
@@ -293,6 +311,12 @@ class GameClientSession final : public Session {
     player_vitals_sink_ = std::move(sink);
   }
 
+  // Sink invoked once per kWorldItem received: which replica is loot, and the
+  // base record to render it from.
+  void SetWorldItemSink(std::function<void(const WorldItemState&)> sink) {
+    world_item_sink_ = std::move(sink);
+  }
+
   // Sink invoked once per kWorldState received: the host's clock and the seed
   // its weather derives from. The engine adopts both.
   void SetWorldStateSink(std::function<void(const WorldState&)> sink) {
@@ -331,6 +355,7 @@ class GameClientSession final : public Session {
   std::function<void(const ObjectiveMarkerState&)> objective_marker_sink_;
   std::function<void(const WarMapState&)> war_map_sink_;
   std::function<void(const WorldState&)> world_state_sink_;
+  std::function<void(const WorldItemState&)> world_item_sink_;
   std::function<void(const base::Vector<world::WorldCommand>&)> world_command_sink_;
   std::function<void(const base::Vector<ActorState>&)> actor_sink_;
 };

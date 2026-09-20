@@ -53,7 +53,10 @@ class InteractionSystem {
   // Runs a dialogue INFO's begin fragment (the TIF_ script). owning_quest, when
   // non-zero, is registered so the fragment's GetOwningQuest() resolves.
   void RunInfoFragment(u64 info, u64 owning_quest = 0);
-  void RaiseActivate(u64 handle);
+  // Runs the affordances of `handle` on behalf of `actor`: the pickup credits
+  // that actor's inventory, so it must be the player who actually activated,
+  // which on a host is the peer's body rather than the local player.
+  void RaiseActivate(u64 handle, ecs::Entity actor);
   bool RaiseRemoteActivate(u32 peer, ecs::Entity player, u64 handle);
   bool AttachReferenceScripts(u64 handle);
   bethesda::GlobalFormId ReferenceForm(u64 handle) const;
