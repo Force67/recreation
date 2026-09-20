@@ -364,6 +364,8 @@ bool StartNetworking(Engine& engine) {
     auto server = base::MakeUnique<net::GameServerSession>(base::move(net_config));
     self->server_session_ = &*server;
     self->ctx_.server_session = self->server_session_;
+    // This machine is the world for everyone on it.
+    self->ctx_.authority = EngineContext::Authority::kHost;
     self->server_session_->SetWorldCommandSource(
         [self]() { return self->quest_world_->SnapshotDoorStates(); });
     // The shared world: the host's clock is the session's clock, and its weather
@@ -623,6 +625,8 @@ bool StartNetworking(Engine& engine) {
     auto client = base::MakeUnique<net::GameClientSession>(base::move(net_config));
     self->client_session_ = &*client;
     self->ctx_.client_session = self->client_session_;
+    // A view of somebody else's world: simulate nothing, ask for everything.
+    self->ctx_.authority = EngineContext::Authority::kReplica;
     // Mirror the server's journal onto our quest system. ApplyStatus mutates
     // quest state, so it has to run on the guest thread like every other write.
     if (self->scripts_ && self->script_bindings_) {

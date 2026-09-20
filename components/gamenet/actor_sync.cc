@@ -13,8 +13,9 @@
 namespace rx::net {
 namespace {
 
-// Fixed 36-byte little-endian record: u64 form | 3xf32 pos | 4xf32 rot.
-constexpr size_t kRecordSize = 8 + 3 * 4 + 4 * 4;
+// Fixed 37-byte little-endian record:
+//   u64 form | 3xf32 pos | 4xf32 rot | u8 dead
+constexpr size_t kRecordSize = 8 + 3 * 4 + 4 * 4 + 1;
 
 void AppendU32(std::vector<u8>& out, u32 v) {
   u8 buf[4];
@@ -40,6 +41,7 @@ std::vector<u8> EncodeRecord(const ActorState& a) {
     AppendF32(rec, v);
   for (f32 v : a.rot)
     AppendF32(rec, v);
+  rec.push_back(a.dead ? 1 : 0);
   return rec;
 }
 
@@ -60,10 +62,13 @@ bool DecodeRecord(const u8* data, size_t size, ActorState* out) {
     v = f32at();
   for (f32& v : out->rot)
     v = f32at();
+  out->dead = data[pos] != 0;
   return true;
 }
 
 bool Changed(const ActorState& a, const ActorState& b) {
+  if (a.dead != b.dead)
+    return true;
   constexpr f32 kEps = 1e-3f;
   for (int i = 0; i < 3; ++i)
     if (std::fabs(a.pos[i] - b.pos[i]) > kEps)
@@ -120,6 +125,7 @@ std::vector<ActorState> CollectActorStates(ecs::World& world) {
           a.pos[i] = t.position[i];
         for (int i = 0; i < 4; ++i)
           a.rot[i] = t.rotation[i];
+        a.dead = world.Has<world::Dead>(entity);
         out.push_back(a);
       });
   return out;
@@ -130,7 +136,13 @@ std::vector<ActorState> ActorReplicator::Build(const std::vector<ActorState>& sn
   for (const ActorState& a : snapshot) {
     ActorState* prev = sent_.find(a.form);
     if (!prev) {
-      sent_.insert(a.form, a);  // clients already have the spawn transform
+      sent_.insert(a.form, a);
+      // Clients already have the spawn transform from cell data, so a form seen
+      // for the first time costs nothing to skip -- unless it is already down,
+      // which cell data does not say and a late joiner would otherwise never
+      // learn.
+      if (a.dead)
+        changed.push_back(a);
       continue;
     }
     if (Changed(*prev, a)) {
@@ -175,6 +187,12 @@ void ApplyActorStates(ecs::World& world,
     // machine at idle no matter how fast the transforms say it is moving.
     if (!world.Has<ReplicatedGait>(entity))
       world.Add(entity, ReplicatedGait{});
+    // The host's word on whether this actor is down. A replica never kills
+    // anything itself, so this tag only ever arrives from here.
+    if (a.dead)
+      world.Add(entity, world::Dead{});
+    else
+      world.Remove<world::Dead>(entity);
   }
 }
 

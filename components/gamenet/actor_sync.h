@@ -21,6 +21,11 @@ struct ActorState {
   u64 form = 0;
   f32 pos[3] = {0, 0, 0};
   f32 rot[4] = {0, 0, 0, 1};
+  // Whether the host has this actor down. Rides along because a client cannot
+  // work it out: it does not simulate combat, and death is not a transform
+  // change, so without this a killed NPC just stops moving on every client and
+  // stays standing forever.
+  bool dead = false;
 };
 
 std::vector<u8> EncodeActorStates(const std::vector<ActorState>& actors);

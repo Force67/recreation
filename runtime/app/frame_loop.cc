@@ -164,8 +164,7 @@ void Engine::OnSimulate(f32 raw_frame_delta) {
 #endif
   // Whatever the operator typed into the server console since the last frame.
   // Runs before the world requests below so a console `time` lands this frame.
-  console_.Drain(console_host_,
-                 [](const base::String& reply) { RX_INFO("{}", reply.c_str()); });
+  console_.Drain(console_host_, [](const base::String& reply) { RX_INFO("{}", reply.c_str()); });
   // World changes a script asked for, applied here on the thread that owns the
   // clock and the weather director. A host's move replicates to every client
   // (the session samples both); single-player just sees it.
@@ -267,72 +266,84 @@ void Engine::OnSimulate(f32 raw_frame_delta) {
     // on the guest thread. Main-thread only, so it owns the ECS exclusively here.
     ApplyQuestWorld();
 
-    // Authoritative NPC simulation runs on the host / single-player only; a
-    // client receives the results via actor sync instead of simulating.
-#if RECREATION_HAS_NET
-    if (!client_session_)
-      ServerSimulateActors(frame_delta);
-#else
-    ServerSimulateActors(frame_delta);
-#endif
-    // Steer follower NPCs toward the player and scene guides toward their
-    // targets (host authoritative; streams to clients via actor sync). The
-    // navmesh bubble around the player fills first (time-sliced tile builds).
+    // The navmesh bubble around the player fills first (time-sliced tile
+    // builds). It runs everywhere, replica included: it is derived from static
+    // collision rather than from world state, and the local player's auto-walk
+    // paths over it.
     npc_->UpdateNav(frame_delta);
-    npc_->UpdateFollowers(frame_delta);
-    npc_->UpdateGuides(frame_delta);
-    npc_->UpdateAmbient(frame_delta);  // idle sandbox for streamed NPCs
-    // Combat enrollment from the guest thread (StartCombat/StopCombat/death),
-    // then drive the melee simulation (host/single-player authoritative).
-    for (const world::CombatEvent& e : combat_event_queue_.Drain()) {
-      switch (e.op) {
-        case world::CombatOp::kEngage:
-          npc_->EnterCombat(e.actor, e.target);
-          break;
-        case world::CombatOp::kDisengage:
-          npc_->LeaveCombat(e.actor);
-          break;
-        case world::CombatOp::kDied:
-          npc_->OnActorDied(e.actor);
-          break;
-        case world::CombatOp::kResurrected:
-          npc_->OnActorResurrected(e.actor);
-          break;
-        case world::CombatOp::kFollow:
-          npc_->SetFollower(e.actor, true);
-          break;
-        case world::CombatOp::kUnfollow:
-          npc_->SetFollower(e.actor, false);
-          break;
+
+    // Everything from here to the triggers is the authoritative world
+    // simulation, and a replica runs none of it. It receives the results
+    // instead: transforms through actor sync, deaths through the same, quest
+    // state through the journal, and whatever the player does goes to the host
+    // as a request. A replica that simulated any of this would be a second
+    // world quietly disagreeing with the first.
+    if (ctx_.simulates()) {
+      ServerSimulateActors(frame_delta);
+      // Steer follower NPCs toward the player and scene guides toward their
+      // targets; the results stream to clients via actor sync.
+      npc_->UpdateFollowers(frame_delta);
+      npc_->UpdateGuides(frame_delta);
+      npc_->UpdateAmbient(frame_delta);  // idle sandbox for streamed NPCs
+      // Combat enrollment from the guest thread (StartCombat/StopCombat/death),
+      // then drive the melee simulation.
+      for (const world::CombatEvent& e : combat_event_queue_.Drain()) {
+        switch (e.op) {
+          case world::CombatOp::kEngage:
+            npc_->EnterCombat(e.actor, e.target);
+            break;
+          case world::CombatOp::kDisengage:
+            npc_->LeaveCombat(e.actor);
+            break;
+          case world::CombatOp::kDied:
+            npc_->OnActorDied(e.actor);
+            break;
+          case world::CombatOp::kResurrected:
+            npc_->OnActorResurrected(e.actor);
+            break;
+          case world::CombatOp::kFollow:
+            npc_->SetFollower(e.actor, true);
+            break;
+          case world::CombatOp::kUnfollow:
+            npc_->SetFollower(e.actor, false);
+            break;
+        }
       }
-    }
-    npc_->Cw00DemoTick(frame_delta);
-    npc_->CwBattleTick(frame_delta);
-    npc_->CwFieldBattleTick(frame_delta);
-    npc_->UpdateCombat(frame_delta);
-    // Mirror any soldiers the battle spawned to clients (so they render the same
-    // bipeds); the actor sync then streams their movement. Drained every frame so
-    // single-player simply discards them.
-    {
-      base::Vector<world::WorldCommand> spawns = npc_->DrainReplicatedSpawns();
+      npc_->Cw00DemoTick(frame_delta);
+      npc_->CwBattleTick(frame_delta);
+      npc_->CwFieldBattleTick(frame_delta);
+      npc_->UpdateCombat(frame_delta);
+      // Mirror any soldiers the battle spawned to clients (so they render the same
+      // bipeds); the actor sync then streams their movement. Drained every frame so
+      // single-player simply discards them.
+      {
+        base::Vector<world::WorldCommand> spawns = npc_->DrainReplicatedSpawns();
 #if RECREATION_HAS_NET
-      if (server_session_ && !spawns.empty())
-        server_session_->SendWorldCommands(spawns);
+        if (server_session_ && !spawns.empty())
+          server_session_->SendWorldCommands(spawns);
 #endif
-    }
-    npc_->Mq101DemoTick(frame_delta);
-    npc_->Mq101SceneTick(frame_delta);
-    // Actors run their authored AI packages (the quest mirror the quest director
-    // refreshes is what their condition gates read), and the cutscene director
-    // plays whatever scenes are live over them.
-    packages_->Tick(frame_delta, quest_->quest_state());
+      }
+      npc_->Mq101DemoTick(frame_delta);
+      npc_->Mq101SceneTick(frame_delta);
+      // Actors run their authored AI packages: the quest mirror the quest director
+      // refreshes is what their condition gates read.
+      packages_->Tick(frame_delta, quest_->quest_state());
+      // World-driven progression: the player walking into a scripted trigger box
+      // fires its OnTriggerEnter, the native way Skyrim advances a quest.
+      interaction_->UpdateTriggers();
+    }  // ctx_.simulates()
+
+    // The cutscene director ticks everywhere: on a replica it plays the scenes
+    // the host started, and gates its own authoritative half (the guest's scene
+    // requests) internally.
     cutscene_->Tick(frame_delta, quest_->quest_state());
-    // World-driven progression: the player walking into a scripted trigger box
-    // fires its OnTriggerEnter, the native way Skyrim advances a quest.
-    interaction_->UpdateTriggers();
     // Dropped-item upkeep: mirror settled body transforms, hibernate/wake the
     // loot field around the player, and autosave. Loads persisted items lazily on
     // the first frame the player exists.
+    //
+    // NOT authoritative yet, and the last system that is not: items live on
+    // whichever machine dropped them, so two players do not see one world's
+    // loot. Replicating them is the next piece of this.
     if (items_)
       items_->Update(frame_delta);
   }
@@ -445,8 +456,8 @@ void Engine::OnUpdate(f32 raw_frame_delta) {
       TickLoadingScreen(*this, frame_delta);
       debug_ui_.BeginFrame();
       UpdateCamera(frame_delta);
-      UpdateSettings();          // pause-menu controls: rebind capture + sensitivity
-      actors_->SyncNpcActors();  // add/remove NPC actors as cells stream in/out
+      UpdateSettings();              // pause-menu controls: rebind capture + sensitivity
+      actors_->SyncNpcActors();      // add/remove NPC actors as cells stream in/out
       actors_->SyncPlayerAvatars();  // bodies for replicated players as they join/leave
       actors_->Update(frame_delta);
     }

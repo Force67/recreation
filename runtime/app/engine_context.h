@@ -183,6 +183,29 @@ struct EngineContext {
   net::GameClientSession* client_session = nullptr;
 #endif
 
+  // Who decides what happens in this world.
+  //
+  // A replica simulates nothing. Every system that mutates authoritative state
+  // either does not run there at all or derives its result from replicated
+  // input, and anything the player does travels to the host as a request the
+  // host answers. This is a reimplementation, so the rule is structural rather
+  // than a sync layer bolted onto a local simulation: ask `simulates()` instead
+  // of asking whether a client session happens to exist, and a system that
+  // forgets is a system that runs twice and disagrees with itself.
+  //
+  // Set once during bring-up, before any system runs.
+  enum class Authority : u8 {
+    kStandalone,  // single player: this machine is the world
+    kHost,        // listen or dedicated server: this machine is the world for everyone
+    kReplica,     // a connected client: a view of the host's world
+  };
+  Authority authority = Authority::kStandalone;
+
+  // True where this machine's simulation is the truth. The question nearly every
+  // caller wants: a host and single player behave identically, and only a
+  // replica is different.
+  bool simulates() const { return authority != Authority::kReplica; }
+
   // Walk-mode player view, written by the engine each frame and read by the
   // interaction / quest / npc subsystems. The actor system flips walk_mode /
   // third_person / auto_walk when it spawns a walkable player.

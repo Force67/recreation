@@ -93,6 +93,48 @@ int main() {
   Check("client NPC reaches the authoritative position",
         client.Get<Transform>(cnpc)->position[0] == 5.0f);
 
+  // --- death, which a client cannot work out for itself ---
+  //
+  // A replica simulates no combat, and dying is not a transform change, so
+  // without this on the wire a killed NPC would stop moving on every client and
+  // stay standing there.
+  host.Add(npc, rx::world::Dead{});
+  std::vector<ActorState> died = rep.Build(rx::net::CollectActorStates(host));
+  Check("a death is emitted even though nothing moved",
+        died.size() == 1 && died[0].form == kForm && died[0].dead);
+  Check("and only once", rep.Build(rx::net::CollectActorStates(host)).empty());
+
+  std::vector<rx::u8> death_blob = rx::net::EncodeActorStates(died);
+  auto death_decoded =
+      rx::net::DecodeActorStates(rx::ByteSpan(death_blob.data(), death_blob.size()));
+  Check("the dead flag survives the wire",
+        death_decoded && death_decoded->size() == 1 && (*death_decoded)[0].dead);
+  rx::net::ApplyActorStates(client, client_qw, *death_decoded, 0.1f);
+  Check("the client puts the actor down", client.Has<rx::world::Dead>(cnpc));
+
+  // Brought back: the tag clears the same way, from the host's word only.
+  host.Remove<rx::world::Dead>(npc);
+  std::vector<ActorState> revived = rep.Build(rx::net::CollectActorStates(host));
+  Check("a resurrection is emitted too", revived.size() == 1 && !revived[0].dead);
+  base::Vector<ActorState> revived_wire;
+  for (const ActorState& a : revived)
+    revived_wire.push_back(a);
+  rx::net::ApplyActorStates(client, client_qw, revived_wire, 0.1f);
+  Check("the client stands it back up", !client.Has<rx::world::Dead>(cnpc));
+
+  // A client that joins after the killing blow still learns about it: the
+  // first-sight rule skips a form clients already have the spawn pose for, but
+  // cell data never says who is already dead.
+  host.Add(npc, rx::world::Dead{});
+  ActorReplicator late;
+  std::vector<ActorState> first = late.Build(rx::net::CollectActorStates(host));
+  Check("a late joiner is told about an already-dead actor",
+        first.size() == 1 && first[0].dead);
+  host.Remove<rx::world::Dead>(npc);
+  ActorReplicator fresh;
+  Check("but a living one still costs nothing on first sight",
+        fresh.Build(rx::net::CollectActorStates(host)).empty());
+
   client.Add(cnpc, rx::world::Hidden{});
   const float hidden_x = client.Get<Transform>(cnpc)->position[0];
   ActorState hidden_update = decoded->front();
