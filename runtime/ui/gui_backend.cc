@@ -68,9 +68,12 @@ void HudRenderBackend::CreateBuffer(VkDeviceSize size,
   vkAllocateMemory(info_.device, &ai, nullptr, &out.memory);
   vkBindBufferMemory(info_.device, out.buffer, out.memory, 0);
   out.capacity = size;
+  vkMapMemory(info_.device, out.memory, 0, VK_WHOLE_SIZE, 0, &out.mapped);
 }
 
 void HudRenderBackend::DestroyBuffer(GpuBuffer& b) {
+  if (b.memory && b.mapped)
+    vkUnmapMemory(info_.device, b.memory);
   if (b.buffer)
     vkDestroyBuffer(info_.device, b.buffer, nullptr);
   if (b.memory)
@@ -90,10 +93,9 @@ void HudRenderBackend::UploadBuffer(GpuBuffer& b,
     CreateBuffer(cap, usage,
                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, b);
   }
-  void* dst = nullptr;
-  vkMapMemory(info_.device, b.memory, 0, bytes, 0, &dst);
-  std::memcpy(dst, src, static_cast<size_t>(bytes));
-  vkUnmapMemory(info_.device, b.memory);
+  if (b.mapped == nullptr)
+    return;
+  std::memcpy(b.mapped, src, static_cast<size_t>(bytes));
 }
 
 VkPipeline HudRenderBackend::CreatePipeline(const unsigned char* vs,

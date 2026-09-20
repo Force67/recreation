@@ -7,6 +7,20 @@
 #if defined(RECREATION_HAS_UGUI)
 
 namespace rx {
+namespace {
+
+// Forward a key the ui should keep acting on while it is held: walking a list,
+// erasing a line. The platform's own auto-repeat sets the rate, and ugui tells
+// a repeat apart from a fresh press, so a screen that wants only the press
+// (activation, tab) still gets one event per physical keystroke.
+void PushHeldKey(ugui::InputQueue& q, const InputState& in, Key key, int glfw_key, int mods) {
+  if (in.key_pressed(key))
+    q.PushKey(glfw_key, 0, true, false, mods);
+  else if (in.key_repeated(key))
+    q.PushKey(glfw_key, 0, true, true, mods);
+}
+
+}  // namespace
 
 GameUi::GameUi() : impl_(base::MakeUnique<Impl>()) {}
 GameUi::~GameUi() {
@@ -108,6 +122,17 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   // the ring itself (authored tab-index where there is one, everything
   // interactive where there is not), so no screen has to opt in.
   impl_->ui.input().set_keyboard_navigation(bool(UiKeyboardNav));
+  switch (UiReuse.get()) {
+    case 1:
+      impl_->ui.set_frame_reuse(ugui::FrameReuse::kOn);
+      break;
+    case 2:
+      impl_->ui.set_frame_reuse(ugui::FrameReuse::kVerify);
+      RX_INFO("ui: verifying frame reuse (rebuilding every frame)");
+      break;
+    default:
+      break;
+  }
 
   // The screens name the game's own typeface, so those fonts have to be
   // registered before the tree that asks for them is built.
@@ -904,7 +929,7 @@ void GameUi::Build(Window& window,
     for (int k = 0; !dismiss && k < static_cast<int>(Key::kCount); ++k)
       dismiss = in.pressed[k];
     for (int b = 0; !dismiss && b < static_cast<int>(MouseButton::kCount); ++b)
-      dismiss = in.mouse[b] && !impl->prev_mouse[b];
+      dismiss = in.mouse_pressed[b];
     if (!dismiss && window.gamepad().connected) {
       for (int b = 0; !dismiss && b < static_cast<int>(GamepadButton::kCount); ++b)
         dismiss = window.gamepad().pressed[b];
@@ -941,10 +966,13 @@ void GameUi::Build(Window& window,
     const MouseButton rec_buttons[3] = {MouseButton::kLeft, MouseButton::kRight,
                                         MouseButton::kMiddle};
     for (int i = 0; i < 3; ++i) {
-      bool down = in.button(rec_buttons[i]);
-      if (down != impl->prev_mouse[i])
-        q.PushButton(buttons[i], down);
-      impl->prev_mouse[i] = down;
+      // Both edges can land in one pump, which is a click quicker than a frame.
+      // Comparing the button's level against last frame's would see nothing
+      // happen and swallow it; pushing the two edges lands the click.
+      if (in.button_pressed(rec_buttons[i]))
+        q.PushButton(buttons[i], true);
+      if (in.button_released(rec_buttons[i]))
+        q.PushButton(buttons[i], false);
     }
     if (in.wheel != 0.0f)
       q.PushScroll({0.0f, in.wheel});
@@ -1153,8 +1181,7 @@ void GameUi::Build(Window& window,
         {Key::kArrowLeft, 263}, {Key::kArrowRight, 262},
     };
     for (const ArrowKey& arrow : kArrows) {
-      if (in.key_pressed(arrow.key))
-        q.PushKey(arrow.glfw, 0, true, false, 0);
+      PushHeldKey(q, in, arrow.key, arrow.glfw, 0);
     }
     if (in.key_pressed(Key::kTab))
       q.PushKey(258, 0, true, false, shift_mod);
@@ -1172,8 +1199,7 @@ void GameUi::Build(Window& window,
   // an evening: the vanilla runtime is enabled on this build, so every keystroke
   // was decoded correctly and then dropped one line before it reached ugui.
   if (!legal_was_open) {
-    if (in.key_pressed(Key::kBackspace))
-      q.PushKey(259, 0, true, false, 0);  // GLFW_KEY_BACKSPACE
+    PushHeldKey(q, in, Key::kBackspace, 259, 0);  // GLFW_KEY_BACKSPACE
     // Typed characters, for the text fields. ugui edits its own inputs (caret,
     // selection, history) but only ever sees what the host forwards, so without
     // this a text field focuses, draws its caret and rejects every keystroke.
@@ -1227,6 +1253,17 @@ void GameUi::Build(Window& window,
     }
   }
 
+  // Route everything queued above through the widget tree NOW, rather than
+  // leaving it to RenderDrawData at the end of this function.
+  //
+  // A click's handler is what sets the state the Apply* passes below read, so
+  // routing input last meant every press was drawn one frame after it landed:
+  // the handler ran, and the pass that would have shown its effect had already
+  // run for that frame. Doing it here costs nothing (RenderDrawData's own call
+  // is a no-op once the frame is pumped) and takes a frame off every click,
+  // keystroke and pad press.
+  impl->ui.PumpInput();
+
   // --- Drive HUD values from real engine state ---
   // Compass heading from the camera's facing direction.
   Vec3 fwd = camera.forward();
@@ -1259,17 +1296,23 @@ void GameUi::Build(Window& window,
       "bar_stamina_fill", [](ugui::Style& s, float v) { s.width = ugui::Length::Pct(v); },
       impl->stamina * 100.0f);
 
-  // Readout text.
+  // Readout text. Every line of it changes every frame, so writing it while the
+  // panel is collapsed is the one thing that would keep an otherwise idle
+  // screen (the front menu, a pause screen) rebuilding its ui every frame.
   char buf[160];
   impl->last_fps = static_cast<int>(frame_delta > 0 ? 1.0f / frame_delta + 0.5f : 0.0f);
-  std::snprintf(buf, sizeof(buf), "%.0f fps", frame_delta > 0 ? 1.0f / frame_delta : 0.0f);
-  impl->SetText("hud_fps", buf);
-  Vec3 pos = camera.position();
-  std::snprintf(buf, sizeof(buf), "x %.0f   y %.0f   z %.0f", pos.x, pos.y, pos.z);
-  impl->SetText("hud_coords", buf);
-  const char* card = kCardinals[static_cast<int>(std::fmod(heading + 22.5f, 360.0f) / 45.0f) % 8];
-  std::snprintf(buf, sizeof(buf), "%s  %.0f deg", card, heading);
-  impl->SetText("hud_heading", buf);
+  const bool front_screen_up = impl->main_menu_open || impl->loading_open ||
+                               impl->first_run_open || impl->legal_open;
+  if (!front_screen_up && impl->IsVisible("readout")) {
+    std::snprintf(buf, sizeof(buf), "%.0f fps", frame_delta > 0 ? 1.0f / frame_delta : 0.0f);
+    impl->SetText("hud_fps", buf);
+    Vec3 pos = camera.position();
+    std::snprintf(buf, sizeof(buf), "x %.0f   y %.0f   z %.0f", pos.x, pos.y, pos.z);
+    impl->SetText("hud_coords", buf);
+    const char* card = kCardinals[static_cast<int>(std::fmod(heading + 22.5f, 360.0f) / 45.0f) % 8];
+    std::snprintf(buf, sizeof(buf), "%s  %.0f deg", card, heading);
+    impl->SetText("hud_heading", buf);
+  }
   std::snprintf(buf, sizeof(buf), "%d", impl->mm_stats.gold);
   impl->SetText("hud_gold", buf);
 
@@ -1596,6 +1639,22 @@ void GameUi::Build(Window& window,
   // Produce the draw list (input routing + layout + paint, no GPU work).
   const ugui::DrawData& dd = impl->ui.RenderDrawData();
   impl->draw_data = &dd;
+
+  if (const int every = UiPerf.get(); every > 0 && ++impl->perf_frame >= every) {
+    impl->perf_frame = 0;
+    const ugui::FrameStats& fs = impl->ui.frame_stats();
+    if (fs.reused) {
+      RX_INFO("ui perf: {:.2f}ms total (reused, {} draw cmds) | repeats {} mismatches {}",
+              fs.total_ms, fs.draw_commands, impl->ui.frame_reuse_candidates(),
+              impl->ui.frame_reuse_mismatches());
+    } else {
+      RX_INFO("ui perf: {:.2f}ms total (input {:.2f} update {:.2f} measure {:.2f} "
+              "layout {:.2f} paint {:.2f}) | {} widgets, {} layout nodes, "
+              "{} shaped ({} cached), {} draw cmds",
+              fs.total_ms, fs.input_ms, fs.update_ms, fs.measure_ms, fs.layout_ms, fs.paint_ms,
+              fs.widgets, fs.layout_nodes, fs.shape_calls, fs.shape_hits, fs.draw_commands);
+    }
+  }
 
   // Tell the renderer whether any widget wants backdrop blur this frame, so it
   // only captures + blurs the backbuffer when a frosted panel is actually shown.
