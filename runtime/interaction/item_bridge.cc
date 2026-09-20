@@ -551,26 +551,35 @@ bool ItemBridge::ShowReplicatedItem(ecs::Entity item, bethesda::GlobalFormId bas
   return true;
 }
 
-void ItemBridge::Update(f32 dt) {
+void ItemBridge::Update(f32 dt, const base::Vector<Vec3>& player_anchors) {
   if (!ctx_.world || !ctx_.physics)
     return;
   if (!loaded_ && actors_->HasPlayer())
     OnPlayerReady();
-  Vec3 ppos;
-  if (!actors_->PlayerWorldPos(&ppos))
-    return;
 
-  // Mirror awake body transforms into ECS transforms, then hibernate settled
-  // loot beyond the far radius into the store and wake stored loot back near the
-  // player. Radii: hibernate comfortably past the streaming bubble (load_radius 3
-  // cells ~ 175 m), wake smaller for hysteresis so a boundary item never thrashes.
+  // Mirror awake body transforms into ECS transforms. Unconditional, and before
+  // anything else: this is what makes a dropped item fall, and on a host it is
+  // what every client sees of it. A dedicated server has nobody standing here and
+  // still owns the loot.
   inventory::SyncWorldItems(*ctx_.world, *ctx_.physics);
+
+  // Radii: hibernate comfortably past the streaming bubble (load_radius 3 cells
+  // ~ 175 m), wake smaller for hysteresis so a boundary item never thrashes.
   constexpr f32 kHibernateRadius = 256.0f;
   constexpr f32 kWakeRadius = 192.0f;
-  inventory::HibernateDistantWorldItems(*ctx_.world, *ctx_.physics, world_store_, ppos,
-                                        kHibernateRadius);
-  inventory::WakeWorldItemsNear(*ctx_.world, *ctx_.physics, catalog_, world_store_, ppos,
-                                kWakeRadius);
+  for (const Vec3& anchor : player_anchors) {
+    inventory::WakeWorldItemsNear(*ctx_.world, *ctx_.physics, catalog_, world_store_, anchor,
+                                  kWakeRadius);
+  }
+  // Hibernation is "far from everyone", which a single-centre sweep cannot say.
+  // With one player it is exactly that sweep; with several the loot field simply
+  // stays awake, because putting an item to sleep for being far from one player
+  // would take it out from under another standing on top of it. A busy server
+  // keeping its loot resident is the cheaper mistake of the two.
+  if (player_anchors.size() == 1) {
+    inventory::HibernateDistantWorldItems(*ctx_.world, *ctx_.physics, world_store_,
+                                          player_anchors[0], kHibernateRadius);
+  }
 
   // Cheap periodic autosave (blobs are tiny); pickups/drops also save on the spot.
   autosave_timer_ += dt;

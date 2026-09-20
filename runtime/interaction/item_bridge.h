@@ -81,11 +81,17 @@ class ItemBridge {
   // request instead and the host runs DropLastFrom for its body.
   void DropLast();
 
-  // Per-frame maintenance keyed on the player position: mirrors awake body
-  // transforms into ECS transforms, hibernates settled items beyond the far
-  // radius into the spatial store, wakes stored items back near the player, and
-  // periodically autosaves. Cheap once the loot field has settled.
-  void Update(f32 dt);
+  // Per-frame maintenance: mirrors awake body transforms into ECS transforms,
+  // wakes stored items back near a player, hibernates settled items far from
+  // everyone into the spatial store, and periodically autosaves. Cheap once the
+  // loot field has settled.
+  //
+  // `player_anchors` is every player the loot field should stay awake around, in
+  // engine space. A dedicated server has no local player at all, which is why
+  // they are passed in rather than read from the actor system: mirroring bodies
+  // into transforms is what makes dropped loot fall for everyone watching, so it
+  // cannot depend on somebody standing here.
+  void Update(f32 dt, const base::Vector<Vec3>& player_anchors);
 
   // Attaches the player's Inventory (+ stable Guid so save/load reattaches) and
   // loads any persisted state. Call once, after the player entity exists.

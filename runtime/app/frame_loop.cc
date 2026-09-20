@@ -346,8 +346,23 @@ void Engine::OnSimulate(f32 raw_frame_delta) {
     // transforms arrive interpolated, and the pack they came out of is the
     // host's record. It must not load its single-player items into a session or
     // save a world it does not own either.
-    if (items_ && ctx_.simulates())
-      items_->Update(frame_delta);
+    if (items_ && ctx_.simulates()) {
+      // Everyone the loot field stays awake around: the local player if there is
+      // one, plus every networked player's body. A dedicated server has only the
+      // latter, which is the whole reason these are gathered here rather than
+      // read from the actor system.
+      base::Vector<Vec3> anchors;
+      Vec3 local;
+      if (actors_->PlayerWorldPos(&local))
+        anchors.push_back(local);
+#if RECREATION_HAS_NET
+      world_->Each<net::NetworkId, world::PlayerAvatar, world::Transform>(
+          [&](ecs::Entity, net::NetworkId&, world::PlayerAvatar&, world::Transform& t) {
+            anchors.push_back({t.position[0], t.position[1], t.position[2]});
+          });
+#endif
+      items_->Update(frame_delta, anchors);
+    }
   }
 }
 
