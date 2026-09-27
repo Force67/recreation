@@ -1,6 +1,7 @@
 #include <base/algorithm.h>
 #include <base/containers/unordered_map.h>
 #include <base/memory/move.h>
+#include <base/optional.h>
 #include <base/strings/string_ref.h>
 #include <base/strings/xstring.h>
 
@@ -8,7 +9,6 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
-#include <optional>
 
 #include "asset/vfs.h"
 #include "components/bethesda/archive.h"
@@ -47,19 +47,19 @@ bool IsShaderPackage(base::StringRef path) {
   return path.ends_with(".fxp") || path.ends_with(".sdp");
 }
 
-std::optional<base::Vector<u8>> ReadLooseFile(const std::filesystem::path& path) {
+base::Optional<base::Vector<u8>> ReadLooseFile(const std::filesystem::path& path) {
   std::error_code ec;
   const auto size = std::filesystem::file_size(path, ec);
   if (ec)
-    return std::nullopt;
+    return base::nullopt;
   std::FILE* f = std::fopen(path.string().c_str(), "rb");
   if (!f)
-    return std::nullopt;
+    return base::nullopt;
   base::Vector<u8> data(static_cast<size_t>(size));
   const size_t read = std::fread(data.data(), 1, data.size(), f);
   std::fclose(f);
   if (read != data.size())
-    return std::nullopt;
+    return base::nullopt;
   return data;
 }
 

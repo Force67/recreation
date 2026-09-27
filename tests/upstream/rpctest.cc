@@ -4,6 +4,9 @@
 // truncation, a bad magic, an over-limit length, and trailing garbage in
 // addition to the exact round trip for every value type.
 
+#include <base/containers/vector.h>
+#include <base/optional.h>
+
 #include <cstdio>
 #include <optional>
 #include <string>
@@ -54,9 +57,9 @@ void TestValue() {
   Check("string type", s.type() == RpcValue::Type::kString);
   Check("string value", s.as_string() == "hello");
 
-  RpcValue blob(std::vector<rx::u8>{1, 2, 3});
+  RpcValue blob(base::Vector<rx::u8>{1, 2, 3});
   Check("blob type", blob.type() == RpcValue::Type::kBlob);
-  Check("blob value", blob.as_blob() == (std::vector<rx::u8>{1, 2, 3}));
+  Check("blob value", blob.as_blob() == (base::Vector<rx::u8>{1, 2, 3}));
 
   std::puts("rpc value type-mismatch defaults:");
   Check("bool mismatch default", i.as_bool(true) == true);
@@ -74,8 +77,8 @@ void TestValue() {
 
 // Encodes then decodes and confirms the call is reproduced exactly.
 void CheckRoundTrip(const char* what, const RpcCall& call) {
-  std::vector<rx::u8> bytes = EncodeCall(call);
-  std::optional<RpcCall> back = DecodeCall(bytes.data(), bytes.size());
+  base::Vector<rx::u8> bytes = EncodeCall(call);
+  base::Optional<RpcCall> back = DecodeCall(bytes.data(), bytes.size());
   bool ok = back.has_value() && back->name == call.name && back->args == call.args;
   Check(what, ok);
 }
@@ -87,7 +90,7 @@ void TestCodec() {
   CheckRoundTrip("int arg", {"a.int", {RpcValue(rx::i64{-1234567890123})}});
   CheckRoundTrip("float arg", {"a.float", {RpcValue(rx::f64{-2.718281828})}});
   CheckRoundTrip("string arg", {"a.string", {RpcValue(std::string("a\0b", 3))}});
-  CheckRoundTrip("blob arg", {"a.blob", {RpcValue(std::vector<rx::u8>{0, 255, 16, 32})}});
+  CheckRoundTrip("blob arg", {"a.blob", {RpcValue(base::Vector<rx::u8>{0, 255, 16, 32})}});
   CheckRoundTrip("empty args", {"a.noargs", {}});
 
   RpcCall mixed;
@@ -97,7 +100,7 @@ void TestCodec() {
                 RpcValue(rx::f64{1.5}),
                 RpcValue(true),
                 RpcValue(),
-                RpcValue(std::vector<rx::u8>{9, 8, 7})};
+                RpcValue(base::Vector<rx::u8>{9, 8, 7})};
   CheckRoundTrip("mixed args", mixed);
 }
 
@@ -106,7 +109,7 @@ void TestCodecRejects() {
   RpcCall call;
   call.name = "x";
   call.args = {RpcValue(std::string("payload"))};
-  std::vector<rx::u8> good = EncodeCall(call);
+  base::Vector<rx::u8> good = EncodeCall(call);
 
   Check("good decodes", DecodeCall(good.data(), good.size()).has_value());
 
@@ -118,17 +121,17 @@ void TestCodecRejects() {
   }
   Check("all truncations rejected", !any_truncation_ok);
 
-  std::vector<rx::u8> bad_magic = good;
+  base::Vector<rx::u8> bad_magic = good;
   bad_magic[0] ^= 0xFF;
   Check("bad magic rejected", !DecodeCall(bad_magic.data(), bad_magic.size()).has_value());
 
-  std::vector<rx::u8> trailing = good;
+  base::Vector<rx::u8> trailing = good;
   trailing.push_back(0x00);
   Check("trailing garbage rejected", !DecodeCall(trailing.data(), trailing.size()).has_value());
 
   // An over-limit string length (> 16 MiB) in the header must be rejected before
   // any allocation, even though the buffer itself is tiny.
-  std::vector<rx::u8> over;
+  base::Vector<rx::u8> over;
   auto put_u32 = [&](rx::u32 v) {
     for (int i = 0; i < 4; ++i)
       over.push_back(rx::u8(v >> (8 * i)));
@@ -146,7 +149,7 @@ void TestCodecRejects() {
   Check("over-limit length rejected", !DecodeCall(over.data(), over.size()).has_value());
 
   // An unknown type tag means the stream is corrupt.
-  std::vector<rx::u8> bad_tag;
+  base::Vector<rx::u8> bad_tag;
   bad_tag.insert(bad_tag.end(), over.begin(), over.begin() + 4);  // magic
   bad_tag.push_back(0);
   bad_tag.push_back(0);  // name length 0

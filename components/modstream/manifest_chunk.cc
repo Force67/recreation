@@ -9,7 +9,7 @@ namespace {
 
 constexpr size_t kHeaderSize = 16;
 
-void PutU32(std::vector<u8>& out, u32 v) {
+void PutU32(base::Vector<u8>& out, u32 v) {
   for (int i = 0; i < 4; ++i)
     out.push_back(static_cast<u8>(v >> (8 * i)));
 }
@@ -25,13 +25,13 @@ u32 ManifestChunkCount(u32 total_size) {
   return (total_size + kManifestChunkPayload - 1) / kManifestChunkPayload;
 }
 
-std::vector<u8> EncodeManifestChunk(u32 generation,
+base::Vector<u8> EncodeManifestChunk(u32 generation,
                                     u32 total_size,
                                     u32 total_chunks,
                                     u32 chunk_index,
                                     const u8* payload,
                                     u32 payload_len) {
-  std::vector<u8> out;
+  base::Vector<u8> out;
   out.reserve(kHeaderSize + payload_len);
   PutU32(out, generation);
   PutU32(out, total_size);

@@ -75,7 +75,7 @@ int main() {
   host.Remove<rx::world::Hidden>(npc);
 
   // --- wire ---
-  std::vector<rx::u8> blob = rx::net::EncodeActorStates(changed);
+  base::Vector<rx::u8> blob = rx::net::EncodeActorStates(changed);
   auto decoded = rx::net::DecodeActorStates(rx::ByteSpan(blob.data(), blob.size()));
   Check("decodes", decoded.has_value() && decoded->size() == 1);
 

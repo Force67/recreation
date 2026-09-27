@@ -27,20 +27,20 @@ enum ObjectiveFlags : u8 {
 //   u8 domain | u64 handle | i32 stage | u8 status_flags | u32 objective_count
 //   then objective_count * (i32 index | u8 obj_flags)
 // All integers are little-endian, matching the nanobuf runtime's codec.
-void AppendU32(std::vector<u8>& out, u32 v) {
+void AppendU32(base::Vector<u8>& out, u32 v) {
   u8 buf[4];
   nanobuf::StoreLe<u32>(buf, v);
   out.insert(out.end(), buf, buf + 4);
 }
-void AppendU64(std::vector<u8>& out, u64 v) {
+void AppendU64(base::Vector<u8>& out, u64 v) {
   u8 buf[8];
   nanobuf::StoreLe<u64>(buf, v);
   out.insert(out.end(), buf, buf + 8);
 }
 
-std::vector<u8> EncodeQuestRecord(const DomainQuestStatus& dq) {
+base::Vector<u8> EncodeQuestRecord(const DomainQuestStatus& dq) {
   const quest::QuestStatus& q = dq.status;
-  std::vector<u8> rec;
+  base::Vector<u8> rec;
   rec.push_back(dq.domain);
   AppendU64(rec, q.handle);
   AppendU32(rec, static_cast<u32>(q.stage));
@@ -128,17 +128,19 @@ bool DecodeQuestRecord(const u8* data, size_t size, DomainQuestStatus* out) {
 
 }  // namespace
 
-std::vector<u8> EncodeQuestUpdate(const std::vector<DomainQuestStatus>& quests) {
+base::Vector<u8> EncodeQuestUpdate(const std::vector<DomainQuestStatus>& quests) {
   // The outer frame is a nanobuf message carrying the quest records as a
   // list<bytes>, so the runtime's bounds-checked Parse guards the whole blob.
   nanobuf::Writer writer;
   writer.Begin(/*fixed_len=*/6);  // 2-byte header + one 4-byte offset slot
   writer.PutOffsetList<DomainQuestStatus>(
       /*slot=*/2, quests, [](nanobuf::Writer& w, const DomainQuestStatus& q) {
-        std::vector<u8> rec = EncodeQuestRecord(q);
-        return w.HeapBytes(rec);
+        base::Vector<u8> rec = EncodeQuestRecord(q);
+        return w.HeapBytes(rec.data(), rec.size());
       });
-  return writer.TakeBuffer();
+  // nanobuf's writer is std::vector based; the wire API rx takes is base::.
+  const std::vector<u8> buffer = writer.TakeBuffer();
+  return base::Vector<u8>(buffer.begin(), buffer.end());
 }
 
 std::optional<std::vector<DomainQuestStatus>> DecodeQuestUpdate(ByteSpan data) {
@@ -164,7 +166,7 @@ std::optional<std::vector<DomainQuestStatus>> DecodeQuestUpdate(ByteSpan data) {
   return out;
 }
 
-std::vector<u8> QuestReplicator::Build(const std::vector<DomainQuestStatus>& snapshot) {
+base::Vector<u8> QuestReplicator::Build(const std::vector<DomainQuestStatus>& snapshot) {
   const bool full = force_full_;
   force_full_ = false;
 

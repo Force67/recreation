@@ -1,6 +1,8 @@
 #ifndef RECREATION_NET_OBJECTIVE_MARKER_NET_H_
 #define RECREATION_NET_OBJECTIVE_MARKER_NET_H_
 
+#include <base/containers/vector.h>
+
 #include <optional>
 #include <vector>
 
@@ -21,7 +23,7 @@ struct ObjectiveMarkerState {
 // Encodes the marker as a fixed 21-byte little-endian record:
 //   u8 active | u64 quest | f32 x | f32 y | f32 z
 // matching the nanobuf runtime's codec (floats as their u32 bit pattern).
-std::vector<u8> EncodeObjectiveMarker(const ObjectiveMarkerState& m);
+base::Vector<u8> EncodeObjectiveMarker(const ObjectiveMarkerState& m);
 
 // Inverse of EncodeObjectiveMarker. Returns nullopt unless `data` is exactly
 // 21 bytes, never reading out of bounds.

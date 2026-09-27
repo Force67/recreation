@@ -4,7 +4,6 @@
 #include <base/strings/xstring.h>
 
 #include <cstring>
-#include <optional>
 
 #include "components/bethesda/record.h"
 #include "core/log.h"
@@ -101,8 +100,7 @@ PlanetSurface LoadPlanetSurface(const asset::Vfs& vfs,
       "planetdata/biomemaps/shatteredspace.esm/" + biom_name + ".biom",
       "planetdata/biomemaps/dlc001/" + biom_name + ".biom",
   };
-  // vfs::Read is an rx API returning std::optional.
-  std::optional<base::Vector<u8>> bytes;
+  base::Optional<base::Vector<u8>> bytes;
   for (const base::String& path : candidates) {
     bytes = vfs.Read(path);
     if (bytes)

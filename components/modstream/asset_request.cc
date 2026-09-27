@@ -6,12 +6,12 @@
 namespace rx::modstream {
 namespace {
 
-void PutU32(std::vector<u8>& out, u32 v) {
+void PutU32(base::Vector<u8>& out, u32 v) {
   for (int i = 0; i < 4; ++i)
     out.push_back(static_cast<u8>(v >> (8 * i)));
 }
 
-void PutU64(std::vector<u8>& out, u64 v) {
+void PutU64(base::Vector<u8>& out, u64 v) {
   for (int i = 0; i < 8; ++i)
     out.push_back(static_cast<u8>(v >> (8 * i)));
 }
@@ -30,8 +30,8 @@ u64 LoadU64(const u8* p) {
 
 }  // namespace
 
-std::vector<u8> EncodeHashRequest(const std::vector<ContentHash>& hashes) {
-  std::vector<u8> out;
+base::Vector<u8> EncodeHashRequest(const std::vector<ContentHash>& hashes) {
+  base::Vector<u8> out;
   out.reserve(4 + hashes.size() * 8);
   PutU32(out, static_cast<u32>(hashes.size()));
   for (ContentHash hash : hashes)

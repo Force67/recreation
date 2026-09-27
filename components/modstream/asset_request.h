@@ -1,6 +1,8 @@
 #ifndef RECREATION_MODSTREAM_ASSET_REQUEST_H_
 #define RECREATION_MODSTREAM_ASSET_REQUEST_H_
 
+#include <base/containers/vector.h>
+
 #include <optional>
 #include <vector>
 
@@ -16,7 +18,7 @@ namespace rx::modstream {
 
 // Encodes a batch of hashes. The caller splits a large plan into datagram-sized
 // batches; this encodes one batch.
-std::vector<u8> EncodeHashRequest(const std::vector<ContentHash>& hashes);
+base::Vector<u8> EncodeHashRequest(const std::vector<ContentHash>& hashes);
 
 // Parses a request received over the wire. Fully bounds-checked: returns nullopt
 // on a truncated, oversized (count over max_hashes), or malformed buffer, so a

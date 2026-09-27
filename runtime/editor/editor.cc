@@ -1,6 +1,7 @@
 #include "runtime/editor/editor.h"
 
 #include <base/algorithm.h>
+#include <base/containers/span.h>
 #include <base/containers/vector.h>
 #include <base/memory/move.h>
 #include <base/memory/unique_pointer.h>
@@ -16,7 +17,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <span>
 
 #include "asset/asset_database.h"
 #include "asset/asset_id.h"
@@ -538,7 +538,7 @@ void MapEditor::EmitTerrainBrush(render::FrameView& view) {
     previous = point;
   }
   view.debug_lines_overlay =
-      std::span<const render::DebugLine>(terrain_debug_lines_.data(), terrain_debug_lines_.size());
+      base::Span<const render::DebugLine>(terrain_debug_lines_.data(), terrain_debug_lines_.size());
 }
 
 ecs::Entity MapEditor::PlaceArmedAt(const Vec3& pos, f32 yaw) {

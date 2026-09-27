@@ -1,6 +1,8 @@
 #ifndef RECREATION_NET_ASSET_STREAM_H_
 #define RECREATION_NET_ASSET_STREAM_H_
 
+#include <base/containers/vector.h>
+
 #include <condition_variable>
 #include <cstddef>
 #include <deque>
@@ -150,7 +152,7 @@ class AssetStreamClient {
   tx::network::ZFileTransporter transporter_;
   std::function<void(const modstream::ModManifest&)> on_ready_;
 
-  std::vector<u8> manifest_buffer_;
+  base::Vector<u8> manifest_buffer_;
   std::unordered_map<u32, bool> manifest_chunks_;  // received chunk indices
   u32 manifest_generation_ = 0;                    // generation being assembled or last completed
   u32 manifest_total_size_ = 0;

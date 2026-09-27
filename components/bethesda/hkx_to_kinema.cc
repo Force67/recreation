@@ -1,7 +1,5 @@
 #include "components/bethesda/hkx_to_kinema.h"
 
-#include <vector>
-
 #include <base/algorithm.h>
 #include <base/containers/vector.h>
 
@@ -38,8 +36,7 @@ base::Vector<kinema::u8> TranscodeToKinema(const HkxAnimation& animation,
     for (const ClipEvent& event : *events)
       builder.AddEvent(event.name, event.time);
   }
-  const std::vector<kinema::u8> encoded = builder.Build();
-  return base::Vector<kinema::u8>(encoded.begin(), encoded.end());
+  return builder.Build();
 }
 
 base::Vector<kinema::u8> TranscodeToKinemaSkeleton(const HkxAnimation& animation,
@@ -91,8 +88,7 @@ base::Vector<kinema::u8> TranscodeToKinemaSkeleton(const HkxAnimation& animation
     for (const ClipEvent& event : *events)
       builder.AddEvent(event.name, event.time);
   }
-  const std::vector<kinema::u8> encoded = builder.Build();
-  return base::Vector<kinema::u8>(encoded.begin(), encoded.end());
+  return builder.Build();
 }
 
 }  // namespace rx::bethesda

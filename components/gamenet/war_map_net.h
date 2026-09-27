@@ -1,6 +1,8 @@
 #ifndef RECREATION_NET_WAR_MAP_NET_H_
 #define RECREATION_NET_WAR_MAP_NET_H_
 
+#include <base/containers/vector.h>
+
 #include <optional>
 #include <string>
 #include <vector>
@@ -27,7 +29,7 @@ struct WarMapState {
 // Encodes the board as little-endian:
 //   u8 count | f32 imperial_fraction | count x (u8 name_len | name | u8 owner)
 // Hold names and the count are capped at 255.
-std::vector<u8> EncodeWarMap(const WarMapState& m);
+base::Vector<u8> EncodeWarMap(const WarMapState& m);
 
 // Inverse of EncodeWarMap. Returns nullopt on any truncation, never reading out
 // of bounds.

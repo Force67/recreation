@@ -711,11 +711,8 @@ void ItemBridge::Save() const {
     PutU64(blob, h);
 
   // rx inventory + world-item blobs.
-  // rx::inventory serializes into std::vector; copy across the boundary.
-  const std::vector<u8> inventories = inventory::SaveInventories(*ctx_.world);
-  const std::vector<u8> world_items = inventory::SaveWorldItems(*ctx_.world, world_store_);
-  PutBytes(blob, base::Vector<u8>(inventories.begin(), inventories.end()));
-  PutBytes(blob, base::Vector<u8>(world_items.begin(), world_items.end()));
+  PutBytes(blob, inventory::SaveInventories(*ctx_.world));
+  PutBytes(blob, inventory::SaveWorldItems(*ctx_.world, world_store_));
 
   const base::String path = SavePath();
   std::error_code ec;
@@ -769,10 +766,10 @@ bool ItemBridge::Load() {
     return false;
   }
   if (!inv_blob.empty())
-    inventory::LoadInventories(*ctx_.world, std::vector<u8>(inv_blob.begin(), inv_blob.end()));
+    inventory::LoadInventories(*ctx_.world, inv_blob);
   if (!wi_blob.empty() && ctx_.physics)
     inventory::LoadWorldItems(*ctx_.world, *ctx_.physics, catalog_, world_store_,
-                              std::vector<u8>(wi_blob.begin(), wi_blob.end()));
+                              wi_blob);
 
   // Count what came back, for restart verification.
   u32 live_items = 0;

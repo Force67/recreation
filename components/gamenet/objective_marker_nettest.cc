@@ -30,7 +30,7 @@ bool Same(const ObjectiveMarkerState& a, const ObjectiveMarkerState& b) {
 }
 
 void RoundTrip(const char* what, const ObjectiveMarkerState& m) {
-  std::vector<rx::u8> blob = EncodeObjectiveMarker(m);
+  base::Vector<rx::u8> blob = EncodeObjectiveMarker(m);
   Check("encoding is exactly 21 bytes", blob.size() == 21);
   std::optional<ObjectiveMarkerState> decoded = DecodeObjectiveMarker(blob);
   Check(what, decoded.has_value() && Same(m, *decoded));
@@ -60,13 +60,13 @@ void TestSizeRejection() {
   // Empty buffer has nothing to read.
   Check("empty buffer rejected", !DecodeObjectiveMarker(ByteSpan()).has_value());
 
-  std::vector<rx::u8> valid = EncodeObjectiveMarker(
+  base::Vector<rx::u8> valid = EncodeObjectiveMarker(
       ObjectiveMarkerState{.active = true, .quest = 7, .x = 1, .y = 2, .z = 3});
 
   // Every truncation must be rejected and must never read out of bounds.
   bool every_truncation_rejected = true;
   for (size_t cut = 0; cut < valid.size(); ++cut) {
-    std::vector<rx::u8> shorter(valid.begin(), valid.begin() + cut);
+    base::Vector<rx::u8> shorter(valid.begin(), valid.begin() + cut);
     if (DecodeObjectiveMarker(shorter).has_value()) {
       every_truncation_rejected = false;
     }
@@ -74,7 +74,7 @@ void TestSizeRejection() {
   Check("every truncation rejected", every_truncation_rejected);
 
   // One trailing byte makes the buffer oversized and is rejected.
-  std::vector<rx::u8> oversized = valid;
+  base::Vector<rx::u8> oversized = valid;
   oversized.push_back(0);
   Check("oversized buffer rejected", !DecodeObjectiveMarker(oversized).has_value());
 }

@@ -678,7 +678,8 @@ void DemoScenes::CreateImposterDemoScene() {
     world_.Add(t, world::Renderable{tree.id});
   }
   if (baked != render::ImposterPass::kNoMesh)
-    renderer_.SetImposterInstances({instances.data(), instances.size()});
+    renderer_.SetImposterInstances(
+        base::Span<const render::ImposterPass::Instance>(instances.data(), instances.size()));
 
   ctx_.scene_owns_sun = true;
   renderer_.settings().sun_direction = {-0.6f, -0.5f, -0.62f};

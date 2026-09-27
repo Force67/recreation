@@ -20,24 +20,24 @@ constexpr u32 kMaxFilesPerResource = 1024 * 1024;
 constexpr u16 kMaxNameLen = 4096;
 
 // Little-endian append helpers; the reader below mirrors them.
-void PutU16(std::vector<u8>& out, u16 v) {
+void PutU16(base::Vector<u8>& out, u16 v) {
   out.push_back(static_cast<u8>(v));
   out.push_back(static_cast<u8>(v >> 8));
 }
 
-void PutU32(std::vector<u8>& out, u32 v) {
+void PutU32(base::Vector<u8>& out, u32 v) {
   for (int i = 0; i < 4; ++i)
     out.push_back(static_cast<u8>(v >> (8 * i)));
 }
 
-void PutU64(std::vector<u8>& out, u64 v) {
+void PutU64(base::Vector<u8>& out, u64 v) {
   for (int i = 0; i < 8; ++i)
     out.push_back(static_cast<u8>(v >> (8 * i)));
 }
 
 // Takes a StringRef so the manifest's base::String fields and any plain
 // std::string both encode without a copy.
-void PutString(std::vector<u8>& out, base::StringRef s) {
+void PutString(base::Vector<u8>& out, base::StringRef s) {
   PutU16(out, static_cast<u16>(s.size()));
   out.insert(out.end(), s.begin(), s.end());
 }
@@ -107,8 +107,8 @@ class Reader {
 
 }  // namespace
 
-std::vector<u8> EncodeManifest(const ModManifest& manifest) {
-  std::vector<u8> out;
+base::Vector<u8> EncodeManifest(const ModManifest& manifest) {
+  base::Vector<u8> out;
   PutU32(out, kMagic);
   PutU16(out, kVersion);
   PutU32(out, static_cast<u32>(manifest.resources.size()));

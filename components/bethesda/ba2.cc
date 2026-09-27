@@ -7,6 +7,7 @@
 
 #include <base/containers/unordered_map.h>
 #include <base/functional/function.h>
+#include <base/functional/function_ref.h>
 #include <base/memory/move.h>
 #include <base/optional.h>
 #include <base/strings/string_ref.h>
@@ -202,16 +203,16 @@ class Ba2Provider final : public asset::FileProvider {
     return true;
   }
 
-  bool Contains(std::string_view normalized_path) const override {
+  bool Contains(base::StringRef normalized_path) const override {
     base::String key(normalized_path);
     return entries_.contains(key) || tex_entries_.contains(key);
   }
 
-  std::optional<base::Vector<u8>> Read(std::string_view normalized_path) const override {
+  base::Optional<base::Vector<u8>> Read(base::StringRef normalized_path) const override {
     base::String key(normalized_path);
     std::ifstream file(path_.c_str(), std::ios::binary);
     if (!file)
-      return std::nullopt;
+      return base::nullopt;
     const bool lz4 = header_.version == 3;
 
     if (auto* it = entries_.find(key); it != nullptr) {
@@ -219,7 +220,7 @@ class Ba2Provider final : public asset::FileProvider {
       base::Vector<u8> data(e.full_size);
       if (!ReadBlock(file, e.offset, e.packed_size, e.full_size, data.data(), lz4)) {
         RX_WARN("ba2 read failed: {} in {}", normalized_path, path_);
-        return std::nullopt;
+        return base::nullopt;
       }
       return data;
     }
@@ -236,23 +237,23 @@ class Ba2Provider final : public asset::FileProvider {
       for (const TexChunk& c : tex.chunks) {
         if (!ReadBlock(file, c.offset, c.packed_size, c.full_size, dds.data() + cursor, lz4)) {
           RX_WARN("ba2 tex read failed: {} in {}", normalized_path, path_);
-          return std::nullopt;
+          return base::nullopt;
         }
         cursor += c.full_size;
       }
       return dds;
     }
-    return std::nullopt;
+    return base::nullopt;
   }
 
-  void Enumerate(const std::function<void(std::string_view)>& fn) const override {
+  void Enumerate(base::FunctionRef<void(base::StringRef)> fn) const override {
     for (const auto& [name, entry] : entries_)
       fn(name);
     for (const auto& [name, entry] : tex_entries_)
       fn(name);
   }
 
-  std::string name() const override { return path_.c_str(); }
+  base::String name() const override { return path_; }
 
  private:
   base::String path_;

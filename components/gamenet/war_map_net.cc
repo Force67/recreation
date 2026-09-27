@@ -9,8 +9,8 @@
 
 namespace rx::net {
 
-std::vector<u8> EncodeWarMap(const WarMapState& m) {
-  std::vector<u8> out;
+base::Vector<u8> EncodeWarMap(const WarMapState& m) {
+  base::Vector<u8> out;
   const u8 count = static_cast<u8>(std::min<size_t>(m.holds.size(), 255));
   out.push_back(count);
   u8 frac[4];

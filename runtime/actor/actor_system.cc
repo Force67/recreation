@@ -1254,11 +1254,8 @@ std::shared_ptr<ActorSystem::HavokClip> ActorSystem::LoadHavokClip(
   if (const ProjectAnimData* project = LoadProjectAnimData(actor_name)) {
     ResolveClipMotion(*project, animation_path, clip.get());
   }
-  clip->kinema = kinema::OwnedClip([&] {
-    const base::Vector<u8> blob = bethesda::TranscodeToKinema(
-        clip->animation, clip->has_motion ? &clip->motion : nullptr, &clip->events);
-    return std::vector<u8>(blob.begin(), blob.end());
-  }());
+  clip->kinema = kinema::OwnedClip(bethesda::TranscodeToKinema(
+      clip->animation, clip->has_motion ? &clip->motion : nullptr, &clip->events));
   RX_INFO("havok clip {}: {:.2f}s, {} tracks ({} matched), motion {}, {} events, kinema {} KiB{}",
           animation_path, clip->animation.duration, clip->animation.num_tracks, matched,
           clip->has_motion ? "yes" : "no", clip->events.size(),
@@ -1399,12 +1396,9 @@ void ActorSystem::SampleHavokClipToPose(const Actor& actor,
 
 kinema::OwnedClip ActorSystem::BakeSkeletonSpaceClip(const Actor& actor,
                                                      const HavokClip& clip) const {
-  return kinema::OwnedClip([&] {
-    const base::Vector<u8> blob =
-        bethesda::TranscodeToKinemaSkeleton(clip.animation, clip.track_to_skeleton, actor.skeleton,
-                                            clip.has_motion ? &clip.motion : nullptr, &clip.events);
-    return std::vector<u8>(blob.begin(), blob.end());
-  }());
+  return kinema::OwnedClip(
+      bethesda::TranscodeToKinemaSkeleton(clip.animation, clip.track_to_skeleton, actor.skeleton,
+                                          clip.has_motion ? &clip.motion : nullptr, &clip.events));
 }
 
 std::shared_ptr<const LocomotionArchetype> ActorSystem::BuildCharacterLocomotion(

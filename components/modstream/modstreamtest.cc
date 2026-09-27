@@ -200,15 +200,15 @@ int main() {
   }
 
   // --- manifest codec round-trip and rejection ---
-  std::vector<u8> encoded = EncodeManifest(manifest);
+  base::Vector<u8> encoded = EncodeManifest(manifest);
   std::optional<ModManifest> decoded = DecodeManifest(encoded);
   Check("manifest round-trips through the codec", decoded && *decoded == manifest);
   Check("codec rejects a truncated buffer", !DecodeManifest(encoded.data(), encoded.size() - 1));
   {
-    std::vector<u8> bad = encoded;
+    base::Vector<u8> bad = encoded;
     bad[0] ^= 0xff;  // corrupt the magic
     Check("codec rejects a bad magic", !DecodeManifest(bad));
-    std::vector<u8> trailing = encoded;
+    base::Vector<u8> trailing = encoded;
     trailing.push_back(0);
     Check("codec rejects trailing bytes", !DecodeManifest(trailing));
   }
@@ -225,14 +225,14 @@ int main() {
   // --- asset-request codec ---
   {
     const std::vector<ContentHash> hashes{tex_hash, 0x1122334455667788ull, 0};
-    const std::vector<u8> req = EncodeHashRequest(hashes);
+    const base::Vector<u8> req = EncodeHashRequest(hashes);
     const auto decoded_req = DecodeHashRequest(req.data(), req.size(), 8);
     Check("hash request round-trips", decoded_req && *decoded_req == hashes);
     Check("hash request rejects an over-count cap", !DecodeHashRequest(req.data(), req.size(), 2));
     Check("hash request rejects a truncated body",
           !DecodeHashRequest(req.data(), req.size() - 1, 8));
     Check("hash request rejects trailing bytes", [&] {
-      std::vector<u8> extra = req;
+      base::Vector<u8> extra = req;
       extra.push_back(0);
       return !DecodeHashRequest(extra.data(), extra.size(), 8);
     }());
@@ -246,10 +246,10 @@ int main() {
     const u32 total = kManifestChunkPayload + 100;
     const u32 chunks = ManifestChunkCount(total);
     Check("chunk count splits correctly", chunks == 2);
-    std::vector<u8> blob(total, 0x5a);
-    const std::vector<u8> c0 =
+    base::Vector<u8> blob(total, 0x5a);
+    const base::Vector<u8> c0 =
         EncodeManifestChunk(7, total, chunks, 0, blob.data(), kManifestChunkPayload);
-    const std::vector<u8> c1 =
+    const base::Vector<u8> c1 =
         EncodeManifestChunk(7, total, chunks, 1, blob.data() + kManifestChunkPayload, 100);
     const auto v0 = DecodeManifestChunk(c0.data(), c0.size());
     const auto v1 = DecodeManifestChunk(c1.data(), c1.size());
@@ -259,17 +259,17 @@ int main() {
     Check("chunk rejects a header-only buffer", !DecodeManifestChunk(c0.data(), 15));
     Check("chunk rejects a wrong payload length", !DecodeManifestChunk(c0.data(), c0.size() - 1));
     Check("chunk rejects an out-of-range index", [&] {
-      std::vector<u8> bad =
+      base::Vector<u8> bad =
           EncodeManifestChunk(7, total, chunks, 5, blob.data(), kManifestChunkPayload);
       return !DecodeManifestChunk(bad.data(), bad.size());
     }());
     Check("chunk rejects an inconsistent count", [&] {
-      std::vector<u8> bad =
+      base::Vector<u8> bad =
           EncodeManifestChunk(7, total, 99, 0, blob.data(), kManifestChunkPayload);
       return !DecodeManifestChunk(bad.data(), bad.size());
     }());
     Check("chunk rejects a zero total", [&] {
-      std::vector<u8> bad = EncodeManifestChunk(7, 0, 1, 0, blob.data(), 0);
+      base::Vector<u8> bad = EncodeManifestChunk(7, 0, 1, 0, blob.data(), 0);
       return !DecodeManifestChunk(bad.data(), bad.size());
     }());
   }

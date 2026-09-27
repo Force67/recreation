@@ -252,7 +252,7 @@ void WriteSetupIni(const base::Array<base::String, 3>& data_dirs,
   fs::create_directories(SetupDir(), ec);
   std::ofstream f(SetupFile(), std::ios::trunc);
   if (!f) {
-    RX_WARN("first-run: could not write {}", SetupFile().string());
+    RX_WARN("first-run: could not write {}", SetupFile().string().c_str());
     return;
   }
   f << "done=1\n";
@@ -270,7 +270,7 @@ void WriteSetupIni(const base::Array<base::String, 3>& data_dirs,
   // stay the same thing and the account name keeps standing in.
   if (!r.username.empty())
     f << "username=" << r.username.c_str() << "\n";
-  RX_INFO("first-run setup saved to {}", SetupFile().string());
+  RX_INFO("first-run setup saved to {}", SetupFile().string().c_str());
 }
 
 }  // namespace

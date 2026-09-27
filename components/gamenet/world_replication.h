@@ -24,7 +24,7 @@ inline constexpr size_t kMaxWorldCommandPayload = 256 * 1024;
 // The spawn mesh is never sent: clients resolve it from the base form locally
 // (the same way quest text is resolved locally in quest_replication). rotation
 // and scale are likewise omitted for now and default on the client.
-std::vector<u8> EncodeWorldCommands(const std::vector<world::WorldCommand>& commands);
+base::Vector<u8> EncodeWorldCommands(const std::vector<world::WorldCommand>& commands);
 
 // Inverse of EncodeWorldCommands. Returns nullopt on a truncated or corrupt
 // blob, never reading out of bounds.

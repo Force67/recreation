@@ -803,7 +803,7 @@ bool VanillaRuntime::Load(ugui::UIContext& ui, base::StringRef dir, base::String
       fs::path(base::String(dir).c_str()) / (base::String(screen) + ".swf").c_str();
   impl_->bytes = ReadFile(path);
   if (impl_->bytes.empty()) {
-    RX_WARN("vanilla vm: {} not found (re-run swfdump --ugui-all)", path.string());
+    RX_WARN("vanilla vm: {} not found (re-run swfdump --ugui-all)", path.string().c_str());
     impl_.Reset();
     return false;
   }
