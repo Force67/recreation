@@ -3,6 +3,9 @@
 
 #include "runtime/ui/game_ui_internal.h"
 
+#include "asset/vfs.h"
+#include "runtime/app/content.h"
+
 #if defined(RECREATION_HAS_UGUI)
 
 namespace rx {
@@ -17,33 +20,37 @@ const char* const kUiFragments[kUiFragmentCount] = {
     "first_run.ugui", "loading.ugui",  "tour.ugui",       "legal.ugui",
 };
 
-// Directory holding the .ugui fragments: RECREATION_UI_DIR, else a "screens"
-// folder beside the executable (how a shipped build carries them), else the
-// compiled-in source path, else a cwd-relative fallback.
+// The loose directory hot reload watches: RECREATION_UI_DIR, else the source
+// tree the build came from.
 fs::path UiDir() {
   if (const char* env = UiDirOpt.get(); env && *env)
     return env;
-  std::error_code ec;
-  if (fs::path beside = ExecutableDirectory() / "screens"; fs::is_directory(beside, ec))
-    return beside;
 #ifdef RECREATION_UI_DIR_DEFAULT
   return fs::path(RECREATION_UI_DIR_DEFAULT);
 #else
-  return fs::path("runtime/ui");
+  return fs::path("runtime/ui/screens");
 #endif
+}
+
+// Where a file of the ui screens is read from: UiDir() when RECREATION_UI_DIR
+// names one or hot reload watches it, else recreation://ui/screens/ (packed in
+// Data/recreation.rxp, or loose in ui/screens/ beside the binary).
+base::String UiPath(const char* name) {
+  const char* env = UiDirOpt.get();
+  if ((env && *env) || UiHotReload)
+    return (UiDir() / name).string().c_str();
+  return base::String("recreation://ui/screens/") + name;
 }
 
 // Read one .ugui fragment. Returns its text, or "" (with a warning) if missing.
 base::String LoadUiFragment(const char* name) {
-  const fs::path p = UiDir() / name;
-  std::ifstream f(p.c_str(), std::ios::binary);
-  if (!f) {
-    RX_WARN("ui: fragment not found: {}", p.string());
+  const base::String path = UiPath(name);
+  base::Vector<u8> bytes;
+  if (!ReadContent(path, bytes)) {
+    RX_WARN("ui: fragment not found: {}", path);
     return {};
   }
-  std::stringstream ss;
-  ss << f.rdbuf();
-  return ss.str();
+  return base::String(reinterpret_cast<const char*>(bytes.data()), bytes.size());
 }
 
 // Loaded once and kept, so the image manifests survive a hot reload of the
@@ -168,17 +175,16 @@ base::String BuildUi() {
 }
 
 
-// The engine's own Roboto, shipped beside the executable in fonts/ (see the
-// packaging step). Last resort for every face below: a machine with no system
-// font -- a bare wine prefix, a container, a stripped Windows install -- would
-// otherwise render the whole interface blank, which looks like a bug in the UI
-// rather than a missing file.
+// The engine's own Roboto, in rx_engine.rxp at rxe://fonts/roboto/. Last
+// resort for every face below: a machine with no system font -- a bare wine
+// prefix, a container, a stripped Windows install -- would otherwise render the
+// whole interface blank, which looks like a bug in the UI rather than a missing
+// file. A vfs path; LoadUiFont reads it.
 base::String BundledFont(const char* file) {
-  std::error_code ec;
-  const fs::path path = ExecutableDirectory() / "fonts" / file;
-  if (!fs::is_regular_file(path, ec))
+  base::String path = base::String("rxe://fonts/roboto/") + file;
+  if (!Content().Contains(path))
     return {};
-  return path.string().c_str();
+  return path;
 }
 
 const char* FindFont() {

@@ -157,8 +157,8 @@ struct Thumbnailer::Impl {
     if (vkCreatePipelineLayout(device, &li, nullptr, &layout) != VK_SUCCESS)
       return false;
 
-    // Blobs come from the mounted shaders:// archive, falling back to the bytes
-    // embedded in the binary when the pack is missing (shaderpack::Load).
+    // Blobs come from recreation://shaders/, falling back to the bytes embedded
+    // in the binary when the archive is missing (shaderpack::Load).
     const base::Vector<u8> vs_blob =
         shaderpack::Load("thumb.vs", k_thumb_vs_hlsl, sizeof(k_thumb_vs_hlsl));
     const base::Vector<u8> fs_blob =

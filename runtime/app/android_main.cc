@@ -21,6 +21,7 @@
 #include "core/log.h"
 #include "core/window.h"
 #include "render/core/presets.h"
+#include "runtime/app/content.h"
 #include "runtime/app/engine.h"
 
 namespace {
@@ -49,7 +50,7 @@ rx::bethesda::Game ParseGame(const base::String& id) {
 // one with `active`, so several games can be configured while one is launched.
 rx::EngineConfig LoadConfig(android_app* app) {
   rx::EngineConfig config;
-  config.preset = rx::render::QualityPreset::kAndroid;
+  config.preset = rx::render::QualityPreset::kAndroidMedium;
 
   base::String path = base::String(app->activity->internalDataPath) + "/recreation.cfg";
   std::ifstream file(path.c_str());
@@ -174,6 +175,9 @@ void HandleCmd(android_app* app, int32_t cmd) {
         app_config.preset = state->config.preset;
         app_config.headless = state->config.headless;
         app_config.gather_entity_draws = false;  // the game gathers its own draws
+        app_config.id = rx::kAppId;
+        app_config.name = rx::kContentName;
+        app_config.title = "recreation";
         state->engine = base::MakeUnique<rx::Engine>(state->config);
         if (!state->host.Initialize(app_config, *state->engine, base::move(window))) {
           __android_log_print(ANDROID_LOG_ERROR, kTag, "engine initialization failed");

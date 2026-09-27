@@ -9,20 +9,17 @@
 
 #include <cstdlib>
 #include <cstring>
-#include <filesystem>
 
 #include "asset/primitives.h"
 #include "components/world/components.h"
 #include "core/feature_registry.h"
 #include "core/log.h"
-#include "core/paths.h"
 #include "runtime/actor/player_controller.h"
 #include "runtime/interaction/item_bridge.h"
 
 #if defined(RECREATION_HAS_UGUI)
 #include <ugui/svg/svg.h>
 
-#include "asset/pack.h"
 #include "branding/recreation_icon_svg.h"
 #include "runtime/ui/shader_pack.h"
 #endif
@@ -42,29 +39,19 @@ namespace {
 // game must not re-register them.
 base::Option<const char*> SunDir{"sun.dir", nullptr, "RX_SUN_DIR"};
 
-#if defined(RECREATION_HAS_UGUI)
-// The recreation-owned HUD/thumbnail shaders live in shaders.rxp (built from
-// runtime/shaders). RECREATION_SHADER_PACK overrides the compiled-in path;
-// RECREATION_SHADER_DIR points at a loose directory of freshly compiled .spv
-// that overrides the pack (later Vfs mounts win) for shader iteration.
-base::Option<const char*> ShaderPackOpt{"shader.pack", nullptr, "RECREATION_SHADER_PACK"};
-base::Option<const char*> ShaderDirOpt{"shader.dir", nullptr, "RECREATION_SHADER_DIR"};
+// Game knobs a platform config sets per tier (recreation://config/<tier>.ini,
+// [options]); --grass-density and --max-quests beat them.
+base::Option<float> GrassDensity{"grass.density", 1.0f, nullptr,
+                                 "multiplies every GRAS density, 0 disables"};
+base::Option<int> MaxQuestScripts{"quest.max_scripts", 0, nullptr,
+                                  "cap on quest scripts attached at load, 0 = all"};
 
-base::String ShaderPackPath() {
-  if (const char* env = ShaderPackOpt.get(); env && *env)
-    return env;
-  // A shipped build carries the pack beside the executable; the compiled-in
-  // path is a build directory that only exists on the machine that built it.
-  std::error_code ec;
-  if (std::filesystem::path beside = ExecutableDirectory() / "shaders.rxp";
-      std::filesystem::is_regular_file(beside, ec))
-    return beside.string().c_str();
-#ifdef RECREATION_SHADER_PACK_DEFAULT
-  return RECREATION_SHADER_PACK_DEFAULT;
-#else
-  return "shaders.rxp";
-#endif
-}
+#if defined(RECREATION_HAS_UGUI)
+// The recreation-owned HUD/thumbnail shaders live in Data/recreation.rxp under
+// recreation://shaders/ (built from runtime/ui/shaders). RECREATION_SHADER_DIR
+// points at a loose directory of freshly compiled .spv that overrides the pack
+// (later Vfs mounts win) for shader iteration.
+base::Option<const char*> ShaderDirOpt{"shader.dir", nullptr, "RECREATION_SHADER_DIR"};
 #endif
 }  // namespace
 
@@ -84,20 +71,19 @@ bool Engine::OnInitialize(app::Services& services) {
   input_map_ = services.input_map;
   actions_ = services.actions;
 
+  // The host applied the tier's options by now; content has not loaded yet.
+  if (config_.grass_density < 0.0f)
+    config_.grass_density = GrassDensity;
+  if (config_.max_quest_scripts < 0)
+    config_.max_quest_scripts = MaxQuestScripts;
+
 #if defined(RECREATION_HAS_UGUI)
-  // Mount recreation's compiled HUD/thumbnail shaders under the shaders:// scheme
-  // before any pipeline is built, then route shader-blob lookup through the Vfs.
-  // Missing/partial archives fall through to the blobs embedded in the binary.
+  // Route shader-blob lookup through the Vfs before any pipeline is built; the
+  // host mounted Data/recreation.rxp. A missing archive or entry falls through
+  // to the blobs embedded in the binary.
   if (vfs_) {
-    const base::String pack = ShaderPackPath();
-    if (auto provider = asset::MakePackFileProvider(pack.c_str())) {
-      vfs_->Mount("shaders", base::move(provider));
-      RX_INFO("shaders: mounted {} under shaders://", pack.c_str());
-    } else {
-      RX_WARN("shaders: {} unavailable, using embedded shader blobs", pack);
-    }
     if (const char* dir = ShaderDirOpt.get(); dir && *dir) {
-      vfs_->Mount("shaders", asset::MakeLooseFileProvider(dir));
+      vfs_->Mount("recreation://shaders/", asset::MakeLooseFileProvider(dir));
       RX_INFO("shaders: loose override dir {} shadows the archive", dir);
     }
     shaderpack::SetVfs(vfs_);

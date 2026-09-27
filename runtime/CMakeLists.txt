@@ -4,7 +4,7 @@
 set(RECREATION_RUNTIME_SOURCES
   app/engine.cc
   app/frame_loop.cc
-  app/platform_profile.cc
+  app/content.cc
   app/networking.cc
   app/server_list.cc
   app/managed_rpc.cc
@@ -125,11 +125,11 @@ endif()
 if(TARGET rx_imgui)
   target_link_libraries(recreation PRIVATE rx::imgui)
   target_compile_definitions(recreation PRIVATE RECREATION_HAS_IMGUI=1)
-  # Default location of the editable .ini render presets (they live in the rx
-  # render module now). The debug ui lists and loads them; override with the env
-  # var RX_PRESETS_DIR. Absolute so the dev build finds the source files.
+  # recreation's platform config in the source tree, which the debug ui lists,
+  # loads and saves; override with the env var RX_PRESETS_DIR. Absolute so the
+  # dev build edits the source files, not the copy staged beside the binary.
   target_compile_definitions(recreation PRIVATE
-    RECREATION_PRESETS_DIR_DEFAULT="${RECREATION_RX_DIR}/engine/render/presets")
+    RECREATION_CONFIG_DIR_DEFAULT="${CMAKE_SOURCE_DIR}/config")
 endif()
 
 # libultragui HUD: only the windowed client builds it; the dedicated server
@@ -143,14 +143,9 @@ if(RECREATION_HAS_UGUI)
   # The vanilla screens' own ActionScript runs on the swf module's interpreter.
   target_link_libraries(recreation PRIVATE ultragui recreation::stb recreation::swf)
   target_compile_definitions(recreation PRIVATE RECREATION_HAS_UGUI=1)
-  # The recreation-owned thumbnail shaders ship in this archive; the engine
-  # mounts it under shaders:// at startup (override the path with the env var
-  # RECREATION_SHADER_PACK). Absolute so the dev build finds the build output.
-  target_compile_definitions(recreation PRIVATE
-    RECREATION_SHADER_PACK_DEFAULT="${CMAKE_BINARY_DIR}/shaders.rxp")
-  # Default location of the editable .ugui screen fragments (runtime/ui). The
-  # client reads them at startup and hot-reloads them; override with the env var
-  # RECREATION_UI_DIR. Absolute so the dev build finds the source files.
+  # The editable .ugui screen fragments hot reload watches (runtime/ui/screens);
+  # override with the env var RECREATION_UI_DIR. Absolute so the dev build finds
+  # the source files. Otherwise the client reads the copies in recreation.rxp.
   target_compile_definitions(recreation PRIVATE
     RECREATION_UI_DIR_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/ui/screens")
   # The taskbar icon travels inside the binary the way rx carries its splash
@@ -174,15 +169,24 @@ if(RECREATION_HAS_UGUI)
   # overrides this path.
   target_compile_definitions(recreation PRIVATE
     RECREATION_VANILLA_UI_DIR_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/ui/vanilla")
-  # Key art shipped for the base-game tiles on the NEXUS grid. Absolute for the
-  # same reason: the dev build reads it straight out of the source tree.
-  target_compile_definitions(recreation PRIVATE
-    RECREATION_UI_ART_DIR_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/ui/art")
   recreation_embed_shaders(recreation
     ui/shaders/thumb.vs.hlsl
     ui/shaders/thumb.ps.hlsl
   )
   add_dependencies(recreation rx_ui_shaders)
+  # Everything the client reads of its own at runtime, one archive at
+  # recreation:// (rx docs/CONFIG.md): the compiled shaders, the .ugui screens
+  # and the key art for the base-game tiles on the NEXUS grid.
+  set(recreation_archive_content ui/screens ${CMAKE_CURRENT_SOURCE_DIR}/ui/screens
+                                 ui/art ${CMAKE_CURRENT_SOURCE_DIR}/ui/art)
+  foreach(blob ${recreation_SHADER_PACK_FILES})
+    list(APPEND recreation_archive_content shaders ${blob})
+  endforeach()
+  rx_add_archive(recreation_archive OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/Data/recreation.rxp
+    CONTENT ${recreation_archive_content})
+  if(TARGET recreation_archive)
+    add_dependencies(recreation recreation_archive)
+  endif()
 endif()
 
 # Dedicated server: same engine, headless config baked in. Still links the
@@ -200,6 +204,18 @@ if(RECREATION_NET)
                                                   rx::net_viz)
   target_compile_definitions(recreation-server PRIVATE RECREATION_HAS_NET=1)
 endif()
+
+# The install layout beside both binaries (rx docs/CONFIG.md): rx's
+# Data/rx_engine.rxp, Data/recreation.rxp (packed above) and config/ as
+# recreation://config, re-copied every build.
+rx_stage_content(recreation recreation-server)
+add_custom_target(recreation_config ALL
+  COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+          ${CMAKE_SOURCE_DIR}/config $<TARGET_FILE_DIR:recreation>/config
+  COMMENT "Staging recreation config"
+  VERBATIM)
+add_dependencies(recreation recreation_config)
+add_dependencies(recreation-server recreation_config)
 
 # Component tests, beside the code they exercise. Each is a plain executable
 # over the pure-data parts of a runtime component, so none of them boots the

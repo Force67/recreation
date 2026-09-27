@@ -34,23 +34,16 @@
 
 #include "asset/mesh.h"
 #include "components/script/games/skyrim/skyrim_bindings.h"
+#include "asset/vfs.h"
 #include "core/log.h"
+#include "runtime/app/content.h"
 #include "runtime/app/server_list.h"
-#include "core/paths.h"
 #include "runtime/app/engine_internal.h"
 #include "runtime/app/savegame_scan.h"
 #include "runtime/ui/thumbnailer.h"  // off-screen clay render of the hero centerpiece
 
 #if defined(RECREATION_HAS_UGUI)
 #include <stb_image.h>  // the key-art PNGs the launch tiles are painted from
-#endif
-
-// Where the base games' key art ships (runtime/ui/art, beside the .ugui
-// screens). Baked in absolute by CMake so a dev build finds the source tree; a
-// shipped build carries the same files in art/ beside the executable, because
-// the baked-in path names a directory only the build machine has.
-#ifndef RECREATION_UI_ART_DIR_DEFAULT
-#define RECREATION_UI_ART_DIR_DEFAULT "runtime/ui/art"
 #endif
 
 // The NEXUS main menu: the front door a bare windowed launch opens. Resolves the
@@ -272,7 +265,7 @@ base::Vector<GameModeManifest> ScanGameModes() {
     GameModeManifest m;
     m.assembly = p.stem().string();
     if (!ReadManifest(p.string(), m)) {
-      RX_WARN("gamemodes: {} is not a readable manifest", p.string());
+      RX_WARN("gamemodes: {} is not a readable manifest", p.string().c_str());
       continue;
     }
     if (!m.art.empty()) {
@@ -327,20 +320,16 @@ base::String WorldCapturePath(bethesda::Game game) {
 }
 
 // A base game tile's key art: a capture of its own world if a past session left
-// one, else the PNG shipped in the repo. Empty when neither is there, which is
-// what puts the tile on the painted fallback.
+// one, else the PNG shipped in Data/recreation.rxp. Empty when neither is
+// there, which is what puts the tile on the painted fallback.
 base::String GameKeyArt(bethesda::Game game) {
   namespace fs = std::filesystem;
   std::error_code ec;
   const base::String live = WorldCapturePath(game);
   if (fs::exists(live.c_str(), ec))
     return live;
-  const base::String file = base::String("menu_") + GameSlug(game) + ".png";
-  const fs::path beside = ExecutableDirectory() / "art" / file.c_str();
-  if (fs::is_regular_file(beside, ec))
-    return beside.string().c_str();
-  const base::String shipped = base::String(RECREATION_UI_ART_DIR_DEFAULT "/") + file;
-  if (fs::exists(shipped.c_str(), ec))
+  const base::String shipped = base::String("recreation://ui/art/menu_") + GameSlug(game) + ".png";
+  if (Content().Contains(shipped))
     return shipped;
   return {};
 }
@@ -1612,7 +1601,13 @@ void Engine::GenerateMenuBackdrops() {
     const base::String& art = menu_entry_art_[i];
     if (!art.empty()) {
       int w = 0, h = 0, channels = 0;
-      if (unsigned char* px = stbi_load(art.c_str(), &w, &h, &channels, 4)) {
+      base::Vector<u8> file;
+      unsigned char* px =
+          ReadContent(art, file)
+              ? stbi_load_from_memory(file.data(), static_cast<int>(file.size()), &w, &h,
+                                      &channels, 4)
+              : nullptr;
+      if (px) {
         tex = game_ui_.CreateUiTexture(w, h, px);
         stbi_image_free(px);
         RX_INFO("menu key art {} <- {} ({}x{})", entry.title, art, w, h);

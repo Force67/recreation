@@ -8,6 +8,8 @@
 
 #include <ugui/svg/svg.h>  // the masthead wordmark is vector art, not set type
 
+#include "runtime/app/content.h"
+
 namespace rx {
 
 base::String BuildCharGenSection() {
@@ -297,10 +299,17 @@ void GameUi::Impl::ApplyMainMenu() {
   // lays out, so it holds up where the front screens are scaled past 1:1.
   if (!mm_wordmark_tried) {
     mm_wordmark_tried = true;
-    const fs::path svg = UiDir() / "recreation_wordmark.svg";
-    const ugui::TextureId tex = ugui::LoadSvgTexture(&backend, svg.string().c_str(), 532, 64);
+    const base::String svg = UiPath("recreation_wordmark.svg");
+    base::Vector<u8> bytes;
+    ugui::SvgImage image;
+    ugui::TextureId tex = ugui::kNullTextureId;
+    if (ReadContent(svg, bytes) &&
+        ugui::LoadSvgMemory(reinterpret_cast<const char*>(bytes.data()), bytes.size(), image,
+                            532, 64))
+      tex = backend.CreateTexture(image.width, image.height, ugui::RHIFormat::kRgba8Unorm,
+                                  image.pixels.data(), ugui::RHIFilter::kLinear);
     if (tex == ugui::kNullTextureId)
-      RX_WARN("ui: cannot rasterize the wordmark: {}", svg.string());
+      RX_WARN("ui: cannot rasterize the wordmark: {}", svg);
     else
       mm_glyphs.emplace_back("mm_wordmark", tex);
   }

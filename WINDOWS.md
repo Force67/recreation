@@ -35,22 +35,15 @@ throws on its own Windows path.
 ## What ends up beside the executable
 
 `package` assembles the tree a Windows machine that has never seen this repo can
-run. The layout is a contract with the runtime, which looks beside its own
-executable for each of these before falling back to the paths CMake baked in
-(those name build and source directories that only exist on the build machine):
+run: the executables and the install layout the build staged beside them (rx
+`docs/CONFIG.md`), which the runtime reads through the vfs:
 
 | | |
 |---|---|
-| `shaders.rxp`, `rx_fonts.rxp` | compiled shader blobs and the engine's UI fonts |
-| `screens/` | the `.ugui` HUD and menu fragments |
-| `art/`, `vanilla/` | NEXUS key art, and screens translated out of the games' own Scaleform |
-| `presets/` | the editable `.ini` render presets |
-| `fonts/` | Roboto, the last-resort UI face |
-
-`fonts/` is there because the interface loads a typeface by path. A machine with
-no system font — a bare Wine prefix, a container, a stripped Windows install —
-would otherwise render every label blank, which reads as a bug in the UI rather
-than a missing file.
+| `Data/rx_engine.rxp` | the engine's content at `rxe://`: its platform config tiers and UI fonts |
+| `Data/recreation.rxp` | recreation's at `recreation://`: compiled shaders, `.ugui` screens, NEXUS key art |
+| `config/` | recreation's platform config over rx's tiers (`recreation://config/`) |
+| `vanilla/` | screens translated out of the games' own Scaleform, when present |
 
 ## Running it
 

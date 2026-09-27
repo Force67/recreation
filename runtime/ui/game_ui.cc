@@ -6,7 +6,20 @@
 
 #if defined(RECREATION_HAS_UGUI)
 
+#include "runtime/app/content.h"
+
 namespace rx {
+namespace {
+
+// A face from a system path or the bundled Roboto's rxe:// path alike.
+ugui::FontHandle LoadUiFont(ugui::UIContext& ui, const char* path) {
+  base::Vector<u8> bytes;
+  if (!ReadContent(path, bytes))
+    return ugui::kInvalidFont;
+  return ui.LoadFontMemory(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+}
+
+}  // namespace
 
 GameUi::GameUi() : impl_(base::MakeUnique<Impl>()) {}
 GameUi::~GameUi() {
@@ -64,7 +77,7 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   }
 
   if (const char* font_path = FindFont()) {
-    impl_->font = impl_->ui.LoadFont(font_path);
+    impl_->font = LoadUiFont(impl_->ui, font_path);
     impl_->ui.set_default_font(impl_->font);
     RX_INFO("ultragui font: {}", font_path);
   } else {
@@ -73,14 +86,14 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   // A monospace face for the technical layer (load-order indices, ids, paths),
   // selectable in markup as `font: mono`. Optional; absent leaves those on sans.
   if (const char* mono_path = FindMonoFont()) {
-    ugui::FontHandle mono = impl_->ui.LoadFont(mono_path);
+    ugui::FontHandle mono = LoadUiFont(impl_->ui, mono_path);
     if (mono != ugui::kInvalidFont) {
       impl_->ui.builder().RegisterFont("mono", mono);
       RX_INFO("ultragui mono font: {}", mono_path);
     }
   }
   if (const char* bold_path = FindBoldFont()) {
-    ugui::FontHandle bold = impl_->ui.LoadFont(bold_path);
+    ugui::FontHandle bold = LoadUiFont(impl_->ui, bold_path);
     if (bold != ugui::kInvalidFont) {
       impl_->ui.builder().RegisterFont("bold", bold);
       RX_INFO("ultragui bold font: {}", bold_path);
@@ -144,7 +157,7 @@ bool GameUi::Initialize(Window& window, render::Renderer& renderer) {
   impl_->hot_reload = bool(UiHotReload);
   impl_->CaptureFragmentMtimes();
   if (impl_->hot_reload)
-    RX_INFO("ui: hot reload on, watching {}", UiDir().string());
+    RX_INFO("ui: hot reload on, watching {}", UiDir().string().c_str());
 
   Impl* impl = (impl_ ? &*impl_ : nullptr);
   impl_->ui.input().set_on_click([impl](ugui::wid w, ugui::MouseButton btn) {

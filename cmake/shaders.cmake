@@ -17,11 +17,12 @@ function(recreation_embed_shaders target)
   foreach(dir ${RECREATION_SHADER_INCLUDE_DIRS})
     list(APPEND include_flags -I ${dir})
   endforeach()
-  # Compiled blobs are also aggregated into ${CMAKE_BINARY_DIR}/shaders.rxp so
-  # they can be shipped in (and loaded from) an rx game archive instead of the
+  # Compiled blobs are also staged for the game archive (Data/recreation.rxp,
+  # see runtime/CMakeLists.txt) so they can be loaded from it instead of the
   # binary. Each shader is staged into pack_dir under a clean virtual name
-  # (<stem>.spv, plus <stem>.dxil on the d3d12 backend) and rxpack packs the
-  # tree. The embedded C arrays above stay the runtime fallback.
+  # (<stem>.spv, plus <stem>.dxil on the d3d12 backend); the staged files are
+  # handed back in ${target}_SHADER_PACK_FILES. The embedded C arrays above stay
+  # the runtime fallback.
   set(pack_dir ${CMAKE_CURRENT_BINARY_DIR}/${target}_shader_pack)
   set(pack_staged)
   set(headers)
@@ -112,19 +113,5 @@ function(recreation_embed_shaders target)
   add_dependencies(${target} ${target}_shaders)
   target_include_directories(${target} PRIVATE ${CMAKE_BINARY_DIR}/generated)
 
-  # Pack the staged blobs into shaders.rxp with rxpack (rx sets RX_RXPACK_COMMAND
-  # to the one it builds, or to a host-built one on a cross build). The archive
-  # rebuilds whenever any staged blob changes; the game mounts it under the
-  # shaders:// scheme at startup.
-  if(NOT RX_RXPACK_COMMAND)
-    message(WARNING "no rxpack: ${target} shaders will not be packed into shaders.rxp")
-    return()
-  endif()
-  set(pack_archive ${CMAKE_BINARY_DIR}/shaders.rxp)
-  add_custom_command(OUTPUT ${pack_archive}
-    COMMAND ${RX_RXPACK_COMMAND} create ${pack_archive} ${pack_dir}
-    DEPENDS ${pack_staged} ${RX_RXPACK_DEPENDS}
-    COMMENT "pack ${target} shaders -> shaders.rxp")
-  add_custom_target(${target}_shader_pack DEPENDS ${pack_archive})
-  add_dependencies(${target} ${target}_shader_pack)
+  set(${target}_SHADER_PACK_FILES ${pack_staged} PARENT_SCOPE)
 endfunction()

@@ -19,7 +19,7 @@ void SetVfs(asset::Vfs* vfs) {
 
 base::Vector<u8> Load(base::StringRef stem, const void* fallback, size_t fallback_size) {
   if (g_vfs) {
-    base::String path = "shaders://";
+    base::String path = "recreation://shaders/";
     path.append(stem);
     path.append(".spv");
     if (auto bytes = g_vfs->Read(path)) {

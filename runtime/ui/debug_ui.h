@@ -226,7 +226,7 @@ class DebugUi {
   const TrailerOverlay* trailer_ = nullptr;  // cinematic trailer chrome, when running
   ImFont* title_font_ = nullptr;  // large face for trailer titles (null = default, scaled)
   int preset_choice_ = 0;         // 0 = custom/hand-tuned, else a QualityPreset combo row
-  // Editable .ini render presets (engine/render/presets): the discovered file
+  // Editable platform config files (config/): the discovered file
   // list (lazy-scanned, rescannable), the combo selection, the save-as name
   // buffer and the last load/save status line.
   base::Vector<base::String> preset_files_;

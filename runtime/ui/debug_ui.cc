@@ -20,10 +20,11 @@
 #include <cstdlib>
 #include <filesystem>
 
+#include "app/platform_config.h"
 #include "core/log.h"
-#include "core/paths.h"
 #include "render/core/presets.h"
 #include "render/core/settings_ini.h"
+#include "runtime/app/content.h"
 
 namespace rx {
 namespace {
@@ -31,24 +32,19 @@ namespace {
 // Config toggle formerly read from getenv (populated by base::InitOptionsFromEnv).
 base::Option<bool> HideDebugUi{"hide.debug.ui", false, "RX_HIDE_DEBUG_UI"};
 
-// Override for the editable .ini render presets directory; defaults to the
-// compiled-in engine/render/presets source path.
+// Override for the platform config directory the debug ui edits; defaults to
+// the compiled-in recreation config/ source path.
 base::Option<const char*> PresetsDirOpt{"presets.dir", nullptr, "RX_PRESETS_DIR"};
 
-// Directory holding the .ini render presets: RX_PRESETS_DIR, else a "presets"
-// folder beside the executable (how a shipped build carries them), else the
-// compiled-in source path, else a cwd-relative fallback.
+// Directory holding recreation's platform config files: RX_PRESETS_DIR, else
+// the compiled-in source path, else a cwd-relative fallback.
 std::filesystem::path PresetDir() {
   if (const char* env = PresetsDirOpt.get(); env && *env)
     return env;
-  std::error_code ec;
-  if (std::filesystem::path beside = ExecutableDirectory() / "presets";
-      std::filesystem::is_directory(beside, ec))
-    return beside;
-#ifdef RECREATION_PRESETS_DIR_DEFAULT
-  return std::filesystem::path(RECREATION_PRESETS_DIR_DEFAULT);
+#ifdef RECREATION_CONFIG_DIR_DEFAULT
+  return std::filesystem::path(RECREATION_CONFIG_DIR_DEFAULT);
 #else
-  return std::filesystem::path("engine/render/presets");
+  return std::filesystem::path("config");
 #endif
 }
 
@@ -111,14 +107,16 @@ constexpr f32 kFpsGood = 60.0f;
 constexpr f32 kFpsWarn = 30.0f;
 
 // Row 0 is "Custom" (hand-tuned); the rest map to QualityPreset below.
-const char* kPresets[] = {"Custom",  "Auto-detect", "Android", "Steam Deck", "Low end",
-                          "Console", "Medium",      "High",    "Ultra"};
+const char* kPresets[] = {"Custom",       "Auto-detect", "Android low", "Android medium",
+                          "Android high", "Steam Deck",  "Low end",     "Console",
+                          "Medium",       "High",        "Ultra"};
 const render::QualityPreset kPresetValues[] = {
     render::QualityPreset::kAuto,  // unused for row 0
-    render::QualityPreset::kAuto,      render::QualityPreset::kAndroid,
-    render::QualityPreset::kSteamDeck, render::QualityPreset::kLowEnd,
-    render::QualityPreset::kConsole,   render::QualityPreset::kMedium,
-    render::QualityPreset::kHigh,      render::QualityPreset::kUltra};
+    render::QualityPreset::kAuto,          render::QualityPreset::kAndroidLow,
+    render::QualityPreset::kAndroidMedium, render::QualityPreset::kAndroidHigh,
+    render::QualityPreset::kSteamDeck,     render::QualityPreset::kLowEnd,
+    render::QualityPreset::kConsole,       render::QualityPreset::kMedium,
+    render::QualityPreset::kHigh,          render::QualityPreset::kUltra};
 
 }  // namespace
 
@@ -249,15 +247,22 @@ void DebugUi::Build(render::Renderer& renderer,
       if (ImGui::Combo("Quality preset", &preset_choice_, kPresets, IM_ARRAYSIZE(kPresets)) &&
           preset_choice_ > 0 && caps) {
         render::QualityPreset preset = kPresetValues[preset_choice_];
-        settings = render::PresetSettings(preset, *caps);
+        // The tier as the host resolves it: rx's files, then recreation's and
+        // the player's (rx docs/CONFIG.md).
+        app::PlatformConfig tier;
+        app::ReadPlatformChain(Content(), kContentName, render::ResolvePreset(preset, *caps),
+                               &tier);
+        settings = render::PresetSettings(tier.render, *caps);
         if (preset == render::QualityPreset::kAuto) {
           RX_INFO("preset: auto -> {}", render::PresetName(render::DetectPreset(*caps)));
         }
       }
 
-      // Editable per-platform .ini presets (engine/render/presets). Loaded
-      // straight onto the live settings; "for now" the debug ui is the only way
-      // in. Save writes the current settings back out so users can author more.
+      // recreation's platform config files in the source tree (config/): Load
+      // applies a file's render keys to the live settings; Save writes the
+      // current ones as [render.*] sections. Saving over a file drops its
+      // includes and its [options] / [memory.*] sections, so save to a new name
+      // and merge.
       if (ImGui::CollapsingHeader("Platform preset (.ini)")) {
         if (!preset_files_scanned_)
           ScanPresetFiles();
@@ -271,10 +276,10 @@ void DebugUi::Build(render::Renderer& renderer,
           ImGui::Combo("File", &preset_file_choice_, names.data(), static_cast<int>(names.size()));
           if (ImGui::Button("Load")) {
             const auto path = PresetDir() / preset_files_[preset_file_choice_].c_str();
-            if (render::LoadSettingsIni(path, settings)) {
+            if (render::LoadSettingsIni(path.string().c_str(), settings)) {
               preset_choice_ = 0;  // settings are file-tuned now, not a hardware tier
               preset_status_ = "loaded " + preset_files_[preset_file_choice_];
-              RX_INFO("render preset: loaded {}", path.string());
+              RX_INFO("render preset: loaded {}", path.string().c_str());
             } else {
               preset_status_ = "could not open " + preset_files_[preset_file_choice_];
             }
@@ -291,9 +296,9 @@ void DebugUi::Build(render::Renderer& renderer,
           if (fn.size() < 4 || fn.compare(fn.size() - 4, 4, ".ini") != 0)
             fn += ".ini";
           const auto path = PresetDir() / fn.c_str();
-          if (render::SaveSettingsIni(path, settings)) {
+          if (render::SaveSettingsIni(path.string().c_str(), settings)) {
             preset_status_ = "saved " + fn;
-            RX_INFO("render preset: saved {}", path.string());
+            RX_INFO("render preset: saved {}", path.string().c_str());
             ScanPresetFiles();
           } else {
             preset_status_ = "could not write " + fn;
