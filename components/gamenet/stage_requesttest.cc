@@ -31,7 +31,7 @@ bool Same(const StageRequest& a, const StageRequest& b) {
 }
 
 void TestRoundTrip(const char* what, const StageRequest& req) {
-  std::vector<rx::u8> blob = EncodeStageRequest(req);
+  base::Vector<rx::u8> blob = EncodeStageRequest(req);
   Check("fixed wire size", blob.size() == 17);
   std::optional<StageRequest> back = DecodeStageRequest(blob);
   Check(what, back.has_value() && Same(req, *back));
@@ -53,20 +53,20 @@ int main() {
   std::puts("rejection:");
 
   // Wrong size in either direction is rejected, never read out of bounds.
-  std::vector<rx::u8> good = EncodeStageRequest({0x10ull, StageOp::kSetStage, /*a=*/5, /*b=*/0});
+  base::Vector<rx::u8> good = EncodeStageRequest({0x10ull, StageOp::kSetStage, /*a=*/5, /*b=*/0});
   Check("empty buffer rejected", !DecodeStageRequest(ByteSpan()).has_value());
   for (size_t cut = 0; cut < good.size(); ++cut) {
-    std::vector<rx::u8> shorter(good.begin(), good.begin() + cut);
+    base::Vector<rx::u8> shorter(good.begin(), good.begin() + cut);
     if (DecodeStageRequest(shorter).has_value()) {
       Check("truncated buffer rejected", false);
     }
   }
-  std::vector<rx::u8> longer = good;
+  base::Vector<rx::u8> longer = good;
   longer.push_back(0x00);
   Check("oversized buffer rejected", !DecodeStageRequest(longer).has_value());
 
   // An out-of-range op byte (only 0..3 are valid) must be rejected.
-  std::vector<rx::u8> bad_op = good;
+  base::Vector<rx::u8> bad_op = good;
   bad_op[8] = 0xff;
   Check("unknown op rejected", !DecodeStageRequest(bad_op).has_value());
 

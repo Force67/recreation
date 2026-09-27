@@ -426,7 +426,7 @@ class Engine : public app::Application {
   // The flat launch grid the menu shows: the three universes, then every game
   // mode whose manifest was found beside the staged assemblies. menu_entry_art_
   // runs parallel to it and holds each entry's key-art PNG path: for a game its
-  // world capture or the one shipped in runtime/ui/art, for a mode whatever its
+  // world capture or the one in recreation://ui/art, for a mode whatever its
   // manifest named. Empty where there is none. menu_mode_id_ is
   // the mode a MODE tile launched, applied by EnterUniverse before the world (and
   // with it the managed host) comes up; menu_mode_ids_ is every mode the menu

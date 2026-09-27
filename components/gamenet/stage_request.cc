@@ -23,12 +23,12 @@ bool IsKnownOp(u8 op) {
   return false;
 }
 
-void AppendU32(std::vector<u8>& out, u32 v) {
+void AppendU32(base::Vector<u8>& out, u32 v) {
   u8 buf[4];
   nanobuf::StoreLe<u32>(buf, v);
   out.insert(out.end(), buf, buf + 4);
 }
-void AppendU64(std::vector<u8>& out, u64 v) {
+void AppendU64(base::Vector<u8>& out, u64 v) {
   u8 buf[8];
   nanobuf::StoreLe<u64>(buf, v);
   out.insert(out.end(), buf, buf + 8);
@@ -36,8 +36,8 @@ void AppendU64(std::vector<u8>& out, u64 v) {
 
 }  // namespace
 
-std::vector<u8> EncodeStageRequest(const StageRequest& req) {
-  std::vector<u8> out;
+base::Vector<u8> EncodeStageRequest(const StageRequest& req) {
+  base::Vector<u8> out;
   out.reserve(kWireSize);
   AppendU64(out, req.quest);
   out.push_back(static_cast<u8>(req.op));

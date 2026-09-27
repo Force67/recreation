@@ -71,9 +71,10 @@ dev() {
     --command "$@"
 }
 
-# rxpack packs the .rxp archives (shaders, engine fonts) during the build, so it
-# has to run on this machine, not the target. Build a host copy from the same rx
-# checkout: a tiny native tree with only the modules the tool links.
+# rxpack packs the .rxp archives (rx_engine.rxp, recreation.rxp) during the
+# build, so it has to run on this machine, not the target. Build a host copy
+# from the same rx checkout: a tiny native tree with only the modules the tool
+# links.
 HOST_TOOLS_DIR="$REPO/build/host-tools"
 host_rxpack() {
   local exe="$HOST_TOOLS_DIR/rxpack"
@@ -124,28 +125,16 @@ configure() {
 }
 
 # Assemble a tree that runs on a Windows machine that has never seen this repo:
-# the executables plus every file they otherwise reach through a compiled-in
-# build path. The runtime looks beside its own executable for each of these, so
-# the layout here is the contract.
+# the executables plus the install layout the build staged beside them (rx
+# docs/CONFIG.md). The runtime reads Data/ and config/ through the vfs, so the
+# layout here is the contract.
 package() {
   local dist="${RECREATION_WIN_DIST:-$REPO/dist/win}"
   rm -rf "$dist"
   mkdir -p "$dist"
   cp "$BUILD_DIR/runtime/recreation.exe" "$BUILD_DIR/runtime/recreation-server.exe" "$dist/"
-  for pack in "$BUILD_DIR/shaders.rxp" "$BUILD_DIR/rx/rx_fonts.rxp"; do
-    [ -f "$pack" ] && cp "$pack" "$dist/"
-  done
-  cp -r "$REPO/runtime/ui/screens" "$dist/screens"
-  [ -d "$REPO/runtime/ui/art" ] && cp -r "$REPO/runtime/ui/art" "$dist/art"
+  cp -r "$BUILD_DIR/runtime/Data" "$BUILD_DIR/runtime/config" "$dist/"
   [ -d "$REPO/runtime/ui/vanilla" ] && cp -r "$REPO/runtime/ui/vanilla" "$dist/vanilla"
-  [ -d "$RX/engine/render/presets" ] && cp -r "$RX/engine/render/presets" "$dist/presets"
-  # The engine's own Roboto, loose rather than only inside rx_fonts.rxp: the UI
-  # loads a face by path, and a machine with no system font would otherwise draw
-  # every label blank.
-  if [ -d "$RX/engine/assets/fonts/roboto" ]; then
-    mkdir -p "$dist/fonts"
-    cp "$RX"/engine/assets/fonts/roboto/*.ttf "$dist/fonts/"
-  fi
   if [ -d "$BUILD_DIR/sdk/managed" ]; then
     cp -r "$BUILD_DIR/sdk/managed" "$dist/managed"
   fi

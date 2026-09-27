@@ -15,27 +15,27 @@ namespace {
 //   | u8 is_actor | u8 team
 constexpr size_t kRecordSize = 1 + 8 + 8 + 8 + 4 + 4 + 4 + 1 + 1 + 1;
 
-void AppendU8(std::vector<u8>& out, u8 v) {
+void AppendU8(base::Vector<u8>& out, u8 v) {
   out.push_back(v);
 }
-void AppendU32(std::vector<u8>& out, u32 v) {
+void AppendU32(base::Vector<u8>& out, u32 v) {
   u8 buf[4];
   nanobuf::StoreLe<u32>(buf, v);
   out.insert(out.end(), buf, buf + 4);
 }
-void AppendU64(std::vector<u8>& out, u64 v) {
+void AppendU64(base::Vector<u8>& out, u64 v) {
   u8 buf[8];
   nanobuf::StoreLe<u64>(buf, v);
   out.insert(out.end(), buf, buf + 8);
 }
-void AppendF32(std::vector<u8>& out, f32 v) {
+void AppendF32(base::Vector<u8>& out, f32 v) {
   u32 bits;
   std::memcpy(&bits, &v, 4);
   AppendU32(out, bits);
 }
 
-std::vector<u8> EncodeRecord(const world::WorldCommand& c) {
-  std::vector<u8> rec;
+base::Vector<u8> EncodeRecord(const world::WorldCommand& c) {
+  base::Vector<u8> rec;
   rec.reserve(kRecordSize);
   AppendU8(rec, static_cast<u8>(c.op));
   AppendU64(rec, c.quest);
@@ -89,15 +89,17 @@ bool DecodeRecord(const u8* data, size_t size, world::WorldCommand* out) {
 
 }  // namespace
 
-std::vector<u8> EncodeWorldCommands(const std::vector<world::WorldCommand>& commands) {
+base::Vector<u8> EncodeWorldCommands(const std::vector<world::WorldCommand>& commands) {
   nanobuf::Writer writer;
   writer.Begin(/*fixed_len=*/6);  // 2-byte header + one 4-byte offset slot
   writer.PutOffsetList<world::WorldCommand>(
       /*slot=*/2, commands, [](nanobuf::Writer& w, const world::WorldCommand& c) {
-        std::vector<u8> rec = EncodeRecord(c);
-        return w.HeapBytes(rec);
+        base::Vector<u8> rec = EncodeRecord(c);
+        return w.HeapBytes(rec.data(), rec.size());
       });
-  return writer.TakeBuffer();
+  // nanobuf's writer is std::vector based; the wire API rx takes is base::.
+  const std::vector<u8> buffer = writer.TakeBuffer();
+  return base::Vector<u8>(buffer.begin(), buffer.end());
 }
 
 base::Optional<base::Vector<world::WorldCommand>> DecodeWorldCommands(ByteSpan data) {

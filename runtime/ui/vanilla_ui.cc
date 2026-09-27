@@ -245,7 +245,7 @@ base::String VanillaScreenDir() {
   if (const char* env = VanillaUiDir.get(); env && *env)
     return env;
   std::error_code ec;
-  if (std::filesystem::path beside = ExecutableDirectory() / "vanilla";
+  if (std::filesystem::path beside = std::filesystem::path(ExecutableDirectory().c_str()) / "vanilla";
       std::filesystem::is_directory(beside, ec))
     return beside.string().c_str();
 #ifdef RECREATION_VANILLA_UI_DIR_DEFAULT
@@ -263,7 +263,7 @@ bool LoadVanillaScreen(base::StringRef dir, base::StringRef name, VanillaScreen&
   out.markup = ReadTextFile(markup);
   if (out.markup.empty()) {
     RX_WARN("vanilla ui: {} not found (run tools/swfdump --ugui to translate it)",
-            markup.string());
+            markup.string().c_str());
     return false;
   }
   out.name = stem;
@@ -384,7 +384,7 @@ u32 LoadVanillaFonts(ugui::UIContext& ui,
     }
     const ugui::FontHandle handle = ui.LoadFont(path.string().c_str());
     if (handle == ugui::kInvalidFont) {
-      RX_WARN("vanilla ui: cannot load {}", path.string());
+      RX_WARN("vanilla ui: cannot load {}", path.string().c_str());
       continue;
     }
     ui.builder().RegisterFont(family.c_str(), handle);
@@ -440,7 +440,7 @@ u32 BindVanillaImages(ugui::UIContext& ui,
       // texture comes out at the size the layout asks for.
       ugui::SvgImage image;
       if (!ugui::LoadSvg(path.string().c_str(), image) || image.pixels.empty()) {
-        RX_WARN("vanilla ui: cannot rasterize {}", path.string());
+        RX_WARN("vanilla ui: cannot rasterize {}", path.string().c_str());
         continue;
       }
       const ugui::TextureId texture =
@@ -462,7 +462,7 @@ u32 BindVanillaImages(ugui::UIContext& ui,
     int channels = 0;
     unsigned char* pixels = stbi_load(path.string().c_str(), &width, &height, &channels, 4);
     if (!pixels) {
-      RX_WARN("vanilla ui: cannot decode {}", path.string());
+      RX_WARN("vanilla ui: cannot decode {}", path.string().c_str());
       continue;
     }
     const ugui::TextureId texture =

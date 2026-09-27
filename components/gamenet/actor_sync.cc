@@ -16,24 +16,24 @@ namespace {
 // Fixed 36-byte little-endian record: u64 form | 3xf32 pos | 4xf32 rot.
 constexpr size_t kRecordSize = 8 + 3 * 4 + 4 * 4;
 
-void AppendU32(std::vector<u8>& out, u32 v) {
+void AppendU32(base::Vector<u8>& out, u32 v) {
   u8 buf[4];
   nanobuf::StoreLe<u32>(buf, v);
   out.insert(out.end(), buf, buf + 4);
 }
-void AppendU64(std::vector<u8>& out, u64 v) {
+void AppendU64(base::Vector<u8>& out, u64 v) {
   u8 buf[8];
   nanobuf::StoreLe<u64>(buf, v);
   out.insert(out.end(), buf, buf + 8);
 }
-void AppendF32(std::vector<u8>& out, f32 v) {
+void AppendF32(base::Vector<u8>& out, f32 v) {
   u32 bits;
   std::memcpy(&bits, &v, 4);
   AppendU32(out, bits);
 }
 
-std::vector<u8> EncodeRecord(const ActorState& a) {
-  std::vector<u8> rec;
+base::Vector<u8> EncodeRecord(const ActorState& a) {
+  base::Vector<u8> rec;
   rec.reserve(kRecordSize);
   AppendU64(rec, a.form);
   for (f32 v : a.pos)
@@ -76,14 +76,16 @@ bool Changed(const ActorState& a, const ActorState& b) {
 
 }  // namespace
 
-std::vector<u8> EncodeActorStates(const std::vector<ActorState>& actors) {
+base::Vector<u8> EncodeActorStates(const std::vector<ActorState>& actors) {
   nanobuf::Writer writer;
   writer.Begin(/*fixed_len=*/6);
   writer.PutOffsetList<ActorState>(/*slot=*/2, actors, [](nanobuf::Writer& w, const ActorState& a) {
-    std::vector<u8> rec = EncodeRecord(a);
-    return w.HeapBytes(rec);
+    base::Vector<u8> rec = EncodeRecord(a);
+    return w.HeapBytes(rec.data(), rec.size());
   });
-  return writer.TakeBuffer();
+  // nanobuf's writer is std::vector based; the wire API rx takes is base::.
+  const std::vector<u8> buffer = writer.TakeBuffer();
+  return base::Vector<u8>(buffer.begin(), buffer.end());
 }
 
 base::Optional<base::Vector<ActorState>> DecodeActorStates(ByteSpan data) {

@@ -93,6 +93,30 @@ validation layers and tools. Configure with the pinned dependency set via
 Vulkan binaries through the `vkrun` wrapper so the loader and the host GPU
 driver are found. `nix build` produces a hermetic build from the same pins.
 
+### Content and platform config
+
+recreation runs on rx as the app `recreation` (rx `docs/CONFIG.md`). The build
+stages the install layout beside the executables: `Data/rx_engine.rxp` (rx's
+content at `rxe://`), `Data/recreation.rxp` (the compiled shaders, `.ugui`
+screens and menu art at `recreation://`) and `config/`. The Bethesda data stays
+where the player keeps it (`--data-dir`).
+
+`config/default.ini` and `config/<tier>.ini` amend rx's quality tiers
+(`steamdeck`, `low`, `medium`, ...) with `[render.*]`, `[memory.*]` and
+`[options]` sections. recreation's own knobs are options too: `grass.density`
+and `quest.max_scripts`, which `--grass-density` and `--max-quests` override. A
+player's overrides go in `~/.config/recreation/config/`, a one-off file in
+`RX_CONFIG=<file>`. `--preset <tier>` forces a tier; a Steam Deck is detected.
+
+### Steam Deck
+
+`tools/deploy_deck.sh [deck@host]` builds `build-deck` (Zen 2, no D3D12) in the
+nix shell, points the binary at the Deck's own loader and libraries, and syncs
+the executable, `config/` and `Data/` to `~/recreation` on the Deck. The game
+data has to be on the Deck already; pass its `Data` directory with
+`--data-dir`. `tools/deck/` is the alternative that builds inside the Steam
+Runtime container.
+
 ## The games' own interface
 
 The menus every Bethesda game ships are Scaleform movies. `tools/swfdump` reads

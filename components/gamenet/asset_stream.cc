@@ -61,7 +61,7 @@ AssetStreamServer::~AssetStreamServer() {
 }
 
 void AssetStreamServer::SendManifest(u32 peer) {
-  const std::vector<u8> bytes = modstream::EncodeManifest(catalog_->manifest());
+  const base::Vector<u8> bytes = modstream::EncodeManifest(catalog_->manifest());
   const u32 total = static_cast<u32>(bytes.size());
   const u32 chunks = modstream::ManifestChunkCount(total);
   for (u32 i = 0; i < chunks; ++i) {
@@ -109,7 +109,7 @@ void AssetStreamServer::Worker() {
       jobs_.pop_front();
     }
     if (!transporter_.SendFile(ToBasePath(job.path), tx::network::ZPeerId(job.peer))) {
-      RX_WARN("net: asset stream failed to send {} to peer {}", job.path.string(), job.peer);
+      RX_WARN("net: asset stream failed to send {} to peer {}", job.path.string().c_str(), job.peer);
     }
   }
 }
@@ -304,7 +304,7 @@ void AssetStreamClient::OnFileFinished(const fs::path& path) {
 
 void AssetStreamClient::SendReady() {
   client_.Push(MakePacket(tx::network::ZPeerId::to_server,
-                          static_cast<u16>(GameMessage::kAssetReady), std::vector<u8>{},
+                          static_cast<u16>(GameMessage::kAssetReady), base::Vector<u8>{},
                           /*reliable=*/true, tx::network::PacketPriority::High));
 }
 

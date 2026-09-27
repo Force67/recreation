@@ -1,6 +1,8 @@
 #ifndef RECREATION_NET_STAGE_REQUEST_H_
 #define RECREATION_NET_STAGE_REQUEST_H_
 
+#include <base/containers/vector.h>
+
 #include <optional>
 #include <vector>
 
@@ -26,7 +28,7 @@ struct StageRequest {
 };
 
 // Fixed 17-byte little-endian record: u64 quest | u8 op | i32 a | i32 b.
-std::vector<u8> EncodeStageRequest(const StageRequest& req);
+base::Vector<u8> EncodeStageRequest(const StageRequest& req);
 
 // Inverse of EncodeStageRequest. Returns nullopt on a buffer of the wrong size
 // or carrying an unknown op value, never reading out of bounds.

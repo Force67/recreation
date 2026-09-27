@@ -58,7 +58,7 @@ void SendWorldCommandChunks(const base::Vector<world::WorldCommand>& commands, S
   for (mem_size begin = 0; begin < commands.size(); begin += kMaxWorldCommandsPerMessage) {
     const mem_size end = base::Min<mem_size>(commands.size(), begin + kMaxWorldCommandsPerMessage);
     std::vector<world::WorldCommand> chunk(commands.begin() + begin, commands.begin() + end);
-    std::vector<u8> payload = EncodeWorldCommands(chunk);
+    base::Vector<u8> payload = EncodeWorldCommands(chunk);
     if (payload.size() <= kMaxWorldCommandPayload)
       send(std::move(payload));
   }
@@ -80,7 +80,7 @@ GameServerSession::GameServerSession(GameSessionConfig config)
     // client gets quests it already missed.
     quest_replicator_.ForceFull();
     if (world_command_source_) {
-      SendWorldCommandChunks(world_command_source_(), [this, peer](std::vector<u8> payload) {
+      SendWorldCommandChunks(world_command_source_(), [this, peer](base::Vector<u8> payload) {
         inner_.SendTo(peer, static_cast<u16>(GameMessage::kWorldCommands), payload,
                       /*reliable=*/true, tx::network::PacketPriority::Medium);
       });
@@ -184,7 +184,7 @@ void GameServerSession::BroadcastQuests() {
     return;
   // The wire codec is std-typed; the source is recreation-side and base-typed.
   const base::Vector<DomainQuestStatus> snapshot = quest_source_();
-  std::vector<u8> blob =
+  base::Vector<u8> blob =
       quest_replicator_.Build(std::vector<DomainQuestStatus>(snapshot.begin(), snapshot.end()));
   if (blob.empty())
     return;  // nothing changed this tick
@@ -211,7 +211,7 @@ void GameServerSession::BroadcastActors() {
 void GameServerSession::BroadcastWarMap() {
   if (!war_map_source_ || inner_.client_count() == 0)
     return;
-  std::vector<u8> blob = EncodeWarMap(war_map_source_());
+  base::Vector<u8> blob = EncodeWarMap(war_map_source_());
   // Skip unchanged ticks, but always re-send when a new client joins so a late
   // joiner gets the current front rather than waiting for the next capture.
   if (blob == last_war_map_blob_ && inner_.client_count() == last_war_map_clients_)
@@ -227,7 +227,7 @@ void GameServerSession::SendWorldCommands(const base::Vector<world::WorldCommand
     return;
   // Reliable, like quests: a dropped spawn or cleanup would desync a client's
   // world from the host's permanently.
-  SendWorldCommandChunks(commands, [this](std::vector<u8> payload) {
+  SendWorldCommandChunks(commands, [this](base::Vector<u8> payload) {
     inner_.Broadcast(static_cast<u16>(GameMessage::kWorldCommands), payload,
                      /*reliable=*/true, tx::network::PacketPriority::Medium);
   });
@@ -281,7 +281,7 @@ void GameClientSession::Tick(ecs::World& world, f32 dt) {
 void GameClientSession::SendActivate(u64 handle) {
   if (!joined())
     return;
-  std::vector<u8> payload(8);
+  base::Vector<u8> payload(8);
   nanobuf::StoreLe<u64>(payload.data(), handle);
   inner_.SendToServer(static_cast<u16>(GameMessage::kActivateRef), payload,
                       /*reliable=*/true, tx::network::PacketPriority::High);
@@ -290,7 +290,7 @@ void GameClientSession::SendActivate(u64 handle) {
 void GameClientSession::SendDialogueSelect(u64 info) {
   if (!joined())
     return;
-  std::vector<u8> payload(8);
+  base::Vector<u8> payload(8);
   nanobuf::StoreLe<u64>(payload.data(), info);
   inner_.SendToServer(static_cast<u16>(GameMessage::kDialogueSelect), payload,
                       /*reliable=*/true, tx::network::PacketPriority::High);

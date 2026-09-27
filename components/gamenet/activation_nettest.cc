@@ -78,8 +78,8 @@ int main() {
   Check("activation preserves its handle", observed_handle == kHandle);
 
   const rx::u32 before_malformed = accepted;
-  std::vector<rx::u8> short_payload(7, 0);
-  std::vector<rx::u8> long_payload(9, 0);
+  base::Vector<rx::u8> short_payload(7, 0);
+  base::Vector<rx::u8> long_payload(9, 0);
   client.engine().SendToServer(static_cast<rx::u16>(rx::net::GameMessage::kActivateRef),
                                short_payload, true);
   client.engine().SendToServer(static_cast<rx::u16>(rx::net::GameMessage::kActivateRef),

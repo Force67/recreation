@@ -70,7 +70,7 @@ size_t Replicate(QuestReplicator& rep, const QuestSystem& server, QuestSystem& c
   std::vector<DomainQuestStatus> snapshot;
   for (QuestStatus& s : server.AllStatuses())
     snapshot.push_back({0, std::move(s)});
-  std::vector<rx::u8> blob = rep.Build(snapshot);
+  base::Vector<rx::u8> blob = rep.Build(snapshot);
   if (blob.empty())
     return 0;
   size_t count = 0;

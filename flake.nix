@@ -50,7 +50,7 @@
     # rx: the extracted generic engine (core/ecs/asset/render/physics/anim/
     # audio/rpc/ui + the imgui/cgltf/stb vendored libs).
     rx-src = {
-      url = "git+https://github.com/Force67/rx?submodules=1&ref=main&rev=26345666e341d3ccf2cf1c631ccde4ec4bac6094";
+      url = "git+https://github.com/Force67/rx?submodules=1&ref=main&rev=52b5955cce010874575002d5e91422eb55361361";
       flake = false;
     };
 
@@ -72,12 +72,12 @@
     # equilibrium: base:: containers, strings and atomics. It is a submodule of
     # this repository, and `src = self` is the git tree without submodules, so
     # the sandbox takes it as an input instead -- at the revision the submodule
-    # records (git ls-tree HEAD third_party/equilibrium), which is the head of
-    # devel5, the branch .gitmodules tracks. A tarball input, not
+    # records (git ls-tree HEAD third_party/equilibrium), which is the one rx
+    # pins, on devel5, the branch .gitmodules tracks. A tarball input, not
     # git+submodules: equilibrium's own eight submodules are test and platform
     # deps behind EQ_BUILD_TESTS, and this build reads none of them.
     equilibrium-src = {
-      url = "github:Force67/equilibrium/f961dcb8c9965c54c961086144158e043f68a80c";
+      url = "github:Force67/equilibrium/d489251bebcbed1c35e2edc231ecbac2f51e6313";
       flake = false;
     };
 

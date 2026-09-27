@@ -5,6 +5,8 @@
 // fixed seed keeps it deterministic, so it runs in the ctest gate. It catches
 // hard faults directly; under a sanitizer build it also catches silent OOB reads.
 
+#include <base/containers/vector.h>
+
 #include <cstdio>
 #include <string>
 #include <utility>
@@ -90,7 +92,7 @@ rpc::RpcCall RandomCall(Rng& rng) {
         call.args.emplace_back(std::string(rng.Below(40), 'x'));
         break;
       default:
-        call.args.emplace_back(std::vector<u8>(rng.Below(40), 0xab));
+        call.args.emplace_back(base::Vector<u8>(rng.Below(40), 0xab));
         break;
     }
   }
@@ -110,7 +112,7 @@ int main() {
   for (int round = 0; round < kRounds; ++round) {
     // 1. Pure random bytes: the decoder must not crash; almost all are rejected.
     {
-      std::vector<u8> noise(rng.Below(2048));
+      base::Vector<u8> noise(rng.Below(2048));
       for (u8& b : noise)
         b = rng.Byte();
       (void)modstream::DecodeManifest(noise.data(), noise.size());
@@ -130,7 +132,7 @@ int main() {
     //    and the clean encoding must decode back to an equal value.
     {
       const modstream::ModManifest m = RandomManifest(rng);
-      std::vector<u8> bytes = modstream::EncodeManifest(m);
+      base::Vector<u8> bytes = modstream::EncodeManifest(m);
       auto decoded = modstream::DecodeManifest(bytes);
       if (!decoded || !(*decoded == m))
         manifest_roundtrips = false;
@@ -141,7 +143,7 @@ int main() {
     }
     {
       const rpc::RpcCall c = RandomCall(rng);
-      std::vector<u8> bytes = rpc::EncodeCall(c);
+      base::Vector<u8> bytes = rpc::EncodeCall(c);
       auto decoded = rpc::DecodeCall(bytes.data(), bytes.size());
       if (!decoded)
         rpc_roundtrips = false;
@@ -158,7 +160,7 @@ int main() {
       std::vector<modstream::ContentHash> hashes(rng.Below(20));
       for (modstream::ContentHash& h : hashes)
         h = rng.Next();
-      std::vector<u8> bytes = modstream::EncodeHashRequest(hashes);
+      base::Vector<u8> bytes = modstream::EncodeHashRequest(hashes);
       auto decoded = modstream::DecodeHashRequest(bytes.data(), bytes.size(), 6000);
       if (!decoded || !(*decoded == hashes))
         manifest_roundtrips = false;

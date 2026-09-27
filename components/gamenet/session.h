@@ -148,7 +148,7 @@ class GameServerSession final : public Session {
   std::function<base::Vector<DomainQuestStatus>()> quest_source_;
   std::function<base::Vector<world::WorldCommand>()> world_command_source_;
   std::function<WarMapState()> war_map_source_;
-  std::vector<u8> last_war_map_blob_;  // last board sent, to skip unchanged ticks
+  base::Vector<u8> last_war_map_blob_;  // last board sent, to skip unchanged ticks
   size_t last_war_map_clients_ = 0;    // re-send the board when a new client joins
   std::function<void(const StageRequest&)> stage_request_sink_;
   std::function<void(u32, u64)> activate_sink_;

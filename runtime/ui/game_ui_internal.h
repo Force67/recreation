@@ -242,6 +242,7 @@ base::String BuildTopbarSection();
 base::String BuildUi();
 base::String LoadUiFragment(const char* name);
 fs::path UiDir();
+base::String UiPath(const char* name);
 constexpr int kUiFragmentCount = 22;
 extern const char* const kUiFragments[kUiFragmentCount];
 

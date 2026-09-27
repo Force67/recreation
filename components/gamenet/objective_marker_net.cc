@@ -14,8 +14,8 @@ constexpr size_t kWireSize = 1 + 8 + 4 + 4 + 4;
 
 }  // namespace
 
-std::vector<u8> EncodeObjectiveMarker(const ObjectiveMarkerState& m) {
-  std::vector<u8> out(kWireSize);
+base::Vector<u8> EncodeObjectiveMarker(const ObjectiveMarkerState& m) {
+  base::Vector<u8> out(kWireSize);
   u8* p = out.data();
   p[0] = m.active ? 1 : 0;
   nanobuf::StoreLe<u64>(p + 1, m.quest);

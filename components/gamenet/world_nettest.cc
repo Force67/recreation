@@ -66,7 +66,7 @@ int main() {
   cleanup.quest = 0x0100ABCD;
   cmds.push_back(cleanup);
 
-  std::vector<rx::u8> blob = rx::net::EncodeWorldCommands(cmds);
+  base::Vector<rx::u8> blob = rx::net::EncodeWorldCommands(cmds);
   Check("encodes to a non-empty blob", !blob.empty());
 
   auto decoded = rx::net::DecodeWorldCommands(rx::ByteSpan(blob.data(), blob.size()));
@@ -92,13 +92,13 @@ int main() {
 
   // A truncated blob must be rejected, not read out of bounds.
   if (!blob.empty()) {
-    std::vector<rx::u8> truncated(blob.begin(), blob.begin() + blob.size() / 2);
+    base::Vector<rx::u8> truncated(blob.begin(), blob.begin() + blob.size() / 2);
     auto bad = rx::net::DecodeWorldCommands(rx::ByteSpan(truncated.data(), truncated.size()));
     Check("rejects a truncated blob", !bad.has_value());
   }
 
   std::vector<WorldCommand> oversized(rx::net::kMaxWorldCommandsPerMessage + 1);
-  std::vector<rx::u8> oversized_blob = rx::net::EncodeWorldCommands(oversized);
+  base::Vector<rx::u8> oversized_blob = rx::net::EncodeWorldCommands(oversized);
   Check("rejects an oversized command list",
         !rx::net::DecodeWorldCommands(rx::ByteSpan(oversized_blob.data(), oversized_blob.size()))
              .has_value());

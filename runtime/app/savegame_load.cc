@@ -1,5 +1,6 @@
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 
 #include <base/algorithm.h>

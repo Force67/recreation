@@ -20,7 +20,7 @@
 #include "components/script/papyrus/native.h"
 #include "components/script/papyrus/value.h"
 #include "components/script/papyrus/vm.h"
-#include "core/move_only_function.h"
+#include "components/script/move_only_function.h"
 #include "core/types.h"
 
 namespace rx::script {

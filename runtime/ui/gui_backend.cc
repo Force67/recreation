@@ -429,7 +429,7 @@ bool HudRenderBackend::Init(const InitInfo& info) {
   // The ugui pipeline shaders belong to the engine: rx::ui compiles and embeds
   // these six blobs for its own backend, so the game links those arrays rather
   // than compiling a second copy of shaders it does not own. They are the one
-  // group missing from shaders.rxp, which carries the shaders recreation owns.
+  // group missing from recreation.rxp, which carries the shaders recreation owns.
   quad_pipeline_ = CreatePipeline(k_ugui_quad_vs_hlsl, sizeof(k_ugui_quad_vs_hlsl),
                                   k_ugui_quad_ps_hlsl, sizeof(k_ugui_quad_ps_hlsl), 9);
   text_pipeline_ = CreatePipeline(k_ugui_text_vs_hlsl, sizeof(k_ugui_text_vs_hlsl),

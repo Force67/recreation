@@ -1,6 +1,8 @@
 #ifndef RECREATION_MODSTREAM_MANIFEST_CHUNK_H_
 #define RECREATION_MODSTREAM_MANIFEST_CHUNK_H_
 
+#include <base/containers/vector.h>
+
 #include <optional>
 #include <vector>
 
@@ -38,7 +40,7 @@ struct ManifestChunkView {
 };
 
 // Encodes one chunk: the header then `payload_len` bytes from `payload`.
-std::vector<u8> EncodeManifestChunk(u32 generation,
+base::Vector<u8> EncodeManifestChunk(u32 generation,
                                     u32 total_size,
                                     u32 total_chunks,
                                     u32 chunk_index,

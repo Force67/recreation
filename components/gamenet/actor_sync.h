@@ -2,6 +2,7 @@
 #define RECREATION_NET_ACTOR_SYNC_H_
 
 #include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
 
 #include <optional>
 #include <vector>
@@ -23,7 +24,7 @@ struct ActorState {
   f32 rot[4] = {0, 0, 0, 1};
 };
 
-std::vector<u8> EncodeActorStates(const std::vector<ActorState>& actors);
+base::Vector<u8> EncodeActorStates(const std::vector<ActorState>& actors);
 base::Optional<base::Vector<ActorState>> DecodeActorStates(ByteSpan data);
 
 // Walks every NPC entity and returns its current transform. The authoritative

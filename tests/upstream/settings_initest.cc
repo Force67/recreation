@@ -1,16 +1,17 @@
-// Round-trips RenderSettings <-> INI and validates every shipped platform
-// preset in engine/render/presets. Run via ctest (settings_initest).
+// Round-trips RenderSettings <-> INI and checks that recreation's platform
+// config (config/) lands on rx's tiers with nothing left over. Run via ctest
+// (settings_initest).
 
 #include <cmath>
 #include <cstdio>
-#include <filesystem>
-#include <string>
 
+#include "app/platform_config.h"
+#include "asset/vfs.h"
+#include "render/core/presets.h"
 #include "render/core/settings_ini.h"
 
 using rx::render::AntiAliasingMode;
 using rx::render::ApplyIni;
-using rx::render::LoadSettingsIni;
 using rx::render::RenderSettings;
 using rx::render::SettingsToIni;
 using rx::render::TonemapOperator;
@@ -124,54 +125,23 @@ void TestEnumAliases() {
   Check(s.tonemap == TonemapOperator::kNone, "tonemap none");
 }
 
-// Loads a shipped preset and runs a per-file spot check on distinctive values.
-void CheckPreset(const std::filesystem::path& dir,
-                 const char* name,
-                 bool (*pred)(const RenderSettings&)) {
-  RenderSettings s;
-  const bool ok = LoadSettingsIni(dir / name, s);
-  Check(ok, name);
-  if (ok)
-    Check(pred(s), name);
-}
-
-void TestShippedPresets() {
-  std::printf("shipped presets\n");
-  const std::filesystem::path dir{RECREATION_PRESETS_TEST_DIR};
-
-  RenderSettings missing;
-  Check(!LoadSettingsIni(dir / "does_not_exist.ini", missing), "missing file -> false");
-
-  CheckPreset(dir, "android_low.ini", [](const RenderSettings& s) {
-    return !s.rt_shadows && !s.bloom && !s.ssr && !s.ssgi && s.shadow_resolution == 1024 &&
-           s.upscaler == UpscalerKind::kNone;
-  });
-  CheckPreset(dir, "android_high.ini", [](const RenderSettings& s) {
-    return !s.rt_shadows && s.ssao && s.ssgi && s.bloom && s.clouds;
-  });
-  CheckPreset(dir, "steamdeck.ini", [](const RenderSettings& s) {
-    return s.upscaler == UpscalerKind::kFsr3 &&
-           s.upscaler_quality == UpscalerQuality::kPerformance && s.rt_shadows && s.rtao &&
-           !s.rt_reflections && s.vsync;
-  });
-  CheckPreset(dir, "pc_low.ini", [](const RenderSettings& s) {
-    return !s.rt_shadows && s.upscaler == UpscalerKind::kFsr3 && s.ssao && !s.rt_reflections;
-  });
-  CheckPreset(dir, "pc_medium.ini", [](const RenderSettings& s) {
-    return s.rt_shadows && s.rt_reflections && s.ddgi && s.upscaler == UpscalerKind::kDlss;
-  });
-  CheckPreset(dir, "pc_high.ini", [](const RenderSettings& s) {
-    return s.rt_shadows && s.ao_rays == 4 && Approx(s.ddgi_spacing, 1.0f) &&
-           s.shadow_resolution == 4096;
-  });
-  CheckPreset(dir, "pc_ultra.ini", [](const RenderSettings& s) {
-    return s.upscaler_quality == UpscalerQuality::kNativeAa && s.ao_rays == 6 &&
-           Approx(s.reflection_roughness_cutoff, 0.85f) && s.path_trace_spp == 4;
-  });
-  CheckPreset(dir, "console.ini", [](const RenderSettings& s) {
-    return s.upscaler == UpscalerKind::kFsr3 && s.upscaler_quality == UpscalerQuality::kBalanced &&
-           s.vsync && Approx(s.fog_density, 0.02f);
-  });
+// Every tier read the way the host reads it, rx's files then recreation's: a
+// line that goes nowhere (a render key rx renamed, a section typo) is a
+// problem the log would report at startup. Options are only collected here;
+// whether their names are registered is checked when the game applies them.
+void TestPlatformConfig() {
+  std::printf("platform config\n");
+  rx::asset::Vfs vfs;
+  vfs.Mount("rxe://config/", rx::asset::MakeLooseFileProvider(RECREATION_RX_CONFIG_DIR));
+  vfs.Mount("recreation://config/", rx::asset::MakeLooseFileProvider(RECREATION_CONFIG_DIR));
+  using QP = rx::render::QualityPreset;
+  for (QP tier : {QP::kAndroidLow, QP::kAndroidMedium, QP::kAndroidHigh, QP::kSteamDeck,
+                  QP::kLowEnd, QP::kConsole, QP::kMedium, QP::kHigh, QP::kUltra}) {
+    rx::app::PlatformConfig config;
+    Check(rx::app::ReadPlatformChain(vfs, "recreation", tier, &config),
+          rx::render::PresetName(tier));
+    Check(config.problems == 0, rx::render::PresetName(tier));
+  }
 }
 
 }  // namespace
@@ -180,7 +150,7 @@ int main() {
   TestRoundTrip();
   TestPartialOverlay();
   TestEnumAliases();
-  TestShippedPresets();
+  TestPlatformConfig();
   if (g_failures == 0) {
     std::printf("settings_initest: all checks passed\n");
     return 0;

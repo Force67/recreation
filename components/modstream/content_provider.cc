@@ -1,5 +1,6 @@
 #include <base/containers/unordered_map.h>
 #include <base/functional/function.h>
+#include <base/functional/function_ref.h>
 #include <base/memory/move.h>
 #include <base/optional.h>
 #include <base/strings/string_ref.h>
@@ -41,26 +42,26 @@ class ResourceProvider final : public asset::FileProvider {
   ResourceProvider(base::String name, base::UnorderedMap<base::String, fs::path> paths)
       : name_(base::move(name)), paths_(base::move(paths)) {}
 
-  bool Contains(std::string_view normalized_path) const override {
+  bool Contains(base::StringRef normalized_path) const override {
     return paths_.contains(base::String(normalized_path));
   }
 
-  std::optional<base::Vector<u8>> Read(std::string_view normalized_path) const override {
+  base::Optional<base::Vector<u8>> Read(base::StringRef normalized_path) const override {
     const auto* it = paths_.find(base::String(normalized_path));
     if (it == nullptr)
-      return std::nullopt;
+      return base::nullopt;
     base::Optional<base::Vector<u8>> bytes = ReadFile(*it);
     if (!bytes.has_value())
-      return std::nullopt;
+      return base::nullopt;
     return base::move(bytes.value());
   }
 
-  void Enumerate(const std::function<void(std::string_view)>& fn) const override {
+  void Enumerate(base::FunctionRef<void(base::StringRef)> fn) const override {
     for (const auto& [path, disk] : paths_)
       fn(path);
   }
 
-  std::string name() const override { return name_.c_str(); }
+  base::String name() const override { return name_; }
 
  private:
   base::String name_;

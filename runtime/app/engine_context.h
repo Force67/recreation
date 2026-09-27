@@ -89,10 +89,14 @@ struct EngineConfig {
   // Savegame to resume from: the world boots at the player's saved location
   // with the save's globals, quest and actor state applied.
   base::String load_save;
-  f32 grass_density = 1.0f;  // multiplies every GRAS density, 0 disables
+  // Multiplies every GRAS density, 0 disables. Negative until the command line
+  // sets it; Engine::OnInitialize then takes the platform config's
+  // grass.density option.
+  f32 grass_density = -1.0f;
   // Cap on quest scripts instantiated at load (0 = all). The quest browser
-  // lists what's attached; the default attaches every scripted quest.
-  int max_quest_scripts = 0;
+  // lists what's attached. Negative means the platform config's
+  // quest.max_scripts option, which attaches every scripted quest by default.
+  int max_quest_scripts = -1;
   render::RendererDesc renderer;
   // Hardware quality tier. kAuto picks one from the gpu at startup; the rest
   // force a tier (steam deck, android, low/medium/high/ultra, console).

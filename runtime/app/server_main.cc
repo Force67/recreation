@@ -107,6 +107,11 @@ int main(int argc, char** argv) {
   app_config.preset = config.preset;
   app_config.headless = config.headless;
   app_config.gather_entity_draws = false;
+  // Its own identity, so a server beside a client keeps its own settings
+  // folder. The install is the client's: Data/ and config/ mount the same way.
+  app_config.id = "b0rplpq74zjxl6jxy6do7ye6";
+  app_config.name = "recreation-server";
+  app_config.title = "recreation server";
 
   rx::Engine engine(config);
   rx::app::Host host;

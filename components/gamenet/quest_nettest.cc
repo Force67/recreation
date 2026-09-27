@@ -26,6 +26,12 @@ using rx::quest::QuestStatus;
 
 int g_failures = 0;
 
+// base::Span takes no temporaries, so an update built in place decodes through
+// a named reference.
+std::optional<std::vector<DomainQuestStatus>> Decode(const base::Vector<rx::u8>& blob) {
+  return DecodeQuestUpdate(blob);
+}
+
 void Check(const char* what, bool ok) {
   std::printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
   if (!ok)
@@ -96,7 +102,7 @@ void TestRoundTrip() {
                 /*complete=*/false),
   };
 
-  std::vector<rx::u8> blob = EncodeQuestUpdate(quests);
+  base::Vector<rx::u8> blob = EncodeQuestUpdate(quests);
   Check("non-empty encoding", !blob.empty());
 
   std::optional<std::vector<DomainQuestStatus>> decoded = DecodeQuestUpdate(blob);
@@ -126,7 +132,7 @@ void TestRoundTrip() {
   Check("negative stage preserved", (*decoded)[2].status.stage == -1);
 
   // An empty snapshot is a valid update carrying zero quests.
-  std::optional<std::vector<DomainQuestStatus>> empty = DecodeQuestUpdate(EncodeQuestUpdate({}));
+  std::optional<std::vector<DomainQuestStatus>> empty = Decode(EncodeQuestUpdate({}));
   Check("empty snapshot decodes to zero quests", empty.has_value() && empty->empty());
 }
 
@@ -138,7 +144,7 @@ void TestDomainRouting() {
       MakeQuest(0x0100ull, 50, true, true, false, {}, /*domain=*/1),
   };
   std::optional<std::vector<DomainQuestStatus>> decoded =
-      DecodeQuestUpdate(EncodeQuestUpdate(quests));
+      Decode(EncodeQuestUpdate(quests));
   Check("both domains decode", decoded.has_value() && decoded->size() == 2);
   if (!decoded)
     return;
@@ -153,12 +159,12 @@ void TestDomainRouting() {
   std::vector<DomainQuestStatus> snap = quests;
   snap[0].status.revision = 1;
   snap[1].status.revision = 1;
-  Check("both domains sent on first build", DecodeQuestUpdate(rep.Build(snap))->size() == 2);
+  Check("both domains sent on first build", Decode(rep.Build(snap))->size() == 2);
   Check("unchanged sends nothing", rep.Build(snap).empty());
   // Advance only the Fallout (domain 1) quest; the Skyrim one stays put.
   snap[1].status.revision = 2;
   snap[1].status.stage = 60;
-  std::optional<std::vector<DomainQuestStatus>> d = DecodeQuestUpdate(rep.Build(snap));
+  std::optional<std::vector<DomainQuestStatus>> d = Decode(rep.Build(snap));
   Check("only the changed domain's quest sent",
         d.has_value() && d->size() == 1 && (*d)[0].domain == 1 && (*d)[0].status.stage == 60);
 }
@@ -175,7 +181,7 @@ void TestDeltas() {
   snap[0].status.revision = 1;
   snap[1].status.revision = 1;
 
-  std::vector<rx::u8> first = rep.Build(snap);
+  base::Vector<rx::u8> first = rep.Build(snap);
   std::optional<std::vector<DomainQuestStatus>> d1 = DecodeQuestUpdate(first);
   Check("first build sends both", d1.has_value() && d1->size() == 2);
 
@@ -185,7 +191,7 @@ void TestDeltas() {
   // Bump only the second quest's revision and stage.
   snap[1].status.revision = 2;
   snap[1].status.stage = 10;
-  std::vector<rx::u8> second = rep.Build(snap);
+  base::Vector<rx::u8> second = rep.Build(snap);
   std::optional<std::vector<DomainQuestStatus>> d2 = DecodeQuestUpdate(second);
   Check("only changed quest sent", d2.has_value() && d2->size() == 1 &&
                                        (*d2)[0].status.handle == 0x20ull &&
@@ -197,7 +203,7 @@ void TestDeltas() {
   // A brand new quest appears and goes out on its own.
   snap.push_back(MakeQuest(0x30ull, 5, true, true, false));
   snap.back().status.revision = 1;
-  std::optional<std::vector<DomainQuestStatus>> d3 = DecodeQuestUpdate(rep.Build(snap));
+  std::optional<std::vector<DomainQuestStatus>> d3 = Decode(rep.Build(snap));
   Check("new quest sent alone",
         d3.has_value() && d3->size() == 1 && (*d3)[0].status.handle == 0x30ull);
 }
@@ -212,12 +218,12 @@ void TestForceFull() {
   snap[0].status.revision = 3;
   snap[1].status.revision = 3;
 
-  Check("initial build sends all", DecodeQuestUpdate(rep.Build(snap))->size() == 2);
+  Check("initial build sends all", Decode(rep.Build(snap))->size() == 2);
   Check("steady state empty", rep.Build(snap).empty());
 
   // A joining client needs the whole journal even though nothing changed.
   rep.ForceFull();
-  std::optional<std::vector<DomainQuestStatus>> full = DecodeQuestUpdate(rep.Build(snap));
+  std::optional<std::vector<DomainQuestStatus>> full = Decode(rep.Build(snap));
   Check("ForceFull resends everything", full.has_value() && full->size() == 2);
 
   // ForceFull is one-shot: the next build is a delta again.
@@ -230,7 +236,7 @@ void TestApplySink() {
       MakeQuest(0x10ull, 5, true, true, false, {MakeObjective(1, true, false)}, /*domain=*/0),
       MakeQuest(0x20ull, 6, true, false, true, {}, /*domain=*/1),
   };
-  std::vector<rx::u8> blob = EncodeQuestUpdate(quests);
+  base::Vector<rx::u8> blob = EncodeQuestUpdate(quests);
 
   std::vector<DomainQuestStatus> received;
   const bool ok = ApplyQuestUpdate(blob, [&](rx::u8 domain, const QuestStatus& q) {
@@ -252,13 +258,13 @@ void TestCorrupt() {
                 {MakeObjective(1, true, false), MakeObjective(2, false, true)}),
       MakeQuest(0x20ull, 6, true, false, true),
   };
-  std::vector<rx::u8> blob = EncodeQuestUpdate(quests);
+  base::Vector<rx::u8> blob = EncodeQuestUpdate(quests);
 
   // Empty buffer has no message header at all.
   Check("empty buffer rejected", !DecodeQuestUpdate(ByteSpan()).has_value());
 
   // One byte cannot hold the 2-byte fixed-section length.
-  const std::vector<rx::u8> tiny = {0x00};
+  const base::Vector<rx::u8> tiny = {0x00};
   Check("one byte rejected", !DecodeQuestUpdate(tiny).has_value());
 
   // Every truncation of a valid blob must be rejected (it is no longer
@@ -266,7 +272,7 @@ void TestCorrupt() {
   // sanitized ctest build an over-read here would abort the test.
   bool every_truncation_rejected = true;
   for (size_t cut = 1; cut < blob.size(); ++cut) {
-    std::vector<rx::u8> shorter(blob.begin(), blob.begin() + cut);
+    base::Vector<rx::u8> shorter(blob.begin(), blob.begin() + cut);
     if (DecodeQuestUpdate(shorter).has_value())
       every_truncation_rejected = false;
   }
@@ -276,7 +282,7 @@ void TestCorrupt() {
   // length/count no longer matches the buffer, so decode must reject it.
   bool mid_corruption_rejected = true;
   for (size_t i = 0; i < blob.size(); ++i) {
-    std::vector<rx::u8> flipped = blob;
+    base::Vector<rx::u8> flipped = blob;
     flipped[i] ^= 0xff;
     // A flip is allowed to still parse (e.g. a flag bit), but it must never
     // crash. We only assert the decoder stays in bounds; that it returns at

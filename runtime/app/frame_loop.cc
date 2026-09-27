@@ -4,10 +4,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
-#include <span>
 
 #include <base/algorithm.h>
 #include <base/containers/pair.h>
+#include <base/containers/span.h>
 #include <base/containers/vector.h>
 #include <base/memory/move.h>
 #include <base/memory/unique_pointer.h>
@@ -530,7 +530,7 @@ void Engine::OnBuildView(f32 frame_delta, render::FrameView& view) {
           nav::AppendCorridorLines(nav.mesh(), corridor, &nav_debug_lines_);
         });
         view.debug_lines =
-            std::span<const render::DebugLine>(nav_debug_lines_.begin(), nav_debug_lines_.size());
+            base::Span<const render::DebugLine>(nav_debug_lines_.begin(), nav_debug_lines_.size());
       }
       if (editor_)
         editor_->CollectLights(view.lights);  // placed torches/lamps light the scene

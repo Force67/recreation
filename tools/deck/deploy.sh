@@ -16,7 +16,6 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-RX="$(cd "${RECREATION_RX_DIR:-$REPO/../rx}" && pwd)"
 
 HOST="${1:-}"
 [ -n "$HOST" ] || { echo "usage: ${0##*/} <host> [run [args...]]" >&2; exit 1; }
@@ -58,8 +57,8 @@ fi
 echo "==> $TARGET:$DEST"
 # Every destination directory up front. rsync only creates the final component
 # of a path (--mkpath would do the rest, but it needs rsync 3.2.3+ on the far
-# end), so the nested profile/preset trees have to exist before the transfers.
-ssh "$TARGET" "mkdir -p '$DEST/runtime/app/profiles' '$DEST/engine/render/presets' '$DEST/sdk/managed'"
+# end), so the nested trees have to exist before the transfers.
+ssh "$TARGET" "mkdir -p '$DEST/sdk/managed'"
 
 # No -z anywhere below. The binary is ~400MB of dense, already-incompressible
 # code: measured against a local target, "rsync -az" had not finished after five
@@ -86,11 +85,10 @@ fi
 
 rsync -a --info=progress2 "$SEND_BIN" "$TARGET:$DEST/recreation"
 
-# Profiles are looked up relative to the working directory, so the tree layout
-# has to survive the copy: runtime/app/profiles for recreation's own platform
-# profiles, engine/render/presets for rx's render tiers.
-rsync -a --delete "$REPO/runtime/app/profiles/" "$TARGET:$DEST/runtime/app/profiles/"
-rsync -a --delete "$RX/engine/render/presets/"  "$TARGET:$DEST/engine/render/presets/"
+# The install layout the build staged beside the binary (rx docs/CONFIG.md):
+# Data/rx_engine.rxp -> rxe://, Data/recreation.rxp and config/ -> recreation://.
+rsync -a --delete "$BUILD_DIR/runtime/Data/" "$TARGET:$DEST/Data/"
+rsync -a --delete "$BUILD_DIR/runtime/config/" "$TARGET:$DEST/config/"
 
 # Managed assemblies are portable IL, so the host's dotnet build is what ships.
 # The CLR itself is dlopened from DOTNET_ROOT; install a linux-x64 runtime on
@@ -105,5 +103,5 @@ if [ "${1:-}" = "run" ]; then
   shift
   # gamescope owns the display in Game Mode; from an SSH shell the reliable
   # target is the desktop session's compositor.
-  ssh -t "$TARGET" "cd '$DEST' && DISPLAY=:0 ./recreation --profile steamdeck $*"
+  ssh -t "$TARGET" "cd '$DEST' && DISPLAY=:0 ./recreation $*"
 fi

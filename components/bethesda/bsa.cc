@@ -7,6 +7,7 @@
 
 #include <base/containers/unordered_map.h>
 #include <base/functional/function.h>
+#include <base/functional/function_ref.h>
 #include <base/memory/move.h>
 #include <base/optional.h>
 #include <base/strings/string_ref.h>
@@ -114,14 +115,14 @@ class BsaProvider final : public asset::FileProvider {
     return true;
   }
 
-  bool Contains(std::string_view normalized_path) const override {
+  bool Contains(base::StringRef normalized_path) const override {
     return entries_.contains(base::String(normalized_path));
   }
 
-  std::optional<base::Vector<u8>> Read(std::string_view normalized_path) const override {
+  base::Optional<base::Vector<u8>> Read(base::StringRef normalized_path) const override {
     auto* it = entries_.find(base::String(normalized_path));
     if (it == nullptr)
-      return std::nullopt;
+      return base::nullopt;
     const FileEntry& entry = *it;
 
     bool compressed = header_.archive_flags & kFlagCompressedByDefault;
@@ -143,7 +144,7 @@ class BsaProvider final : public asset::FileProvider {
       base::Vector<u8> data(size);
       file.read(reinterpret_cast<char*>(data.data()), size);
       if (!file)
-        return std::nullopt;
+        return base::nullopt;
       return data;
     }
 
@@ -153,24 +154,24 @@ class BsaProvider final : public asset::FileProvider {
     file.read(reinterpret_cast<char*>(compressed_data.data()),
               static_cast<std::streamsize>(compressed_data.size()));
     if (!file)
-      return std::nullopt;
+      return base::nullopt;
     base::Vector<u8> data(uncompressed_size);
     ByteSpan src(compressed_data.data(), compressed_data.size());
     bool ok = header_.version >= 105 ? Lz4FrameDecompress(src, data.data(), data.size())
                                      : ZlibInflate(src, data.data(), data.size());
     if (!ok) {
       RX_WARN("bsa decompression failed: {} in {}", normalized_path, path_);
-      return std::nullopt;
+      return base::nullopt;
     }
     return data;
   }
 
-  void Enumerate(const std::function<void(std::string_view)>& fn) const override {
+  void Enumerate(base::FunctionRef<void(base::StringRef)> fn) const override {
     for (const auto& [name, entry] : entries_)
       fn(name);
   }
 
-  std::string name() const override { return path_.c_str(); }
+  base::String name() const override { return path_; }
 
  private:
   base::String path_;
@@ -221,29 +222,29 @@ class LegacyBsaProvider final : public asset::FileProvider {
     return true;
   }
 
-  bool Contains(std::string_view normalized_path) const override {
+  bool Contains(base::StringRef normalized_path) const override {
     return entries_.contains(base::String(normalized_path));
   }
 
-  std::optional<base::Vector<u8>> Read(std::string_view normalized_path) const override {
+  base::Optional<base::Vector<u8>> Read(base::StringRef normalized_path) const override {
     auto* it = entries_.find(base::String(normalized_path));
     if (it == nullptr)
-      return std::nullopt;
+      return base::nullopt;
     std::ifstream file(path_.c_str(), std::ios::binary);
     file.seekg(static_cast<std::streamoff>(data_offset_ + it->offset));
     base::Vector<u8> data(it->size);
     file.read(reinterpret_cast<char*>(data.data()), it->size);
     if (!file)
-      return std::nullopt;
+      return base::nullopt;
     return data;
   }
 
-  void Enumerate(const std::function<void(std::string_view)>& fn) const override {
+  void Enumerate(base::FunctionRef<void(base::StringRef)> fn) const override {
     for (const auto& [name, entry] : entries_)
       fn(name);
   }
 
-  std::string name() const override { return path_.c_str(); }
+  base::String name() const override { return path_; }
 
  private:
   base::String path_;

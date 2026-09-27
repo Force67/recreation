@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <base/containers/unordered_map.h>
+#include <base/containers/vector.h>
 
 #include "components/quest/quest_system.h"
 #include "core/types.h"
@@ -30,7 +31,7 @@ struct DomainQuestStatus {
 // Serializes the replicated subset of `quests` (domain, handle, stage, running/
 // active/complete, and per-objective index + displayed/completed bits) into a
 // self-describing, bounds-checked little-endian blob.
-std::vector<u8> EncodeQuestUpdate(const std::vector<DomainQuestStatus>& quests);
+base::Vector<u8> EncodeQuestUpdate(const std::vector<DomainQuestStatus>& quests);
 
 // Inverse of EncodeQuestUpdate. Fills only the replicated fields and leaves
 // text (name/log_entry/objective text) empty; the caller resolves those from
@@ -49,7 +50,7 @@ class QuestReplicator {
   // empty vector when nothing changed. `snapshot` is the authoritative state
   // this tick across every domain (each game's QuestSystem::AllStatuses(),
   // tagged with its domain).
-  std::vector<u8> Build(const std::vector<DomainQuestStatus>& snapshot);
+  base::Vector<u8> Build(const std::vector<DomainQuestStatus>& snapshot);
 
   // The next Build resends the full snapshot regardless of revisions.
   void ForceFull() { force_full_ = true; }
